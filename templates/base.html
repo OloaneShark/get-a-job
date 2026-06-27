@@ -14,13 +14,30 @@
 <nav class="navbar navbar-dark bg-dark">
     <div class="container">
         <a class="navbar-brand" href="/">Get-A-Job</a>
+
+        <div>
+            <a class="btn btn-outline-light btn-sm" href="/register">Register</a>
+        </div>
     </div>
 </nav>
 
+
 <div class="container mt-5">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
     {% block content %}
     {% endblock %}
 </div>
+
 
 </body>
 </html>
