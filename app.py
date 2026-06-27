@@ -1,7 +1,7 @@
 
 from flask import Flask, render_template, redirect, url_for, flash
-from flask_login import LoginManager
-from forms import RegistrationForm
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from forms import RegistrationForm, LoginForm
 from models import db, User
 import bcrypt
 
@@ -50,6 +50,40 @@ def register():
         return redirect(url_for("home"))
     
     return render_template("register.html", form=form)
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    form = LoginForm()
+    
+    if form.validate_on_submit():
+        user = User.query.filter_by(email=form.email.data).first()
+        
+        if user and bcrypt.checkpw(
+            form.password.data.encode("utf-8"),
+            user.password.encode("utf-8")
+        ):
+            login_user(user)
+            flash("Login successful.", "success")
+            return redirect(url_for("dashboard"))
+        
+        flash("Login failed. Check your email and passowrd again.", "danger")
+        
+    return render_template("login.html", form=form)
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    flash("You have been logged out.", "info")
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    return render_template("dashboard.html")
 
 
 with app.app_context():

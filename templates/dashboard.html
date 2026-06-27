@@ -1,0 +1,23 @@
+
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Get-A-Job{% endblock %}
+
+{% block content %}
+
+<h1>Dashboard</h1>
+
+<p>Welcome back, {{ current_user.username }}.</p>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5>Applications</h5>
+                <p>Track companies, roles, salaries, and application status.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
