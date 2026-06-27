@@ -1,8 +1,8 @@
 
 from flask import Flask, render_template, redirect, url_for, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from forms import RegistrationForm, LoginForm
-from models import db, User
+from forms import RegistrationForm, LoginForm, JobApplicationForm
+from models import db, User, JobApplication
 import bcrypt
 
 app = Flask(__name__)
@@ -84,6 +84,31 @@ def logout():
 @login_required
 def dashboard():
     return render_template("dashboard.html")
+
+
+@app.route("/applications/new", methods=["GET", "POST"])
+@login_required
+def add_application():
+    form = JobApplicationForm()
+
+    if form.validate_on_submit():
+        application = JobApplication(
+            company_name=form.company_name.data,
+            position_title=form.position_title.data,
+            status=form.status.data,
+            salary=form.salary.data,
+            visa_sponsorship=form.visa_sponsorship.data,
+            notes=form.notes.data,
+            user_id=current_user.id
+        )
+
+        db.session.add(application)
+        db.session.commit()
+
+        flash("Job application saved successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("add_application.html", form=form)
 
 
 with app.app_context():

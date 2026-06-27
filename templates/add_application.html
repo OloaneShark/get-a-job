@@ -1,0 +1,50 @@
+
+{% extends "base.html" %}
+
+{% block title %}Add Application - Get-A-Job{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2>Add Job Application</h2>
+
+        <form method="POST">
+            {{ form.hidden_tag() }}
+
+            <div class="mb-3">
+                {{ form.company_name.label(class="form-label") }}
+                {{ form.company_name(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.position_title.label(class="form-label") }}
+                {{ form.position_title(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.status.label(class="form-label") }}
+                {{ form.status(class="form-select") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.salary.label(class="form-label") }}
+                {{ form.salary(class="form-control") }}
+            </div>
+
+            <div class="form-check mb-3">
+                {{ form.visa_sponsorship(class="form-check-input") }}
+                {{ form.visa_sponsorship.label(class="form-check-label") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.notes.label(class="form-label") }}
+                {{ form.notes(class="form-control", rows="5") }}
+            </div>
+
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+    </div>
+</div>
+
+{% endblock %}

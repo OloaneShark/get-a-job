@@ -5,19 +5,50 @@
 
 {% block content %}
 
-<h1>Dashboard</h1>
-
-<p>Welcome back, {{ current_user.username }}.</p>
-
-<div class="row mt-4">
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-body">
-                <h5>Applications</h5>
-                <p>Track companies, roles, salaries, and application status.</p>
-            </div>
-        </div>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1>Dashboard</h1>
+        <p>Welcome back, {{ current_user.username }}.</p>
     </div>
+
+    <a href="/applications/new" class="btn btn-primary">
+        Add Application
+    </a>
 </div>
+
+<h3>Your Applications</h3>
+
+{% if current_user.applications %}
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Position</th>
+                <th>Status</th>
+                <th>Salary</th>
+                <th>Visa</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for app in current_user.applications %}
+                <tr>
+                    <td>{{ app.company_name }}</td>
+                    <td>{{ app.position_title }}</td>
+                    <td>{{ app.status }}</td>
+                    <td>{{ app.salary or "N/A" }}</td>
+                    <td>
+                        {% if app.visa_sponsorship %}
+                            Yes
+                        {% else %}
+                            No
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No applications saved yet.</p>
+{% endif %}
 
 {% endblock %}

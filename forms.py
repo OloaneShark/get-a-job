@@ -1,6 +1,6 @@
 
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField
+from wtforms import StringField, PasswordField, SubmitField, TextAreaField, BooleanField, SelectField
 from wtforms.validators import DataRequired, Length, Email, EqualTo
 
 
@@ -52,5 +52,28 @@ class LoginForm(FlaskForm):
     )
     
     submit = SubmitField("Login")
+    
+    
+class JobApplicationForm(FlaskForm):
+    company_name = StringField("Company Name", validators=[DataRequired()])
+    position_title = StringField("Position Title", validators=[DataRequired()])
+    
+    status = SelectField(
+        "Status",
+        choices=[
+            ("Applied", "Applied"),
+            ("Interview Scheduled", "Interview Scheduled"),
+            ("Rejected", "Rejected"),
+            ("Offer Received", "Offer Received"),
+            ("Accepted", "Accepted")
+        ],
+        validators=[DataRequired()]
+    )
+    
+    salary = StringField("Salary")
+    visa_sponsorship = BooleanField("Visa Sponsorship Available")
+    notes = TextAreaField("Notes")
+    
+    submit = SubmitField("Save Application")
     
     
