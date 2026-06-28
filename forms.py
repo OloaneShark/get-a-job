@@ -58,6 +58,10 @@ class JobApplicationForm(FlaskForm):
     company_name = StringField("Company Name", validators=[DataRequired()])
     position_title = StringField("Position Title", validators=[DataRequired()])
     
+    company_website = StringField("Company Website")
+    job_posting_url = StringField("Job Posting URL")
+    recruiter_email = StringField("Recruiter Email")
+    
     status = SelectField(
         "Status",
         choices=[

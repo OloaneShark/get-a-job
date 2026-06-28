@@ -4,6 +4,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from forms import RegistrationForm, LoginForm, JobApplicationForm
 from models import db, User, JobApplication
 from utils.encryption import encrypt_text, decrypt_text
+from services.legitimacy_service import calculate_legitimacy_score
 import bcrypt
 
 app = Flask(__name__)
@@ -93,13 +94,26 @@ def add_application():
     form = JobApplicationForm()
 
     if form.validate_on_submit():
+        score, risk_level, red_flags = calculate_legitimacy_score(
+            form.company_website.data,
+            form.job_posting_url.data,
+            form.recruiter_email.data,
+            form.salary.data,
+            form.notes.data
+        )
+
         application = JobApplication(
             company_name=form.company_name.data,
             position_title=form.position_title.data,
+            company_website=form.company_website.data,
+            job_posting_url=form.job_posting_url.data,
+            recruiter_email=form.recruiter_email.data,
             status=form.status.data,
             salary=form.salary.data,
             visa_sponsorship=form.visa_sponsorship.data,
             notes=encrypt_text(form.notes.data),
+            legitimacy_score=score,
+            risk_level=risk_level,
             user_id=current_user.id
         )
 
@@ -124,12 +138,25 @@ def edit_application(application_id):
     form = JobApplicationForm()
 
     if form.validate_on_submit():
+        score, risk_level, red_flags = calculate_legitimacy_score(
+            form.company_website.data,
+            form.job_posting_url.data,
+            form.recruiter_email.data,
+            form.salary.data,
+            form.notes.data
+        )
+
         application.company_name = form.company_name.data
         application.position_title = form.position_title.data
+        application.company_website = form.company_website.data
+        application.job_posting_url = form.job_posting_url.data
+        application.recruiter_email = form.recruiter_email.data
         application.status = form.status.data
         application.salary = form.salary.data
         application.visa_sponsorship = form.visa_sponsorship.data
         application.notes = encrypt_text(form.notes.data)
+        application.legitimacy_score = score
+        application.risk_level = risk_level
 
         db.session.commit()
 
@@ -139,6 +166,9 @@ def edit_application(application_id):
     elif request.method == "GET":
         form.company_name.data = application.company_name
         form.position_title.data = application.position_title
+        form.company_website.data = application.company_website
+        form.job_posting_url.data = application.job_posting_url
+        form.recruiter_email.data = application.recruiter_email
         form.status.data = application.status
         form.salary.data = application.salary
         form.visa_sponsorship.data = application.visa_sponsorship

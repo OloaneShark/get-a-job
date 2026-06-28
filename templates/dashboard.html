@@ -25,6 +25,8 @@
                 <th>Company</th>
                 <th>Position</th>
                 <th>Status</th>
+                <th>Trust Score</th>
+                <th>Risk Level</th>
                 <th>Salary</th>
                 <th>Visa</th>
                 <th>Actions</th>
@@ -36,7 +38,29 @@
                     <td>{{ app.company_name }}</td>
                     <td>{{ app.position_title }}</td>
                     <td>{{ app.status }}</td>
+
+                    <td>{{ app.legitimacy_score }}/100</td>
+
+                    <td>
+                        {% if app.risk_level == "Low Risk" %}
+                            <span class="badge bg-success">
+                                {{ app.risk_level }}
+                            </span>
+
+                        {% elif app.risk_level == "Medium Risk" %}
+                            <span class="badge bg-warning text-dark">
+                                {{ app.risk_level }}
+                            </span>
+
+                        {% else %}
+                            <span class="badge bg-danger">
+                                {{ app.risk_level }}
+                            </span>
+                        {% endif %}
+                    </td>
+
                     <td>{{ app.salary or "N/A" }}</td>
+
                     <td>
                         {% if app.visa_sponsorship %}
                             Yes
@@ -44,25 +68,32 @@
                             No
                         {% endif %}
                     </td>
+
                     <td>
-                        <a href="/applications/{{ app.id }}/edit" class="btn btn-sm btn-warning">
+                        <a href="/applications/{{ app.id }}/edit"
+                           class="btn btn-sm btn-warning">
                             Edit
                         </a>
 
                         <form method="POST"
                               action="/applications/{{ app.id }}/delete"
                               style="display:inline;">
-                            <button type="submit" class="btn btn-sm btn-danger">
+
+                            <button type="submit"
+                                    class="btn btn-sm btn-danger">
                                 Delete
                             </button>
                         </form>
                     </td>
+
                 </tr>
             {% endfor %}
         </tbody>
     </table>
+
 {% else %}
     <p>No applications saved yet.</p>
+
 {% endif %}
 
 {% endblock %}
