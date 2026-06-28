@@ -96,4 +96,36 @@
 
 {% endif %}
 
+<hr class="my-5">
+
+<h3>Recent Activity</h3>
+
+{% if current_user.audit_logs %}
+
+    <div class="list-group mt-3">
+
+        {% for log in current_user.audit_logs[-10:]|reverse %}
+
+            <div class="list-group-item">
+
+                <strong>
+                    {{ log.timestamp.strftime('%Y-%m-%d %I:%M %p') }}
+                </strong>
+
+                <br>
+
+                {{ log.action }}
+
+            </div>
+
+        {% endfor %}
+
+    </div>
+
+{% else %}
+
+    <p>No recent activity.</p>
+
+{% endif %}
+
 {% endblock %}
