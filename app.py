@@ -3,6 +3,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from forms import RegistrationForm, LoginForm, JobApplicationForm
 from models import db, User, JobApplication
+from utils.encryption import encrypt_text, decrypt_text
 import bcrypt
 
 app = Flask(__name__)
@@ -98,7 +99,7 @@ def add_application():
             status=form.status.data,
             salary=form.salary.data,
             visa_sponsorship=form.visa_sponsorship.data,
-            notes=form.notes.data,
+            notes=encrypt_text(form.notes.data),
             user_id=current_user.id
         )
 
@@ -128,7 +129,7 @@ def edit_application(application_id):
         application.status = form.status.data
         application.salary = form.salary.data
         application.visa_sponsorship = form.visa_sponsorship.data
-        application.notes = form.notes.data
+        application.notes = encrypt_text(form.notes.data)
 
         db.session.commit()
 
@@ -141,7 +142,7 @@ def edit_application(application_id):
         form.status.data = application.status
         form.salary.data = application.salary
         form.visa_sponsorship.data = application.visa_sponsorship
-        form.notes.data = application.notes
+        form.notes.data = decrypt_text(application.notes)
 
     return render_template("add_application.html", form=form, title="Edit Application")
 
