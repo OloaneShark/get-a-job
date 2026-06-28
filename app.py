@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, redirect, url_for, flash
+from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from forms import RegistrationForm, LoginForm, JobApplicationForm
 from models import db, User, JobApplication
@@ -108,7 +108,58 @@ def add_application():
         flash("Job application saved successfully.", "success")
         return redirect(url_for("dashboard"))
 
-    return render_template("add_application.html", form=form)
+    return render_template("add_application.html", form=form, title="Add Application")
+
+
+@app.route("/applications/<int:application_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_application(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash("You are not authorized to edit this application.", "danger")
+        return redirect(url_for("dashboard"))
+
+    form = JobApplicationForm()
+
+    if form.validate_on_submit():
+        application.company_name = form.company_name.data
+        application.position_title = form.position_title.data
+        application.status = form.status.data
+        application.salary = form.salary.data
+        application.visa_sponsorship = form.visa_sponsorship.data
+        application.notes = form.notes.data
+
+        db.session.commit()
+
+        flash("Application updated successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    elif request.method == "GET":
+        form.company_name.data = application.company_name
+        form.position_title.data = application.position_title
+        form.status.data = application.status
+        form.salary.data = application.salary
+        form.visa_sponsorship.data = application.visa_sponsorship
+        form.notes.data = application.notes
+
+    return render_template("add_application.html", form=form, title="Edit Application")
+
+
+@app.route("/applications/<int:application_id>/delete", methods=["POST"])
+@login_required
+def delete_application(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash("You are not authorized to delete this application.", "danger")
+        return redirect(url_for("dashboard"))
+
+    db.session.delete(application)
+    db.session.commit()
+
+    flash("Application deleted successfully.", "info")
+    return redirect(url_for("dashboard"))
 
 
 with app.app_context():

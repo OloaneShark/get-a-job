@@ -27,6 +27,7 @@
                 <th>Status</th>
                 <th>Salary</th>
                 <th>Visa</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -42,6 +43,19 @@
                         {% else %}
                             No
                         {% endif %}
+                    </td>
+                    <td>
+                        <a href="/applications/{{ app.id }}/edit" class="btn btn-sm btn-warning">
+                            Edit
+                        </a>
+
+                        <form method="POST"
+                              action="/applications/{{ app.id }}/delete"
+                              style="display:inline;">
+                            <button type="submit" class="btn btn-sm btn-danger">
+                                Delete
+                            </button>
+                        </form>
                     </td>
                 </tr>
             {% endfor %}
