@@ -5,6 +5,7 @@ from forms import RegistrationForm, LoginForm, JobApplicationForm
 from models import db, User, JobApplication
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
+from utils.audit_logger import log_action
 import bcrypt
 
 app = Flask(__name__)
@@ -66,6 +67,7 @@ def login():
             user.password.encode("utf-8")
         ):
             login_user(user)
+            log_action(user.id, "User logged in")
             flash("Login successful.", "success")
             return redirect(url_for("dashboard"))
         
@@ -120,6 +122,8 @@ def add_application():
         db.session.add(application)
         db.session.commit()
 
+        log_action(current_user.id, f"Created application for {application.company_name}")
+        
         flash("Job application saved successfully.", "success")
         return redirect(url_for("dashboard"))
 
@@ -159,6 +163,8 @@ def edit_application(application_id):
         application.risk_level = risk_level
 
         db.session.commit()
+        
+        log_action(current_user.id, f"Updated application for {application.company_name}")
 
         flash("Application updated successfully.", "success")
         return redirect(url_for("dashboard"))
@@ -186,8 +192,11 @@ def delete_application(application_id):
         flash("You are not authorized to delete this application.", "danger")
         return redirect(url_for("dashboard"))
 
+    company_name = application.company_name
+
     db.session.delete(application)
-    db.session.commit()
+
+    log_action(current_user.id, f"Deleted application for {company_name}")
 
     flash("Application deleted successfully.", "info")
     return redirect(url_for("dashboard"))
