@@ -105,3 +105,17 @@ class ResumeAnalysisForm(FlaskForm):
     submit = SubmitField("Analyze Resume")
     
     
+class InterviewPrepForm(FlaskForm):
+    company = StringField(
+        "Company Name",
+        validators=[DataRequired()]
+    )
+
+    role = StringField(
+        "Position Title",
+        validators=[DataRequired()]
+    )
+
+    submit = SubmitField("Generate Interview Prep")
+    
+

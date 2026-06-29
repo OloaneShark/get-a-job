@@ -4,12 +4,13 @@ import bcrypt
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm, ResumeAnalysisForm
+from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm, ResumeAnalysisForm, InterviewPrepForm
 from services.resume_service import analyze_resume_text
 from models import db, User, JobApplication, Resume
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
+from services.interview_service import generate_interview_prep
 
 
 app = Flask(__name__)
@@ -263,6 +264,37 @@ def analyze_resume():
         rating=rating,
         strengths=strengths,
         improvements=improvements
+    )
+
+
+@app.route("/interview-prep", methods=["GET", "POST"])
+@login_required
+def interview_prep():
+    form = InterviewPrepForm()
+
+    behavioral_questions = None
+    technical_questions = None
+    study_topics = None
+
+    if form.validate_on_submit():
+        behavioral_questions, technical_questions, study_topics = (
+            generate_interview_prep(
+                form.company.data,
+                form.role.data
+            )
+        )
+
+        log_action(
+            current_user.id,
+            f"Generated interview prep for {form.company.data}"
+        )
+
+    return render_template(
+        "interview_prep.html",
+        form=form,
+        behavioral_questions=behavioral_questions,
+        technical_questions=technical_questions,
+        study_topics=study_topics
     )
 
 
