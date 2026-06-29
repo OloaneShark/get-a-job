@@ -1,4 +1,5 @@
 
+from flask_wtf.file import FileField, FileAllowed
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, TextAreaField, BooleanField, SelectField
 from wtforms.validators import DataRequired, Length, Email, EqualTo
@@ -79,5 +80,19 @@ class JobApplicationForm(FlaskForm):
     notes = TextAreaField("Notes")
     
     submit = SubmitField("Save Application")
+    
+    
+class ResumeUploadForm(FlaskForm):
+    version_name = StringField("Version Name", validators=[DataRequired()])
+
+    resume_file = FileField(
+        "Resume File",
+        validators=[
+            DataRequired(),
+            FileAllowed(["pdf", "doc", "docx"], "Only PDF, DOC, and DOCX files are allowed.")
+        ]
+    )
+
+    submit = SubmitField("Upload Resume")
     
     

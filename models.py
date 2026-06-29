@@ -14,6 +14,7 @@ class User(db.Model, UserMixin):
     password = db.Column(db.String(255), nullable=False)
     applications = db.relationship("JobApplication", backref="owner", lazy=True)
     audit_logs = db.relationship("AuditLog", backref="user", lazy=True)
+    resumes = db.relationship("Resume", backref="owner", lazy=True)
     
     def __repr__(self):
         return f"<User {self.username}>"
@@ -51,3 +52,19 @@ class AuditLog(db.Model):
         db.ForeignKey("user.id"),
         nullable=False
     )
+    
+    
+class Resume(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    filename = db.Column(db.String(255), nullable=False)
+    original_filename = db.Column(db.String(255), nullable=False)
+    version_name = db.Column(db.String(100))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+

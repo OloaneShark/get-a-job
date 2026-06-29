@@ -11,9 +11,15 @@
         <p>Welcome back, {{ current_user.username }}.</p>
     </div>
 
-    <a href="/applications/new" class="btn btn-primary">
-        Add Application
-    </a>
+    <div>
+        <a href="/applications/new" class="btn btn-primary">
+            Add Application
+        </a>
+
+        <a href="/resumes/upload" class="btn btn-secondary">
+            Upload Resume
+        </a>
+    </div>
 </div>
 
 <h3>Your Applications</h3>
@@ -95,6 +101,35 @@
     <p>No applications saved yet.</p>
 
 {% endif %}
+
+
+<hr class="my-5">
+
+<h3>Your Resumes</h3>
+
+{% if current_user.resumes %}
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Version</th>
+                <th>Original File</th>
+                <th>Uploaded</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for resume in current_user.resumes %}
+                <tr>
+                    <td>{{ resume.version_name }}</td>
+                    <td>{{ resume.original_filename }}</td>
+                    <td>{{ resume.uploaded_at.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No resumes uploaded yet.</p>
+{% endif %}
+
 
 <hr class="my-5">
 

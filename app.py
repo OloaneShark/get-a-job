@@ -1,8 +1,10 @@
 
+import os
+from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from forms import RegistrationForm, LoginForm, JobApplicationForm
-from models import db, User, JobApplication
+from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm
+from models import db, User, JobApplication, Resume
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -12,6 +14,7 @@ app = Flask(__name__)
 
 app.config["SECRET_KEY"] = "super-secret-key"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///site.db"
+app.config["UPLOAD_FOLDER"] = "uploads"
 
 db.init_app(app)
 
@@ -200,6 +203,38 @@ def delete_application(application_id):
 
     flash("Application deleted successfully.", "info")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/resumes/upload", methods=["GET", "POST"])
+@login_required
+def upload_resume():
+    form = ResumeUploadForm()
+
+    if form.validate_on_submit():
+        file = form.resume_file.data
+        original_filename = secure_filename(file.filename)
+
+        stored_filename = f"user_{current_user.id}_{original_filename}"
+        file_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_filename)
+
+        file.save(file_path)
+
+        resume = Resume(
+            filename=stored_filename,
+            original_filename=original_filename,
+            version_name=form.version_name.data,
+            user_id=current_user.id
+        )
+
+        db.session.add(resume)
+        db.session.commit()
+
+        log_action(current_user.id, f"Uploaded resume version: {form.version_name.data}")
+
+        flash("Resume uploaded successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("upload_resume.html", form=form)
 
 
 with app.app_context():
