@@ -5,13 +5,22 @@ import json
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm, ResumeAnalysisForm, InterviewPrepForm
 from services.resume_service import analyze_resume_text
 from models import db, User, JobApplication, Resume, InterviewPrep
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
 from services.interview_service import generate_interview_prep
+from forms import (
+    RegistrationForm,
+    LoginForm,
+    JobApplicationForm,
+    ResumeUploadForm,
+    ResumeAnalysisForm,
+    InterviewPrepForm,
+    CompanyLookupForm
+)
+from services.company_service import analyze_company
 
 
 app = Flask(__name__)
@@ -307,6 +316,37 @@ def interview_prep():
         behavioral_questions=behavioral_questions,
         technical_questions=technical_questions,
         study_topics=study_topics
+    )
+
+
+@app.route("/company-lookup", methods=["GET", "POST"])
+@login_required
+def company_lookup():
+    form = CompanyLookupForm()
+
+    score = None
+    risk_level = None
+    strengths = None
+    warnings = None
+
+    if form.validate_on_submit():
+
+        score, risk_level, strengths, warnings = analyze_company(
+            form.company_name.data
+        )
+
+        log_action(
+            current_user.id,
+            f"Performed company reputation lookup for {form.company_name.data}"
+        )
+
+    return render_template(
+        "company_lookup.html",
+        form=form,
+        score=score,
+        risk_level=risk_level,
+        strengths=strengths,
+        warnings=warnings
     )
 
 

@@ -119,3 +119,12 @@ class InterviewPrepForm(FlaskForm):
     submit = SubmitField("Generate Interview Prep")
     
 
+class CompanyLookupForm(FlaskForm):
+    company_name = StringField(
+        "Company Name",
+        validators=[DataRequired()]
+    )
+
+    submit = SubmitField("Analyze Company")
+    
+    
