@@ -244,10 +244,11 @@ def upload_resume():
 def analyze_resume():
     form = ResumeAnalysisForm()
     score = None
+    rating = None
     feedback = None
 
     if form.validate_on_submit():
-        score, feedback = analyze_resume_text(form.resume_text.data)
+        score, rating, feedback = analyze_resume_text(form.resume_text.data)
 
         log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100")
 
@@ -255,6 +256,7 @@ def analyze_resume():
         "analyze_resume.html",
         form=form,
         score=score,
+        rating=rating,
         feedback=feedback
     )
 
