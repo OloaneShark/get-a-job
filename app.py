@@ -245,19 +245,24 @@ def analyze_resume():
     form = ResumeAnalysisForm()
     score = None
     rating = None
-    feedback = None
-
+    strengths = []
+    improvements = []
+    
     if form.validate_on_submit():
-        score, rating, feedback = analyze_resume_text(form.resume_text.data)
+        score, rating, strengths, improvements = analyze_resume_text(form.resume_text.data)
+        
+        print("STRENGTHS:", strengths)
+        print("IMPROVEMENTS:", improvements)
 
-        log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100")
+        log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100 - {rating}")
 
     return render_template(
         "analyze_resume.html",
         form=form,
         score=score,
         rating=rating,
-        feedback=feedback
+        strengths=strengths,
+        improvements=improvements
     )
 
 
