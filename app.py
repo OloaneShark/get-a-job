@@ -1,12 +1,13 @@
 
 import os
 import bcrypt
+import json
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm, ResumeAnalysisForm, InterviewPrepForm
 from services.resume_service import analyze_resume_text
-from models import db, User, JobApplication, Resume
+from models import db, User, JobApplication, Resume, InterviewPrep
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -283,11 +284,22 @@ def interview_prep():
                 form.role.data
             )
         )
-
-        log_action(
-            current_user.id,
-            f"Generated interview prep for {form.company.data}"
+        
+        saved_prep = InterviewPrep(
+            company=form.company.data,
+            role=form.role.data,
+            behavioral_questions=json.dumps(behavioral_questions),
+            technical_questions=json.dumps(technical_questions),
+            study_topics=json.dumps(study_topics),
+            user_id=current_user.id
         )
+
+        db.session.add(saved_prep)
+        db.session.commit()
+
+        log_action(current_user.id, f"Saved interview prep for {form.company.data} - {form.role.data}")
+
+        log_action(current_user.id, f"Generated interview prep for {form.company.data}")
 
     return render_template(
         "interview_prep.html",

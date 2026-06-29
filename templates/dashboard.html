@@ -141,6 +141,34 @@
 
 <hr class="my-5">
 
+<h3>Saved Interview Prep</h3>
+
+{% if current_user.interview_preps %}
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Role</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for prep in current_user.interview_preps[-5:]|reverse %}
+                <tr>
+                    <td>{{ prep.company }}</td>
+                    <td>{{ prep.role }}</td>
+                    <td>{{ prep.created_at.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No saved interview prep yet.</p>
+{% endif %}
+
+
+<hr class="my-5">
+
 <h3>Recent Activity</h3>
 
 {% if current_user.audit_logs %}
