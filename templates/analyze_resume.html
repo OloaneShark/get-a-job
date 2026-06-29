@@ -1,0 +1,39 @@
+
+{% extends "base.html" %}
+
+{% block title %}Analyze Resume - Get-A-Job{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h2>Resume Strength Analyzer</h2>
+
+        <form method="POST">
+            {{ form.hidden_tag() }}
+
+            <div class="mb-3">
+                {{ form.resume_text.label(class="form-label") }}
+                {{ form.resume_text(class="form-control", rows="12") }}
+            </div>
+
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+
+        {% if score is not none %}
+            <hr class="my-4">
+
+            <h3>Resume Score: {{ score }}/100</h3>
+
+            <ul class="list-group mt-3">
+                {% for item in feedback %}
+                    <li class="list-group-item">
+                        {{ item }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

@@ -96,3 +96,12 @@ class ResumeUploadForm(FlaskForm):
     submit = SubmitField("Upload Resume")
     
     
+class ResumeAnalysisForm(FlaskForm):
+    resume_text = TextAreaField(
+        "Paste Resume Text",
+        validators=[DataRequired()]
+    )
+
+    submit = SubmitField("Analyze Resume")
+    
+    

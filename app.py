@@ -1,14 +1,16 @@
 
 import os
+import bcrypt
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm
+from forms import RegistrationForm, LoginForm, JobApplicationForm, ResumeUploadForm, ResumeAnalysisForm
+from services.resume_service import analyze_resume_text
 from models import db, User, JobApplication, Resume
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
-import bcrypt
+
 
 app = Flask(__name__)
 
@@ -235,6 +237,26 @@ def upload_resume():
         return redirect(url_for("dashboard"))
 
     return render_template("upload_resume.html", form=form)
+
+
+@app.route("/resumes/analyze", methods=["GET", "POST"])
+@login_required
+def analyze_resume():
+    form = ResumeAnalysisForm()
+    score = None
+    feedback = None
+
+    if form.validate_on_submit():
+        score, feedback = analyze_resume_text(form.resume_text.data)
+
+        log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100")
+
+    return render_template(
+        "analyze_resume.html",
+        form=form,
+        score=score,
+        feedback=feedback
+    )
 
 
 with app.app_context():

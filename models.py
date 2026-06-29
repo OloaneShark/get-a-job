@@ -61,6 +61,9 @@ class Resume(db.Model):
     original_filename = db.Column(db.String(255), nullable=False)
     version_name = db.Column(db.String(100))
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    analysis_score = db.Column(db.Integer, default=0)
+    analysis_feedback = db.Column(db.Text)
 
     user_id = db.Column(
         db.Integer,
