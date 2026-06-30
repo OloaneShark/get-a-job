@@ -361,9 +361,10 @@ def job_match():
     matched_keywords = None
     missing_keywords = None
     suggestions = None
-
+    priority_gaps = None
+    
     if form.validate_on_submit():
-        match_score, matched_keywords, missing_keywords, suggestions = (
+        match_score, matched_keywords, missing_keywords, priority_gaps, suggestions = (
             analyze_resume_job_match(
                 form.resume_text.data,
                 form.job_description.data
@@ -378,7 +379,8 @@ def job_match():
         match_score=match_score,
         matched_keywords=matched_keywords,
         missing_keywords=missing_keywords,
-        suggestions=suggestions
+        suggestions=suggestions,
+        priority_gaps=priority_gaps,
     )
 
 

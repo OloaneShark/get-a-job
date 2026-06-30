@@ -5,29 +5,57 @@ import re
 def extract_keywords(text):
     text = text.lower()
 
-    keywords = [
-        "python", "flask", "django", "sql", "postgresql", "mysql",
-        "aws", "azure", "gcp", "docker", "kubernetes", "linux",
-        "git", "github actions", "ci/cd", "terraform",
-        "security", "iam", "encryption", "authentication",
-        "authorization", "vulnerability", "owasp", "api",
-        "rest", "html", "css", "javascript", "react",
-        "monitoring", "logging", "incident response"
-    ]
+    keyword_categories = {
+        "Programming": [
+            "python", "javascript", "html", "css", "react",
+            "flask", "django", "api", "rest"
+        ],
+        "Databases": [
+            "sql", "postgresql", "mysql", "sqlite"
+        ],
+        "Cloud": [
+            "aws", "azure", "gcp", "iam", "s3", "ec2", "cloud"
+        ],
+        "DevOps": [
+            "docker", "kubernetes", "linux", "git",
+            "github actions", "ci/cd", "terraform"
+        ],
+        "Security": [
+            "security", "encryption", "authentication",
+            "authorization", "vulnerability", "owasp",
+            "incident response", "logging", "monitoring"
+        ]
+    }
 
-    found = []
+    found = {}
 
-    for keyword in keywords:
-        pattern = r"\b" + re.escape(keyword) + r"\b"
-        if re.search(pattern, text):
-            found.append(keyword)
+    for category, keywords in keyword_categories.items():
+        found[category] = []
+
+        for keyword in keywords:
+            pattern = r"\b" + re.escape(keyword) + r"\b"
+
+            if re.search(pattern, text):
+                found[category].append(keyword)
 
     return found
 
 
+def flatten_keywords(keyword_dict):
+    keywords = []
+
+    for category_keywords in keyword_dict.values():
+        keywords.extend(category_keywords)
+
+    return keywords
+
+
 def analyze_resume_job_match(resume_text, job_description):
-    resume_keywords = extract_keywords(resume_text)
-    job_keywords = extract_keywords(job_description)
+    resume_keywords_by_category = extract_keywords(resume_text)
+    job_keywords_by_category = extract_keywords(job_description)
+
+    resume_keywords = flatten_keywords(resume_keywords_by_category)
+    job_keywords = flatten_keywords(job_keywords_by_category)
 
     matched_keywords = [
         keyword for keyword in job_keywords
@@ -44,11 +72,25 @@ def analyze_resume_job_match(resume_text, job_description):
     else:
         match_score = 0
 
+    priority_gaps = []
+
+    for category, keywords in job_keywords_by_category.items():
+        missing_in_category = [
+            keyword for keyword in keywords
+            if keyword not in resume_keywords
+        ]
+
+        if missing_in_category:
+            priority_gaps.append({
+                "category": category,
+                "missing": missing_in_category
+            })
+
     suggestions = []
 
-    for keyword in missing_keywords:
+    for gap in priority_gaps:
         suggestions.append(
-            f"Consider adding relevant experience or project details related to {keyword}, if truthful."
+            f"Strengthen your {gap['category']} section by adding truthful experience with: {', '.join(gap['missing'])}."
         )
 
     if not suggestions:
@@ -56,4 +98,11 @@ def analyze_resume_job_match(resume_text, job_description):
             "Your resume appears to cover the major keywords found in this job description."
         )
 
-    return match_score, matched_keywords, missing_keywords, suggestions
+    return (
+        match_score,
+        matched_keywords,
+        missing_keywords,
+        priority_gaps,
+        suggestions
+    )
+    

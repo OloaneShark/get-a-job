@@ -60,6 +60,23 @@
                 <p>No major missing keywords detected.</p>
             {% endif %}
 
+
+            <h4>Priority Gaps</h4>
+
+            {% if priority_gaps %}
+                <ul class="list-group mb-4">
+                    {% for gap in priority_gaps %}
+                        <li class="list-group-item list-group-item-danger">
+                            <strong>{{ gap.category }}</strong>:
+                            {{ gap.missing | join(", ") }}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No major priority gaps detected.</p>
+            {% endif %}
+
+
             <h4>Suggestions</h4>
 
             <ul class="list-group">
