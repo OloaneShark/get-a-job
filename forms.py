@@ -144,3 +144,10 @@ class JobMatchForm(FlaskForm):
     submit = SubmitField("Analyze Match")
     
     
+class SavedJobDescriptionForm(FlaskForm):
+    company = StringField("Company", validators=[DataRequired()])
+    role = StringField("Role", validators=[DataRequired()])
+    description = TextAreaField("Job Description", validators=[DataRequired()])
+    submit = SubmitField("Save Job Description")
+    
+    

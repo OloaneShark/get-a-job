@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request, Response
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
-from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory
+from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -21,7 +21,8 @@ from forms import (
     ResumeAnalysisForm,
     InterviewPrepForm,
     CompanyLookupForm,
-    JobMatchForm
+    JobMatchForm,
+    SavedJobDescriptionForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -486,6 +487,106 @@ def view_application(application_id):
         application=application,
         decrypted_notes=decrypted_notes
     )
+
+
+@app.route("/job-descriptions/new", methods=["GET", "POST"])
+@login_required
+def save_job_description():
+    form = SavedJobDescriptionForm()
+
+    if form.validate_on_submit():
+        saved_job = SavedJobDescription(
+            company=form.company.data,
+            role=form.role.data,
+            description=form.description.data,
+            user_id=current_user.id
+        )
+
+        db.session.add(saved_job)
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Saved job description for {form.company.data} - {form.role.data}"
+        )
+
+        flash("Job description saved successfully.", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("save_job_description.html", form=form)
+
+
+@app.route("/job-descriptions/<int:job_id>")
+@login_required
+def view_job_description(job_id):
+    job = SavedJobDescription.query.get_or_404(job_id)
+
+    if job.user_id != current_user.id:
+        flash("You are not authorized to view this job description.", "danger")
+        return redirect(url_for("dashboard"))
+
+    return render_template("view_job_description.html", job=job)
+
+
+@app.route("/job-descriptions/<int:job_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_job_description(job_id):
+    job = SavedJobDescription.query.get_or_404(job_id)
+
+    if job.user_id != current_user.id:
+        flash("You are not authorized to edit this job description.", "danger")
+        return redirect(url_for("dashboard"))
+
+    form = SavedJobDescriptionForm()
+
+    if form.validate_on_submit():
+        job.company = form.company.data
+        job.role = form.role.data
+        job.description = form.description.data
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Updated saved job description for {job.company} - {job.role}"
+        )
+
+        flash("Job description updated successfully.", "success")
+        return redirect(url_for("view_job_description", job_id=job.id))
+
+    elif request.method == "GET":
+        form.company.data = job.company
+        form.role.data = job.role
+        form.description.data = job.description
+
+    return render_template(
+        "save_job_description.html",
+        form=form,
+        title="Edit Job Description"
+    )
+
+
+@app.route("/job-descriptions/<int:job_id>/delete", methods=["POST"])
+@login_required
+def delete_job_description(job_id):
+    job = SavedJobDescription.query.get_or_404(job_id)
+
+    if job.user_id != current_user.id:
+        flash("You are not authorized to delete this job description.", "danger")
+        return redirect(url_for("dashboard"))
+
+    company = job.company
+    role = job.role
+
+    db.session.delete(job)
+
+    log_action(
+        current_user.id,
+        f"Deleted saved job description for {company} - {role}"
+    )
+
+    flash("Job description deleted successfully.", "info")
+    return redirect(url_for("dashboard"))
 
 
 with app.app_context():

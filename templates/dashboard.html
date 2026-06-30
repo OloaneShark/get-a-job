@@ -36,6 +36,10 @@
             Job Match
         </a>
 
+        <a href="/job-descriptions/new" class="btn btn-info">
+            Save Job Description
+        </a>
+
         <a href="/applications/export" class="btn btn-success">
             Export CSV
         </a>
@@ -373,6 +377,38 @@
     </table>
 {% else %}
     <p>No saved interview prep yet.</p>
+{% endif %}
+
+
+<hr class="my-5">
+
+<h3>Saved Job Descriptions</h3>
+
+{% if current_user.saved_job_descriptions %}
+    <table class="table table-striped mt-3">
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Role</th>
+                <th>Saved</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in current_user.saved_job_descriptions[-5:]|reverse %}
+                <tr>
+                    <td>
+                        <a href="/job-descriptions/{{ job.id }}">
+                            {{ job.company }}
+                        </a>
+                    </td>
+                    <td>{{ job.role }}</td>
+                    <td>{{ job.created_at.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <p>No saved job descriptions yet.</p>
 {% endif %}
 
 

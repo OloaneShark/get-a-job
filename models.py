@@ -16,6 +16,7 @@ class User(db.Model, UserMixin):
     audit_logs = db.relationship("AuditLog", backref="user", lazy=True)
     resumes = db.relationship("Resume", backref="owner", lazy=True)
     interview_preps = db.relationship("InterviewPrep", backref="owner", lazy=True)
+    saved_job_descriptions = db.relationship("SavedJobDescription", backref="owner", lazy=True)
     
     def __repr__(self):
         return f"<User {self.username}>"
@@ -103,6 +104,21 @@ class ApplicationHistory(db.Model):
     application_id = db.Column(
         db.Integer,
         db.ForeignKey("job_application.id"),
+        nullable=False
+    )
+    
+    
+class SavedJobDescription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    company = db.Column(db.String(100), nullable=False)
+    role = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
         nullable=False
     )
     

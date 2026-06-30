@@ -1,0 +1,41 @@
+
+{% extends "base.html" %}
+
+{% block title %}Saved Job Description{% endblock %}
+
+{% block content %}
+
+<h2>{{ job.company }} - {{ job.role }}</h2>
+
+<p>
+    <strong>Saved:</strong>
+    {{ job.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+</p>
+
+<hr class="my-4">
+
+<h3>Job Description</h3>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <pre style="white-space: pre-wrap;">{{ job.description }}</pre>
+    </div>
+</div>
+
+<a href="/job-descriptions/{{ job.id }}/edit" class="btn btn-warning">
+    Edit
+</a>
+
+<form method="POST"
+      action="/job-descriptions/{{ job.id }}/delete"
+      style="display:inline;">
+    <button class="btn btn-danger">
+        Delete
+    </button>
+</form>
+
+<a href="/dashboard" class="btn btn-secondary">
+    Back to Dashboard
+</a>
+
+{% endblock %}
