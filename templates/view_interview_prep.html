@@ -1,0 +1,50 @@
+
+{% extends "base.html" %}
+
+{% block title %}Saved Interview Prep{% endblock %}
+
+{% block content %}
+
+<h2>{{ prep.company }} - {{ prep.role }}</h2>
+
+<p>
+    Created: {{ prep.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+</p>
+
+<hr class="my-4">
+
+<h3>Behavioral Questions</h3>
+
+<ul class="list-group mb-4">
+    {% for question in behavioral_questions %}
+        <li class="list-group-item">
+            {{ question }}
+        </li>
+    {% endfor %}
+</ul>
+
+<h3>Technical Questions</h3>
+
+<ul class="list-group mb-4">
+    {% for question in technical_questions %}
+        <li class="list-group-item">
+            {{ question }}
+        </li>
+    {% endfor %}
+</ul>
+
+<h3>Study Topics</h3>
+
+<ul class="list-group mb-4">
+    {% for topic in study_topics %}
+        <li class="list-group-item">
+            {{ topic }}
+        </li>
+    {% endfor %}
+</ul>
+
+<a href="/dashboard" class="btn btn-secondary">
+    Back to Dashboard
+</a>
+
+{% endblock %}

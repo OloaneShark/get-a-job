@@ -163,7 +163,11 @@
         <tbody>
             {% for prep in current_user.interview_preps[-5:]|reverse %}
                 <tr>
-                    <td>{{ prep.company }}</td>
+                    <td>
+                        <a href="/interview-prep/{{ prep.id }}">
+                            {{ prep.company }}
+                        </a>
+                    </td>
                     <td>{{ prep.role }}</td>
                     <td>{{ prep.created_at.strftime('%Y-%m-%d %I:%M %p') }}</td>
                 </tr>

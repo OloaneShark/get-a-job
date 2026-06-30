@@ -384,6 +384,28 @@ def job_match():
     )
 
 
+@app.route("/interview-prep/<int:prep_id>")
+@login_required
+def view_interview_prep(prep_id):
+    prep = InterviewPrep.query.get_or_404(prep_id)
+
+    if prep.user_id != current_user.id:
+        flash("You are not authorized to view this interview prep.", "danger")
+        return redirect(url_for("dashboard"))
+
+    behavioral_questions = json.loads(prep.behavioral_questions)
+    technical_questions = json.loads(prep.technical_questions)
+    study_topics = json.loads(prep.study_topics)
+
+    return render_template(
+        "view_interview_prep.html",
+        prep=prep,
+        behavioral_questions=behavioral_questions,
+        technical_questions=technical_questions,
+        study_topics=study_topics
+    )
+
+
 with app.app_context():
     db.create_all()
 
