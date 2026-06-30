@@ -47,6 +47,16 @@
                 {{ form.salary(class="form-control") }}
             </div>
 
+            <div class="mb-3">
+                {{ form.follow_up_date.label(class="form-label") }}
+                {{ form.follow_up_date(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.last_contacted_date.label(class="form-label") }}
+                {{ form.last_contacted_date(class="form-control") }}
+            </div>
+
             <div class="form-check mb-3">
                 {{ form.visa_sponsorship(class="form-check-input") }}
                 {{ form.visa_sponsorship.label(class="form-check-label") }}

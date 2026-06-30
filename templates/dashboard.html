@@ -148,9 +148,88 @@
 </script>
 
 
+<form method="GET" action="/dashboard" class="row g-3 mb-4">
+
+    <div class="col-md-4">
+        <input
+            type="text"
+            name="search"
+            class="form-control"
+            placeholder="Search company..."
+            value="{{ request.args.get('search', '') }}"
+        >
+    </div>
+
+    <div class="col-md-3">
+        <select name="status" class="form-select">
+
+            <option value="">All Statuses</option>
+
+            <option value="Applied">
+                Applied
+            </option>
+
+            <option value="Interview Scheduled">
+                Interview Scheduled
+            </option>
+
+            <option value="Rejected">
+                Rejected
+            </option>
+
+            <option value="Offer Received">
+                Offer Received
+            </option>
+
+        </select>
+    </div>
+
+    <div class="col-md-3">
+        <select name="visa" class="form-select">
+
+            <option value="">Visa Any</option>
+            <option value="yes">Visa Yes</option>
+            <option value="no">Visa No</option>
+
+        </select>
+    </div>
+
+    <div class="col-md-2">
+        <button class="btn btn-primary w-100">
+            Filter
+        </button>
+    </div>
+
+</form>
+
+
+<hr class="my-5">
+
+<h3>Upcoming Follow-Ups</h3>
+
+{% set followups = current_user.applications
+    |selectattr("follow_up_date")
+    |list
+%}
+
+{% if followups %}
+    <ul class="list-group mb-4">
+        {% for app in followups %}
+            <li class="list-group-item">
+                <strong>{{ app.company_name }}</strong>
+                — Follow up by
+                {{ app.follow_up_date.strftime('%Y-%m-%d') }}
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No follow-ups scheduled.</p>
+{% endif %}
+
+
 <h3>Your Applications</h3>
 
-{% if current_user.applications %}
+{% if filtered_applications %}
     <table class="table table-striped mt-3">
         <thead>
             <tr>
@@ -165,7 +244,7 @@
             </tr>
         </thead>
         <tbody>
-            {% for app in current_user.applications %}
+            {% for app in filtered_applications %}
                 <tr>
                     <td>
                         <a href="/applications/{{ app.id }}">

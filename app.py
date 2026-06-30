@@ -23,6 +23,7 @@ from forms import (
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
+from wtforms import DateField
 
 
 app = Flask(__name__)
@@ -105,7 +106,43 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return render_template("dashboard.html")
+
+    applications_query = JobApplication.query.filter_by(
+        user_id=current_user.id
+    )
+
+    search = request.args.get("search")
+
+    if search:
+        applications_query = applications_query.filter(
+            JobApplication.company_name.ilike(f"%{search}%")
+        )
+
+    status = request.args.get("status")
+
+    if status:
+        applications_query = applications_query.filter_by(
+            status=status
+        )
+
+    visa = request.args.get("visa")
+
+    if visa == "yes":
+        applications_query = applications_query.filter_by(
+            visa_sponsorship=True
+        )
+
+    elif visa == "no":
+        applications_query = applications_query.filter_by(
+            visa_sponsorship=False
+        )
+
+    filtered_applications = applications_query.all()
+
+    return render_template(
+        "dashboard.html",
+        filtered_applications=filtered_applications
+    )
 
 
 @app.route("/applications/new", methods=["GET", "POST"])
@@ -134,7 +171,9 @@ def add_application():
             notes=encrypt_text(form.notes.data),
             legitimacy_score=score,
             risk_level=risk_level,
-            user_id=current_user.id
+            user_id=current_user.id,
+            follow_up_date=form.follow_up_date.data,
+            last_contacted_date=form.last_contacted_date.data
         )
 
         db.session.add(application)
@@ -197,6 +236,8 @@ def edit_application(application_id):
         form.salary.data = application.salary
         form.visa_sponsorship.data = application.visa_sponsorship
         form.notes.data = decrypt_text(application.notes)
+        form.follow_up_date.data = application.follow_up_date
+        form.last_contacted_date.data = application.last_contacted_date
 
     return render_template("add_application.html", form=form, title="Edit Application")
 

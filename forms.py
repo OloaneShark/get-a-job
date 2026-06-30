@@ -1,7 +1,7 @@
 
 from flask_wtf.file import FileField, FileAllowed
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, TextAreaField, BooleanField, SelectField
+from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField, TextAreaField, DateField
 from wtforms.validators import DataRequired, Length, Email, EqualTo
 
 
@@ -62,6 +62,8 @@ class JobApplicationForm(FlaskForm):
     company_website = StringField("Company Website")
     job_posting_url = StringField("Job Posting URL")
     recruiter_email = StringField("Recruiter Email")
+    follow_up_date = DateField("Follow-Up Date", format="%Y-%m-%d")
+    last_contacted_date = DateField("Last Contacted Date", format="%Y-%m-%d")
     
     status = SelectField(
         "Status",

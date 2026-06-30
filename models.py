@@ -41,6 +41,9 @@ class JobApplication(db.Model):
     notes = db.Column(db.Text)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     
+    follow_up_date = db.Column(db.DateTime)
+    last_contacted_date = db.Column(db.DateTime)
+    
     
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
