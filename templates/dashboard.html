@@ -38,6 +38,81 @@
     </div>
 </div>
 
+
+<div class="row mb-5">
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Total Applications</h5>
+                <h2>{{ current_user.applications|length }}</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Interviews</h5>
+                <h2>
+                    {{ current_user.applications
+                        |selectattr("status", "equalto", "Interview Scheduled")
+                        |list
+                        |length }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Offers</h5>
+                <h2>
+                    {{ current_user.applications
+                        |selectattr("status", "equalto", "Offer Received")
+                        |list
+                        |length }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Rejected</h5>
+                <h2>
+                    {{ current_user.applications
+                        |selectattr("status", "equalto", "Rejected")
+                        |list
+                        |length }}
+                </h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Resume Versions</h5>
+                <h2>{{ current_user.resumes|length }}</h2>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5>Interview Prep</h5>
+                <h2>{{ current_user.interview_preps|length }}</h2>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+
 <h3>Your Applications</h3>
 
 {% if current_user.applications %}
