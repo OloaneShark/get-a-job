@@ -1,0 +1,79 @@
+
+{% extends "base.html" %}
+
+{% block title %}Application Details{% endblock %}
+
+{% block content %}
+
+<h2>{{ application.company_name }} - {{ application.position_title }}</h2>
+
+<p>
+    <strong>Status:</strong> {{ application.status }}
+</p>
+
+<p>
+    <strong>Trust Score:</strong> {{ application.legitimacy_score }}/100
+</p>
+
+<p>
+    <strong>Risk Level:</strong> {{ application.risk_level }}
+</p>
+
+<p>
+    <strong>Salary:</strong> {{ application.salary or "N/A" }}
+</p>
+
+<p>
+    <strong>Visa Sponsorship:</strong>
+    {% if application.visa_sponsorship %}
+        Yes
+    {% else %}
+        No
+    {% endif %}
+</p>
+
+<p>
+    <strong>Company Website:</strong>
+    {{ application.company_website or "N/A" }}
+</p>
+
+<p>
+    <strong>Job Posting URL:</strong>
+    {{ application.job_posting_url or "N/A" }}
+</p>
+
+<p>
+    <strong>Recruiter Email:</strong>
+    {{ application.recruiter_email or "N/A" }}
+</p>
+
+<p>
+    <strong>Application Date:</strong>
+    {{ application.application_date.strftime('%Y-%m-%d %I:%M %p') }}
+</p>
+
+<hr class="my-4">
+
+<h3>Encrypted Notes</h3>
+
+<div class="card">
+    <div class="card-body">
+        {% if decrypted_notes %}
+            {{ decrypted_notes }}
+        {% else %}
+            No notes saved.
+        {% endif %}
+    </div>
+</div>
+
+<hr class="my-4">
+
+<a href="/applications/{{ application.id }}/edit" class="btn btn-warning">
+    Edit
+</a>
+
+<a href="/dashboard" class="btn btn-secondary">
+    Back to Dashboard
+</a>
+
+{% endblock %}
