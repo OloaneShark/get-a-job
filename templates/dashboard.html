@@ -113,6 +113,41 @@
 </div>
 
 
+<hr class="my-5">
+
+<h3>Application Status Overview</h3>
+
+<div class="row">
+    <div class="col-md-6">
+        <canvas id="statusChart"></canvas>
+    </div>
+</div>
+
+<script>
+    const statusData = {
+        labels: ["Applied", "Interview Scheduled", "Rejected", "Offer Received", "Accepted"],
+        datasets: [{
+            label: "Applications",
+            data: [
+                {{ current_user.applications | selectattr("status", "equalto", "Applied") | list | length }},
+                {{ current_user.applications | selectattr("status", "equalto", "Interview Scheduled") | list | length }},
+                {{ current_user.applications | selectattr("status", "equalto", "Rejected") | list | length }},
+                {{ current_user.applications | selectattr("status", "equalto", "Offer Received") | list | length }},
+                {{ current_user.applications | selectattr("status", "equalto", "Accepted") | list | length }}
+            ]
+        }]
+    };
+
+    new Chart(
+        document.getElementById("statusChart"),
+        {
+            type: "bar",
+            data: statusData
+        }
+    );
+</script>
+
+
 <h3>Your Applications</h3>
 
 {% if current_user.applications %}
