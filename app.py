@@ -2,8 +2,10 @@
 import os
 import bcrypt
 import json
+import csv
+from io import StringIO
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, redirect, url_for, flash, request
+from flask import Flask, render_template, redirect, url_for, flash, request, Response
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
 from models import db, User, JobApplication, Resume, InterviewPrep
@@ -23,7 +25,6 @@ from forms import (
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
-from wtforms import DateField
 
 
 app = Flask(__name__)
@@ -467,6 +468,61 @@ def view_application(application_id):
 
 with app.app_context():
     db.create_all()
+
+
+@app.route("/applications/export")
+@login_required
+def export_applications():
+    applications = JobApplication.query.filter_by(
+        user_id=current_user.id
+    ).all()
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "Company",
+        "Position",
+        "Status",
+        "Salary",
+        "Visa Sponsorship",
+        "Application Date",
+        "Follow-Up Date",
+        "Last Contacted Date",
+        "Trust Score",
+        "Risk Level",
+        "Company Website",
+        "Job Posting URL",
+        "Recruiter Email"
+    ])
+
+    for app in applications:
+        writer.writerow([
+            app.company_name,
+            app.position_title,
+            app.status,
+            app.salary or "",
+            "Yes" if app.visa_sponsorship else "No",
+            app.application_date.strftime("%Y-%m-%d") if app.application_date else "",
+            app.follow_up_date.strftime("%Y-%m-%d") if app.follow_up_date else "",
+            app.last_contacted_date.strftime("%Y-%m-%d") if app.last_contacted_date else "",
+            app.legitimacy_score,
+            app.risk_level,
+            app.company_website or "",
+            app.job_posting_url or "",
+            app.recruiter_email or ""
+        ])
+
+    log_action(current_user.id, "Exported applications to CSV")
+
+    response = Response(
+        output.getvalue(),
+        mimetype="text/csv"
+    )
+
+    response.headers["Content-Disposition"] = "attachment; filename=applications.csv"
+
+    return response
 
 
 if __name__ == "__main__":
