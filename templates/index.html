@@ -17,9 +17,15 @@
         analyze resumes, and prepare for interviews.
     </p>
 
-    <button class="btn btn-primary">
-        Get Started
-    </button>
+    {% if current_user.is_authenticated %}
+        <a href="/dashboard" class="btn btn-primary">
+            Go to Dashboard
+        </a>
+    {% else %}
+        <a href="/register" class="btn btn-primary">
+            Get Started
+        </a>
+    {% endif %}
 </div>
 
 {% endblock %}

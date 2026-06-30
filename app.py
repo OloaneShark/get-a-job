@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request, Response
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
-from models import db, User, JobApplication, Resume, InterviewPrep
+from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -180,6 +180,15 @@ def add_application():
         db.session.add(application)
         db.session.commit()
 
+        history_entry = ApplicationHistory(
+            status=application.status,
+            note="Application created",
+            application_id=application.id
+        )
+
+        db.session.add(history_entry)
+        db.session.commit()
+
         log_action(current_user.id, f"Created application for {application.company_name}")
         
         flash("Job application saved successfully.", "success")
@@ -200,6 +209,8 @@ def edit_application(application_id):
     form = JobApplicationForm()
 
     if form.validate_on_submit():
+        old_status = application.status
+
         score, risk_level, red_flags = calculate_legitimacy_score(
             form.company_website.data,
             form.job_posting_url.data,
@@ -219,6 +230,17 @@ def edit_application(application_id):
         application.notes = encrypt_text(form.notes.data)
         application.legitimacy_score = score
         application.risk_level = risk_level
+        application.follow_up_date = form.follow_up_date.data
+        application.last_contacted_date = form.last_contacted_date.data
+
+        if old_status != form.status.data:
+            history_entry = ApplicationHistory(
+                status=form.status.data,
+                note=f"Status changed from {old_status} to {form.status.data}",
+                application_id=application.id
+            )
+
+            db.session.add(history_entry)
 
         db.session.commit()
         

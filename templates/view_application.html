@@ -76,4 +76,27 @@
     Back to Dashboard
 </a>
 
+
+<hr class="my-4">
+
+<h3>Status Timeline</h3>
+
+{% if application.history %}
+    <ul class="list-group mb-4">
+        {% for item in application.history %}
+            <li class="list-group-item">
+                <strong>{{ item.created_at.strftime('%Y-%m-%d %I:%M %p') }}</strong>
+                <br>
+                {{ item.status }}
+                {% if item.note %}
+                    — {{ item.note }}
+                {% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+{% else %}
+    <p>No timeline events yet.</p>
+{% endif %}
+
+
 {% endblock %}

@@ -44,6 +44,8 @@ class JobApplication(db.Model):
     follow_up_date = db.Column(db.DateTime)
     last_contacted_date = db.Column(db.DateTime)
     
+    history = db.relationship("ApplicationHistory", backref="application", lazy=True, cascade="all, delete-orphan")
+    
     
 class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -89,4 +91,19 @@ class InterviewPrep(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    
+    
+class ApplicationHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    status = db.Column(db.String(50), nullable=False)
+    note = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("job_application.id"),
+        nullable=False
+    )
+    
     
