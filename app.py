@@ -18,9 +18,11 @@ from forms import (
     ResumeUploadForm,
     ResumeAnalysisForm,
     InterviewPrepForm,
-    CompanyLookupForm
+    CompanyLookupForm,
+    JobMatchForm
 )
 from services.company_service import analyze_company
+from services.job_match_service import analyze_resume_job_match
 
 
 app = Flask(__name__)
@@ -347,6 +349,36 @@ def company_lookup():
         risk_level=risk_level,
         strengths=strengths,
         warnings=warnings
+    )
+
+
+@app.route("/job-match", methods=["GET", "POST"])
+@login_required
+def job_match():
+    form = JobMatchForm()
+
+    match_score = None
+    matched_keywords = None
+    missing_keywords = None
+    suggestions = None
+
+    if form.validate_on_submit():
+        match_score, matched_keywords, missing_keywords, suggestions = (
+            analyze_resume_job_match(
+                form.resume_text.data,
+                form.job_description.data
+            )
+        )
+
+        log_action(current_user.id, f"Analyzed resume/job match. Score: {match_score}/100")
+
+    return render_template(
+        "job_match.html",
+        form=form,
+        match_score=match_score,
+        matched_keywords=matched_keywords,
+        missing_keywords=missing_keywords,
+        suggestions=suggestions
     )
 
 

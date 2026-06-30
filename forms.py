@@ -128,3 +128,17 @@ class CompanyLookupForm(FlaskForm):
     submit = SubmitField("Analyze Company")
     
     
+class JobMatchForm(FlaskForm):
+    resume_text = TextAreaField(
+        "Paste Resume Text",
+        validators=[DataRequired()]
+    )
+
+    job_description = TextAreaField(
+        "Paste Job Description",
+        validators=[DataRequired()]
+    )
+
+    submit = SubmitField("Analyze Match")
+    
+    
