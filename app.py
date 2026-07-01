@@ -38,6 +38,9 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["UPLOAD_FOLDER"] = "uploads"
 
+if not app.config["SQLALCHEMY_DATABASE_URI"]:
+    raise RuntimeError("DATABASE_URL is not set.")
+
 db.init_app(app)
 
 login_manager = LoginManager()
