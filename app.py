@@ -3,9 +3,10 @@ import os
 import bcrypt
 import json
 import csv
+from dotenv import load_dotenv
 from io import StringIO
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, redirect, url_for, flash, request, Response
+from flask import Flask, render_template, redirect, url_for, flash, request, Response, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
 from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription
@@ -28,10 +29,13 @@ from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
 
 
+load_dotenv()
+
+
 app = Flask(__name__)
 
-app.config["SECRET_KEY"] = "super-secret-key"
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///site.db"
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
 app.config["UPLOAD_FOLDER"] = "uploads"
 
 db.init_app(app)
@@ -315,6 +319,46 @@ def upload_resume():
         return redirect(url_for("dashboard"))
 
     return render_template("upload_resume.html", form=form)
+
+
+@app.route("/resumes/<int:resume_id>/view")
+@login_required
+def view_resume(resume_id):
+    resume = Resume.query.get_or_404(resume_id)
+
+    if resume.user_id != current_user.id:
+        flash("You are not authorized to view this resume.", "danger")
+        return redirect(url_for("dashboard"))
+
+    if not resume.original_filename.lower().endswith(".pdf"):
+        flash(
+            "Browser preview is currently only available for PDF resumes. Download the original file instead.",
+            "warning"
+        )
+        return redirect(url_for("dashboard"))
+
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        resume.filename,
+        as_attachment=False
+    )
+
+
+@app.route("/resumes/<int:resume_id>/download")
+@login_required
+def download_resume(resume_id):
+    resume = Resume.query.get_or_404(resume_id)
+
+    if resume.user_id != current_user.id:
+        flash("You are not authorized to download this resume.", "danger")
+        return redirect(url_for("dashboard"))
+
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        resume.filename,
+        as_attachment=True,
+        download_name=resume.original_filename
+    )
 
 
 @app.route("/resumes/analyze", methods=["GET", "POST"])

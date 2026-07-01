@@ -331,6 +331,7 @@
                 <th>Version</th>
                 <th>Original File</th>
                 <th>Uploaded</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -338,7 +339,20 @@
                 <tr>
                     <td>{{ resume.version_name }}</td>
                     <td>{{ resume.original_filename }}</td>
-                    <td>{{ resume.uploaded_at.strftime('%Y-%m-%d %I:%M %p') }}</td>
+                    <td>
+                        {{ resume.uploaded_at.strftime('%Y-%m-%d %I:%M %p') }}
+                    </td>
+                    <td>
+                        <a href="/resumes/{{ resume.id }}/view"
+                           class="btn btn-sm btn-primary"
+                           target="_blank">
+                            Preview
+                        </a>
+                        <a href="/resumes/{{ resume.id }}/download"
+                            class="btn btn-sm btn-secondary">
+                            Download
+                        </a>
+                    </td>
                 </tr>
             {% endfor %}
         </tbody>
