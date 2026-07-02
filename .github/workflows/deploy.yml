@@ -14,7 +14,8 @@ jobs:
       - name: Deploy on EC2
         run: |
           cd /home/ubuntu/get-a-job
-          git pull origin main
+          git fetch origin
+          git reset --hard origin/main
           docker compose down
           docker compose up --build -d
           docker image prune -f
