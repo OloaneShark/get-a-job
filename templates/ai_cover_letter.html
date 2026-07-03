@@ -1,0 +1,54 @@
+
+{% extends "base.html" %}
+
+{% block title %}AI Cover Letter Generator{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-md-9">
+
+        <h2>AI Cover Letter Generator</h2>
+
+        <form method="POST">
+            {{ form.hidden_tag() }}
+
+            <div class="mb-3">
+                {{ form.company.label(class="form-label") }}
+                {{ form.company(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.position.label(class="form-label") }}
+                {{ form.position(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.resume_text.label(class="form-label") }}
+                {{ form.resume_text(class="form-control", rows="10") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.job_description.label(class="form-label") }}
+                {{ form.job_description(class="form-control", rows="10") }}
+            </div>
+
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+
+        {% if cover_letter %}
+            <hr class="my-4">
+
+            <h3>Generated Cover Letter</h3>
+
+            <div class="card">
+                <div class="card-body">
+                    <pre style="white-space: pre-wrap;">{{ cover_letter }}</pre>
+                </div>
+            </div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% endblock %}

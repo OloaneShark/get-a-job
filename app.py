@@ -27,11 +27,13 @@ from forms import (
     CompanyLookupForm,
     JobMatchForm,
     SavedJobDescriptionForm,
-    AIResumeReviewForm
+    AIResumeReviewForm,
+    AICoverLetterForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
 from services.ai_resume_service import analyze_resume
+from services.ai_cover_letter_service import generate_cover_letter
 
 
 load_dotenv()
@@ -418,6 +420,33 @@ def ai_resume_review():
         "ai_resume_review.html",
         form=form,
         ai_feedback=ai_feedback
+    )
+
+
+@app.route("/ai/cover-letter", methods = ["GET", "POST"])
+@login_required
+def ai_cover_letter():
+    form = AICoverLetterForm()
+    cover_letter = None
+    
+    if form.validate_on_submit():
+        try:
+            cover_letter = generate_cover_letter(
+                form.company.data,
+                form.position.data,
+                form.resume_text.data,
+                form.job_description.data
+            )
+            
+            log_action(current_user.id, "Generate AI cover letter")
+            
+        except Exception as e:
+            flash(f"Cover letter generation failed {str(e)}", "danger")
+            
+    return render_template(
+        "ai_cover_letter.html",
+        form=form,
+        cover_letter=cover_letter
     )
 
 

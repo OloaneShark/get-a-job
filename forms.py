@@ -164,3 +164,18 @@ class AIResumeReviewForm(FlaskForm):
     submit = SubmitField("Run AI Resume Review")
     
     
+class AICoverLetterForm(FlaskForm):
+    company = StringField("Company", validators=[DataRequired()])
+    position = StringField("Position", validators=[DataRequired()])
+    
+    resume_text = TextAreaField(
+        "Paste Resume Text",
+        validators=[DataRequired()]
+    )
+    
+    job_description = TextAreaField(
+        "Paste Job Description",
+        validators=[DataRequired()]
+    )
+    
+    submit = SubmitField("Generate Cover Letter")
