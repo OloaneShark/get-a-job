@@ -1,4 +1,7 @@
 
+#Implemented AI on July 2nd, 2026 at 8:27 pm est
+#THIS WAS A HEADACHE TO GET WORKING
+
 import os
 import bcrypt
 import json

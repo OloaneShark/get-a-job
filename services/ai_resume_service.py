@@ -1,7 +1,9 @@
 
 from openai import OpenAI
 
-client = OpenAI()
+
+def get_client():
+    return OpenAI()
 
 
 def analyze_resume(resume_text, job_description=""):
@@ -27,8 +29,10 @@ Provide:
 Respond in clear markdown.
 """
 
+    client = get_client()
+
     response = client.responses.create(
-        model="gpt-5.4-mini",
+        model="gpt-5",
         input=prompt
     )
 
