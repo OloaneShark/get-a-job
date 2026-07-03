@@ -23,10 +23,12 @@ from forms import (
     InterviewPrepForm,
     CompanyLookupForm,
     JobMatchForm,
-    SavedJobDescriptionForm
+    SavedJobDescriptionForm,
+    AIResumeReviewForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
+from services.ai_resume_service import analyze_resume
 
 
 load_dotenv()
@@ -366,7 +368,7 @@ def download_resume(resume_id):
 
 @app.route("/resumes/analyze", methods=["GET", "POST"])
 @login_required
-def analyze_resume():
+def resume_analyzer():
     form = ResumeAnalysisForm()
     score = None
     rating = None
@@ -388,6 +390,31 @@ def analyze_resume():
         rating=rating,
         strengths=strengths,
         improvements=improvements
+    )
+
+
+@app.route("/ai/resume-review", methods=["GET", "POST"])
+@login_required
+def ai_resume_review():
+    form = AIResumeReviewForm()
+    ai_feedback = None
+
+    if form.validate_on_submit():
+        try:
+            ai_feedback = analyze_resume(
+                form.resume_text.data,
+                form.job_description.data
+            )
+
+            log_action(current_user.id, "Ran AI resume review")
+
+        except Exception as e:
+            flash(f"AI review failed: {str(e)}", "danger")
+
+    return render_template(
+        "ai_resume_review.html",
+        form=form,
+        ai_feedback=ai_feedback
     )
 
 

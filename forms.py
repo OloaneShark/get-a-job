@@ -151,3 +151,16 @@ class SavedJobDescriptionForm(FlaskForm):
     submit = SubmitField("Save Job Description")
     
     
+class AIResumeReviewForm(FlaskForm):
+    resume_text = TextAreaField(
+        "Paste Resume Text",
+        validators=[DataRequired()]
+    )
+
+    job_description = TextAreaField(
+        "Optional Job Description"
+    )
+
+    submit = SubmitField("Run AI Resume Review")
+    
+    
