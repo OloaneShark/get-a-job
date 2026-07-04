@@ -29,7 +29,7 @@ from forms import (
     SavedJobDescriptionForm,
     AIResumeReviewForm,
     AICoverLetterForm,
-    AIInterviewCoach
+    AIInterviewCoachForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -449,6 +449,90 @@ def ai_cover_letter():
         "ai_cover_letter.html",
         form=form,
         cover_letter=cover_letter
+    )
+
+
+@app.route("/applications/<int:application_id>/ai/cover-letter", methods=["GET", "POST"])
+@login_required
+def application_ai_cover_letter(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+    
+    if application.user_id != current_user.id:
+        flash("You are not authorized to access this application", "danger")
+        return redirect(url_for("dashboard"))
+    
+    form = AICoverLetterForm()
+    cover_letter = None
+    
+    if request.method == "GET":
+        form.company.data = application.company_name
+        form.position.data = application.position_title
+        form.job_description.data = decrypt_text(application.notes) if application.notes else ""
+        
+    if form.validate_on_submit():
+        try:
+            cover_letter = generate_cover_letter(
+                form.company.data,
+                form.position.data,
+                form.resume_text.data,
+                form.job_description.data
+            )
+            
+            log_action(
+                current_user.id,
+                f"Generated AI cover letter for {application.company_name}"
+            )
+            
+        except Exception as e:
+            flash(f"Cover letter generation failed: {str(e)}", "danger")
+            
+    return render_template(
+        "ai_cover_letter.html",
+        form=form,
+        cover_letter=cover_letter
+    )
+
+
+@app.route("/applications/<int:application_id>/ai/interview-coach", methods=["GET", "POST"])
+@login_required
+def application_ai_interview_coach(application_id):
+
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash("You are not authorized.", "danger")
+        return redirect(url_for("dashboard"))
+
+    form = AIInterviewCoachForm()
+
+    interview_prep = None
+
+    if request.method == "GET":
+        form.company.data = application.company_name
+        form.position.data = application.position_title
+
+        form.job_description.data = (
+            decrypt_text(application.notes)
+            if application.notes
+            else ""
+        )
+
+    if form.validate_on_submit():
+        interview_prep = generate_interview_coach(
+            form.company.data,
+            form.position.data,
+            form.job_description.data
+        )
+
+        log_action(
+            current_user.id,
+            f"Generated AI interview prep for {application.company_name}"
+        )
+
+    return render_template(
+        "ai_interview_coach.html",
+        form=form,
+        interview_prep=interview_prep
     )
 
 
