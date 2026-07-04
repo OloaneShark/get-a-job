@@ -179,3 +179,12 @@ class AICoverLetterForm(FlaskForm):
     )
     
     submit = SubmitField("Generate Cover Letter")
+    
+    
+class AIInterviewCoach(FlaskForm):
+    company = StringField("Company", validators=[DataRequired()])
+    position = StringField("Position", validators=[DataRequired()])
+    job_description = StringField("Job Description", validators=[DataRequired()])
+    submit = SubmitField("Generate Interview Prep")
+    
+    

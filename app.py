@@ -28,12 +28,14 @@ from forms import (
     JobMatchForm,
     SavedJobDescriptionForm,
     AIResumeReviewForm,
-    AICoverLetterForm
+    AICoverLetterForm,
+    AIInterviewCoach
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
 from services.ai_resume_service import analyze_resume
 from services.ai_cover_letter_service import generate_cover_letter
+from services.ai_interview_services import generate_interview_coach
 
 
 load_dotenv()
@@ -489,6 +491,32 @@ def interview_prep():
         behavioral_questions=behavioral_questions,
         technical_questions=technical_questions,
         study_topics=study_topics
+    )
+
+
+@app.route("/ai/interview-coach", methods = ["GET", "POST"])
+@login_required
+def ai_interview_coach():
+    form = AIInterviewCoach()
+    interview_prep = None
+    
+    if form.validate_on_submit():
+        try:
+            interview_prep = generate_interview_coach(
+                form.company.data,
+                form.position.data,
+                form.job_description.data
+            )
+            
+            log_action(current_user.id, "Generated AI interview prep")
+            
+        except Exception as e:
+            flash(f"Interview prep generation failed {str(e)}", "danger")
+            
+    return render_template(
+        "ai_interview_coach.html",
+        form=form,
+        interview_prep=interview_prep
     )
 
 
