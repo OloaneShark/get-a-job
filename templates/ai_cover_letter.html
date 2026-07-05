@@ -48,6 +48,31 @@
             </div>
         {% endif %}
 
+        {% if manual_prompt %}
+            <hr class="my-4">
+
+            <div class="alert alert-warning">
+                <h4>🤖 AI API Currently Unavailable</h4>
+                <p>
+                    The built-in AI service is unavailable right now.
+                    Copy the prepared prompt below and paste it into ChatGPT.
+                </p>
+            </div>
+
+            <textarea
+                id="manualPrompt"
+                class="form-control"
+                rows="18"
+                readonly>{{ manual_prompt }}</textarea>
+
+            <button
+                type="button"
+                class="btn btn-primary mt-3"
+                onclick="copyPrompt(event)">
+                📋 Copy Prompt
+            </button>
+        {% endif %}
+
     </div>
 </div>
 

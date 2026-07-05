@@ -43,7 +43,54 @@
             </div>
         {% endif %}
 
+        {% if manual_prompt %}
+            <hr class="my-4">
+
+            <div class="alert alert-warning">
+                <h4>🤖 AI API Currently Unavailable</h4>
+
+                <p>
+                    The built-in AI service is unavailable right now.
+                    You can continue by copying the prepared prompt below
+                    and pasting it directly into ChatGPT.
+                </p>
+            </div>
+
+            <textarea
+                id="manualPrompt"
+                class="form-control"
+                rows="18"
+                readonly>{{ manual_prompt }}</textarea>
+
+            <button
+                type="button"
+                class="btn btn-primary mt-3"
+                onclick="copyPrompt(event)">
+                📋 Copy Prompt
+            </button>
+        {% endif %}
+
     </div>
 </div>
+
+<script>
+function copyPrompt(event) {
+    const prompt = document.getElementById("manualPrompt");
+
+    navigator.clipboard.writeText(prompt.value)
+        .then(() => {
+            const button = event.target;
+
+            button.innerText = "✅ Copied!";
+
+            setTimeout(() => {
+                button.innerText = "📋 Copy Prompt";
+            }, 2000);
+        })
+        .catch(() => {
+            alert("Unable to copy the prompt.");
+        });
+}
+</script>
 
 {% endblock %}

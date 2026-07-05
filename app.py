@@ -1,6 +1,8 @@
 
 #Implemented AI on July 2nd, 2026 at 8:27 pm est
 #THIS WAS A HEADACHE TO GET WORKING
+#Implemented feature for failing AI connection for AI features on July 5th, 2026
+#THIS TOOK ME 2 DAYS TO GET WORKING PROPERLY WITHOUT MESSING UP AAAAAHHHHHHH
 
 import os
 import bcrypt
@@ -36,6 +38,11 @@ from services.job_match_service import analyze_resume_job_match
 from services.ai_resume_service import analyze_resume
 from services.ai_cover_letter_service import generate_cover_letter
 from services.ai_interview_services import generate_interview_coach
+from services.manual_prompt_service import (
+    build_resume_review_prompt,
+    build_cover_letter_prompt,
+    build_interview_coach_prompt
+)
 
 
 load_dotenv()
@@ -404,7 +411,9 @@ def resume_analyzer():
 @login_required
 def ai_resume_review():
     form = AIResumeReviewForm()
+
     ai_feedback = None
+    manual_prompt = None
 
     if form.validate_on_submit():
         try:
@@ -416,21 +425,34 @@ def ai_resume_review():
             log_action(current_user.id, "Ran AI resume review")
 
         except Exception as e:
-            flash(f"AI review failed: {str(e)}", "danger")
+            manual_prompt = build_resume_review_prompt(
+                form.resume_text.data,
+                form.job_description.data
+            )
+
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+
+            print(e)
 
     return render_template(
         "ai_resume_review.html",
         form=form,
-        ai_feedback=ai_feedback
+        ai_feedback=ai_feedback,
+        manual_prompt=manual_prompt
     )
 
 
-@app.route("/ai/cover-letter", methods = ["GET", "POST"])
+@app.route("/ai/cover-letter", methods=["GET", "POST"])
 @login_required
 def ai_cover_letter():
     form = AICoverLetterForm()
+
     cover_letter = None
-    
+    manual_prompt = None
+
     if form.validate_on_submit():
         try:
             cover_letter = generate_cover_letter(
@@ -439,16 +461,29 @@ def ai_cover_letter():
                 form.resume_text.data,
                 form.job_description.data
             )
-            
-            log_action(current_user.id, "Generate AI cover letter")
-            
+
+            log_action(current_user.id, "Generated AI cover letter")
+
         except Exception as e:
-            flash(f"Cover letter generation failed {str(e)}", "danger")
-            
+            manual_prompt = build_cover_letter_prompt(
+                form.company.data,
+                form.position.data,
+                form.resume_text.data,
+                form.job_description.data
+            )
+
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+
+            print(e)
+
     return render_template(
         "ai_cover_letter.html",
         form=form,
-        cover_letter=cover_letter
+        cover_letter=cover_letter,
+        manual_prompt=manual_prompt
     )
 
 
@@ -456,19 +491,25 @@ def ai_cover_letter():
 @login_required
 def application_ai_cover_letter(application_id):
     application = JobApplication.query.get_or_404(application_id)
-    
+
     if application.user_id != current_user.id:
-        flash("You are not authorized to access this application", "danger")
+        flash("You are not authorized to access this application.", "danger")
         return redirect(url_for("dashboard"))
-    
+
     form = AICoverLetterForm()
+
     cover_letter = None
-    
+    manual_prompt = None
+
     if request.method == "GET":
         form.company.data = application.company_name
         form.position.data = application.position_title
-        form.job_description.data = decrypt_text(application.notes) if application.notes else ""
-        
+        form.job_description.data = (
+            decrypt_text(application.notes)
+            if application.notes
+            else ""
+        )
+
     if form.validate_on_submit():
         try:
             cover_letter = generate_cover_letter(
@@ -477,40 +518,50 @@ def application_ai_cover_letter(application_id):
                 form.resume_text.data,
                 form.job_description.data
             )
-            
+
             log_action(
                 current_user.id,
                 f"Generated AI cover letter for {application.company_name}"
             )
-            
+
         except Exception as e:
-            flash(f"Cover letter generation failed: {str(e)}", "danger")
-            
+            manual_prompt = build_cover_letter_prompt(
+                form.company.data,
+                form.position.data,
+                form.resume_text.data,
+                form.job_description.data
+            )
+
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+
+            print(e)
+
     return render_template(
         "ai_cover_letter.html",
         form=form,
-        cover_letter=cover_letter
+        cover_letter=cover_letter,
+        manual_prompt=manual_prompt
     )
 
 
-@app.route("/applications/<int:application_id>/ai/interview-coach", methods=["GET", "POST"])
+@app.route("/applications/<int:application_id>/ai/resume-review", methods=["GET", "POST"])
 @login_required
-def application_ai_interview_coach(application_id):
-
+def application_ai_resume_review(application_id):
     application = JobApplication.query.get_or_404(application_id)
 
     if application.user_id != current_user.id:
-        flash("You are not authorized.", "danger")
+        flash("You are not authorized to access this application.", "danger")
         return redirect(url_for("dashboard"))
 
-    form = AIInterviewCoachForm()
+    form = AIResumeReviewForm()
 
-    interview_prep = None
+    ai_feedback = None
+    manual_prompt = None
 
     if request.method == "GET":
-        form.company.data = application.company_name
-        form.position.data = application.position_title
-
         form.job_description.data = (
             decrypt_text(application.notes)
             if application.notes
@@ -518,21 +569,35 @@ def application_ai_interview_coach(application_id):
         )
 
     if form.validate_on_submit():
-        interview_prep = generate_interview_coach(
-            form.company.data,
-            form.position.data,
-            form.job_description.data
-        )
+        try:
+            ai_feedback = analyze_resume(
+                form.resume_text.data,
+                form.job_description.data
+            )
 
-        log_action(
-            current_user.id,
-            f"Generated AI interview prep for {application.company_name}"
-        )
+            log_action(
+                current_user.id,
+                f"Generated AI resume review for {application.company_name}"
+            )
+
+        except Exception as e:
+            manual_prompt = build_resume_review_prompt(
+                form.resume_text.data,
+                form.job_description.data
+            )
+
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+
+            print(e)
 
     return render_template(
-        "ai_interview_coach.html",
+        "ai_resume_review.html",
         form=form,
-        interview_prep=interview_prep
+        ai_feedback=ai_feedback,
+        manual_prompt=manual_prompt
     )
 
 
@@ -578,12 +643,14 @@ def interview_prep():
     )
 
 
-@app.route("/ai/interview-coach", methods = ["GET", "POST"])
+@app.route("/ai/interview-coach", methods=["GET", "POST"])
 @login_required
 def ai_interview_coach():
-    form = AIInterviewCoach()
+    form = AIInterviewCoachForm()
+
     interview_prep = None
-    
+    manual_prompt = None
+
     if form.validate_on_submit():
         try:
             interview_prep = generate_interview_coach(
@@ -591,18 +658,87 @@ def ai_interview_coach():
                 form.position.data,
                 form.job_description.data
             )
-            
+
             log_action(current_user.id, "Generated AI interview prep")
+
+        except Exception as e:
+            manual_prompt = build_interview_coach_prompt(
+                form.company.data,
+                form.position.data,
+                form.job_description.data
+            )
+
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+
+            print(e)
+
+    return render_template(
+        "ai_interview_coach.html",
+        form=form,
+        interview_prep=interview_prep,
+        manual_prompt=manual_prompt
+    )
+
+
+@app.route("/applications/<int:application_id>/ai/interview-coach", methods=["GET", "POST"])
+@login_required
+def application_ai_interview_coach(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+    
+    if application.user_id != current_user.id:
+        flash("You are not authorized.", "danger")
+        return redirect(url_for("dashboard"))
+    
+    form = AIInterviewCoachForm()
+    interview_prep = None
+    manual_prompt = None
+    
+    if request.method == "GET":
+        form.company.data = application.company_name
+        form.position.data = application.position_title
+        form.job_description.data = (
+            decrypt_text(application.notes)
+            if application.notes
+            else ""
+        )
+        
+    if form.validate_on_submit():
+        try:
+            interview_prep = generate_interview_prep(
+                form.company.data,
+                form.position.data,
+                form.job_description.data
+            )
+            
+            log_action(
+                current_user.id,
+                f"Generated AI interview prep for {application.company_name}"
+            )
             
         except Exception as e:
-            flash(f"Interview prep generation failed {str(e)}", "danger")
+            manual_prompt = build_interview_coach_prompt(
+                form.company.data,
+                form.position.data,
+                form.job_description.data
+            )
+            
+            flash(
+                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "warning"
+            )
+            
+            print (e)
             
     return render_template(
         "ai_interview_coach.html",
         form=form,
-        interview_prep=interview_prep
+        interview_prep=interview_prep,
+        manual_prompt=manual_prompt
     )
-
+    
 
 @app.route("/company-lookup", methods=["GET", "POST"])
 @login_required
