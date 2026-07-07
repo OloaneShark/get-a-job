@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request, Response, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
+from services.resume_text_service import extract_resume_text
 from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -322,10 +323,13 @@ def upload_resume():
 
         file.save(file_path)
 
+        extracted_text = extract_resume_text(file_path)
+
         resume = Resume(
             filename=stored_filename,
             original_filename=original_filename,
             version_name=form.version_name.data,
+            extracted_text=extracted_text,
             user_id=current_user.id
         )
 

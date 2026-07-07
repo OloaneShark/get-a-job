@@ -72,6 +72,8 @@ class Resume(db.Model):
     analysis_score = db.Column(db.Integer, default=0)
     analysis_feedback = db.Column(db.Text)
 
+    extracted_text = db.Column(db.Text)
+
     user_id = db.Column(
         db.Integer,
         db.ForeignKey("user.id"),
@@ -121,5 +123,4 @@ class SavedJobDescription(db.Model):
         db.ForeignKey("user.id"),
         nullable=False
     )
-    
     
