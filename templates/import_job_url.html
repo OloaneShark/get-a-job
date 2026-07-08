@@ -1,0 +1,48 @@
+
+{% extends "base.html" %}
+
+{% block title %}Import Job Posting{% endblock %}
+
+{% block content %}
+
+<div class="row justify-content-center">
+    <div class="col-md-9">
+
+        <h2>Import Job Posting</h2>
+
+        <form method="POST">
+            {{ form.hidden_tag() }}
+
+            <div class="mb-3">
+                {{ form.job_url.label(class="form-label") }}
+                {{ form.job_url(class="form-control") }}
+            </div>
+
+            {{ form.import_submit(class="btn btn-primary") }}
+
+            <hr class="my-4">
+
+            <h3>Review Imported Job</h3>
+
+            <div class="mb-3">
+                {{ form.company_name.label(class="form-label") }}
+                {{ form.company_name(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.position_title.label(class="form-label") }}
+                {{ form.position_title(class="form-control") }}
+            </div>
+
+            <div class="mb-3">
+                {{ form.job_description.label(class="form-label") }}
+                {{ form.job_description(class="form-control", rows="18") }}
+            </div>
+
+            {{ form.save_submit(class="btn btn-success") }}
+        </form>
+
+    </div>
+</div>
+
+{% endblock %}

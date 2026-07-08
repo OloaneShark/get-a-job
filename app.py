@@ -32,13 +32,15 @@ from forms import (
     SavedJobDescriptionForm,
     AIResumeReviewForm,
     AICoverLetterForm,
-    AIInterviewCoachForm
+    AIInterviewCoachForm,
+    JobUrlImportForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
 from services.ai_resume_service import analyze_resume
 from services.ai_cover_letter_service import generate_cover_letter
 from services.ai_interview_services import generate_interview_coach
+from services.job_url_service import extract_job_from_url
 from services.manual_prompt_service import (
     build_resume_review_prompt,
     build_cover_letter_prompt,
@@ -801,6 +803,54 @@ def company_lookup():
         risk_level=risk_level,
         strengths=strengths,
         warnings=warnings
+    )
+
+
+@app.route("/jobs/import-url", methods=["GET", "POST"])
+@login_required
+def import_job_url():
+    form = JobUrlImportForm()
+    extracted_job = None
+
+    if form.import_submit.data and form.validate_on_submit():
+        try:
+            extracted_job = extract_job_from_url(form.job_url.data)
+
+            form.position_title.data = extracted_job.get("page_title", "")
+            form.company_name.data = ""
+            form.job_description.data = extracted_job.get("job_description", "")
+
+            flash("Job posting imported successfully.", "success")
+
+        except Exception as e:
+            flash(f"Could not import job posting: {str(e)}", "danger")
+
+    elif form.save_submit.data and form.validate_on_submit():
+        job_description = form.job_description.data or ""
+
+        application = JobApplication(
+            company_name=form.company_name.data or "Unknown Company",
+            position_title=form.position_title.data or "Unknown Position",
+            job_posting_url=form.job_url.data,
+            notes=encrypt_text(job_description),
+            user_id=current_user.id
+        )
+
+        db.session.add(application)
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Saved imported job application: {application.company_name}"
+        )
+
+        flash("Imported job saved as application.", "success")
+        return redirect(url_for("view_application", application_id=application.id))
+
+    return render_template(
+        "import_job_url.html",
+        form=form,
+        extracted_job=extracted_job
     )
 
 
