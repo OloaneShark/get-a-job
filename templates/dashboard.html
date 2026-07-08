@@ -66,7 +66,7 @@
 <div class="row mb-5">
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Total Applications</h5>
                 <h2>{{ current_user.applications|length }}</h2>
@@ -75,7 +75,7 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Interviews</h5>
                 <h2>
@@ -89,7 +89,7 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Offers</h5>
                 <h2>
@@ -103,7 +103,7 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Rejected</h5>
                 <h2>
@@ -117,7 +117,7 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Resume Versions</h5>
                 <h2>{{ current_user.resumes|length }}</h2>
@@ -126,7 +126,7 @@
     </div>
 
     <div class="col-md-3 mb-3">
-        <div class="card text-center">
+        <div class="card text-center stat-card">
             <div class="card-body">
                 <h5>Interview Prep</h5>
                 <h2>{{ current_user.interview_preps|length }}</h2>
@@ -282,19 +282,13 @@
 
                     <td>
                         {% if app.risk_level == "Low Risk" %}
-                            <span class="badge bg-success">
-                                {{ app.risk_level }}
-                            </span>
-
+                            <span class="low-risk">{{ app.risk_level }}</span>
                         {% elif app.risk_level == "Medium Risk" %}
-                            <span class="badge bg-warning text-dark">
-                                {{ app.risk_level }}
-                            </span>
-
+                            <span class="medium-risk">{{ app.risk_level }}</span>
+                        {% elif app.risk_level == "High Risk" %}
+                            <span class="high-risk">{{ app.risk_level }}</span>
                         {% else %}
-                            <span class="badge bg-danger">
-                                {{ app.risk_level }}
-                            </span>
+                            <span>{{ app.risk_level or "Unknown" }}</span>
                         {% endif %}
                     </td>
 
