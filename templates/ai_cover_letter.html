@@ -5,94 +5,110 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-9">
+<div class="work-layout">
 
-        <h2>AI Cover Letter Generator</h2>
+    <div class="work-main">
+        <div class="form-page">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+            <h2>AI Cover Letter Generator</h2>
 
-            <div class="mb-3">
-                {{ form.company.label(class="form-label") }}
-                {{ form.company(class="form-control") }}
-            </div>
+            <form method="POST" class="form-grid">
+                {{ form.hidden_tag() }}
 
-            <div class="mb-3">
-                {{ form.position.label(class="form-label") }}
-                {{ form.position(class="form-control") }}
-            </div>
-
-            <div class="card mb-3">
-                <div class="card-body">
-                    <h5>📄 Resume Being Used</h5>
-
-                    {% if latest_resume %}
-                        <p class="mb-1">
-                            <strong>File:</strong> {{ latest_resume.original_filename }}
-                        </p>
-
-                        <p class="mb-1">
-                            <strong>Version:</strong> {{ latest_resume.version_name or "N/A" }}
-                        </p>
-
-                        <p class="mb-0 text-success">
-                            ✓ Resume loaded automatically
-                        </p>
-                    {% else %}
-                        <p class="text-danger">
-                            No resume uploaded.
-                        </p>
-                    {% endif %}
+                <div class="mb-3">
+                    {{ form.company.label(class="form-label") }}
+                    {{ form.company(class="form-control") }}
                 </div>
-            </div>
 
-            <div class="mb-3">
-                {{ form.job_description.label(class="form-label") }}
-                {{ form.job_description(class="form-control", rows="10") }}
-            </div>
-
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
-
-        {% if cover_letter %}
-            <hr class="my-4">
-
-            <h3>Generated Cover Letter</h3>
-
-            <div class="card">
-                <div class="card-body">
-                    <pre style="white-space: pre-wrap;">{{ cover_letter }}</pre>
+                <div class="mb-3">
+                    {{ form.position.label(class="form-label") }}
+                    {{ form.position(class="form-control") }}
                 </div>
-            </div>
-        {% endif %}
 
-        {% if manual_prompt %}
-            <hr class="my-4">
+                <div class="mb-3 full-width">
+                    {{ form.job_description.label(class="form-label") }}
+                    {{ form.job_description(class="form-control", rows="10") }}
+                </div>
 
-            <div class="alert alert-warning">
-                <h4>🤖 AI API Currently Unavailable</h4>
-                <p>
-                    The built-in AI service is unavailable right now.
-                    Copy the prepared prompt below and paste it into ChatGPT.
-                </p>
-            </div>
+                <div class="full-width">
+                    {{ form.submit(class="btn btn-primary") }}
+                </div>
+            </form>
 
-            <textarea
-                id="manualPrompt"
-                class="form-control"
-                rows="18"
-                readonly>{{ manual_prompt }}</textarea>
+            {% if cover_letter %}
+                <hr class="my-4">
 
-            <button
-                type="button"
-                class="btn btn-primary mt-3"
-                onclick="copyPrompt(event)">
-                📋 Copy Prompt
-            </button>
-        {% endif %}
+                <h3>Generated Cover Letter</h3>
 
+                <div class="card">
+                    <div class="card-body">
+                        <pre style="white-space: pre-wrap;">{{ cover_letter }}</pre>
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if manual_prompt %}
+                <hr class="my-4">
+
+                <div class="alert alert-warning">
+                    <h4>🤖 AI API Currently Unavailable</h4>
+                    <p>
+                        Copy the prepared prompt below and paste it into ChatGPT.
+                    </p>
+                </div>
+
+                <textarea
+                    id="manualPrompt"
+                    class="form-control"
+                    rows="18"
+                    readonly>{{ manual_prompt }}</textarea>
+
+                <button
+                    type="button"
+                    class="btn btn-primary mt-3"
+                    onclick="copyPrompt(event)">
+                    📋 Copy Prompt
+                </button>
+            {% endif %}
+
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Current Resume</h5>
+
+                {% if latest_resume %}
+                    <p class="mb-1">{{ latest_resume.version_name or "Unnamed Resume" }}</p>
+                    <small>{{ latest_resume.original_filename }}</small>
+                {% else %}
+                    <p class="text-danger">No resume uploaded.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Mission Control</h5>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                    AI Resume Review
+                </a>
+
+                <a href="/ai/interview-coach" class="btn btn-warning w-100 mb-2">
+                    AI Interview Coach
+                </a>
+
+                <a href="/jobs/import-url" class="btn btn-info w-100">
+                    Import Job URL
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

@@ -5,71 +5,131 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <h2>{{ title or "Add Job Application" }}</h2>
+<div class="work-layout">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+    <div class="work-main">
+        <div class="form-page">
+            <h2>{{ title or "Add Application" }}</h2>
 
-            <div class="mb-3">
-                {{ form.company_name.label(class="form-label") }}
-                {{ form.company_name(class="form-control") }}
-            </div>
+            <form method="POST" class="form-grid">
+                {{ form.hidden_tag() }}
 
-            <div class="mb-3">
-                {{ form.position_title.label(class="form-label") }}
-                {{ form.position_title(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.company_name.label(class="form-label") }}
+                    {{ form.company_name(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.company_website.label(class="form-label") }}
-                {{ form.company_website(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.position_title.label(class="form-label") }}
+                    {{ form.position_title(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.job_posting_url.label(class="form-label") }}
-                {{ form.job_posting_url(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.company_website.label(class="form-label") }}
+                    {{ form.company_website(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.recruiter_email.label(class="form-label") }}
-                {{ form.recruiter_email(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.job_posting_url.label(class="form-label") }}
+                    {{ form.job_posting_url(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.status.label(class="form-label") }}
-                {{ form.status(class="form-select") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.recruiter_email.label(class="form-label") }}
+                    {{ form.recruiter_email(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.salary.label(class="form-label") }}
-                {{ form.salary(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.status.label(class="form-label") }}
+                    {{ form.status(class="form-select") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.follow_up_date.label(class="form-label") }}
-                {{ form.follow_up_date(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.salary.label(class="form-label") }}
+                    {{ form.salary(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.last_contacted_date.label(class="form-label") }}
-                {{ form.last_contacted_date(class="form-control") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.follow_up_date.label(class="form-label") }}
+                    {{ form.follow_up_date(class="form-control") }}
+                </div>
 
-            <div class="form-check mb-3">
-                {{ form.visa_sponsorship(class="form-check-input") }}
-                {{ form.visa_sponsorship.label(class="form-check-label") }}
-            </div>
+                <div class="mb-3">
+                    {{ form.last_contacted_date.label(class="form-label") }}
+                    {{ form.last_contacted_date(class="form-control") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.notes.label(class="form-label") }}
-                {{ form.notes(class="form-control", rows="5") }}
-            </div>
+                <div class="form-check mb-3">
+                    {{ form.visa_sponsorship(class="form-check-input") }}
+                    {{ form.visa_sponsorship.label(class="form-check-label") }}
+                </div>
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+                <div class="mb-3 full-width">
+                    {{ form.notes.label(class="form-label") }}
+                    {{ form.notes(class="form-control", rows="5") }}
+                </div>
+
+                <div class="full-width">
+                    {{ form.submit(class="btn btn-primary") }}
+                </div>
+            </form>
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Current Resume</h5>
+
+                {% if current_user.resumes %}
+                    {% set latest_resume = current_user.resumes[-1] %}
+                    <p class="mb-1">{{ latest_resume.version_name or "Unnamed Resume" }}</p>
+                    <small>{{ latest_resume.original_filename }}</small>
+                {% else %}
+                    <p>No resume uploaded.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Mission Control</h5>
+
+                <a href="/jobs/import-url" class="btn btn-info w-100 mb-2">
+                    Import Job URL
+                </a>
+
+                <a href="/company-lookup" class="btn btn-info w-100 mb-2">
+                    Company Lookup
+                </a>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100">
+                    AI Resume Review
+                </a>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Application Tips</h5>
+
+                <p class="mb-2">
+                    Add the company website and job posting URL when possible.
+                </p>
+
+                <p class="mb-2">
+                    Recruiter emails help the legitimacy scanner catch red flags.
+                </p>
+
+                <p class="mb-0">
+                    Use notes for job description details, interview notes, or follow-up reminders.
+                </p>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

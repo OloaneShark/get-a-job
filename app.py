@@ -427,6 +427,8 @@ def resume_analyzer():
 def ai_resume_review():
     form = AIResumeReviewForm()
 
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
     ai_feedback = None
     manual_prompt = None
 
@@ -456,7 +458,8 @@ def ai_resume_review():
         "ai_resume_review.html",
         form=form,
         ai_feedback=ai_feedback,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
 
 
