@@ -5,236 +5,239 @@
 
 {% block content %}
 
+{% set followups = current_user.applications
+    |selectattr("follow_up_date")
+    |list
+%}
+
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1>Dashboard</h1>
         <p>Welcome back, {{ current_user.username }}.</p>
     </div>
-
-    <div>
-        <a href="/applications/new" class="btn btn-primary">
-            Add Application
-        </a>
-
-        <a href="/resumes/upload" class="btn btn-secondary">
-            Upload Resume
-        </a>
-
-        <a href="/resumes/analyze" class="btn btn-info">
-            Analyze Resume
-        </a>
-
-        <a href="/ai/resume-review" class="btn btn-warning">
-            AI Resume Review
-        </a>
-
-        <a href="/ai/cover-letter" class="btn btn-warning">
-            AI Cover Letter
-        </a>
-
-        <a href="/ai/interview-coach" class="btn btn-warning">
-            AI Interview Coach
-        </a>
-
-        <a href="/interview-prep" class="btn btn-info">
-            Interview Prep
-        </a>
-
-        <a href="/company-lookup" class="btn btn-info">
-            Company Lookup
-        </a>
-
-        <a href="/jobs/import-url" class="btn btn-info">
-            Import Job URL
-        </a>
-
-        <a href="/job-match" class="btn btn-info">
-            Job Match
-        </a>
-
-        <a href="/job-descriptions/new" class="btn btn-info">
-            Save Job Description
-        </a>
-
-        <a href="/applications/export" class="btn btn-success">
-            Export CSV
-        </a>
-    </div>
 </div>
 
+<div class="dashboard-grid">
+    <div class="dashboard-main">
 
-<div class="row mb-5">
+        <div class="row mb-5 dashboard-stats">
 
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
-            <div class="card-body">
-                <h5>Total Applications</h5>
-                <h2>{{ current_user.applications|length }}</h2>
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Total Applications</h5>
+                        <h2>{{ current_user.applications|length }}</h2>
+                    </div>
+                </div>
             </div>
+
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Interviews</h5>
+                        <h2>
+                            {{ current_user.applications
+                                |selectattr("status", "equalto", "Interview Scheduled")
+                                |list
+                                |length }}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Offers</h5>
+                        <h2>
+                            {{ current_user.applications
+                                |selectattr("status", "equalto", "Offer Received")
+                                |list
+                                |length }}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Rejected</h5>
+                        <h2>
+                            {{ current_user.applications
+                                |selectattr("status", "equalto", "Rejected")
+                                |list
+                                |length }}
+                        </h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Resume Versions</h5>
+                        <h2>{{ current_user.resumes|length }}</h2>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-xl-3 col-lg-4 col-md-6 mb-3">
+                <div class="card text-center stat-card">
+                    <div class="card-body">
+                        <h5>Interview Prep</h5>
+                        <h2>{{ current_user.interview_preps|length }}</h2>
+                    </div>
+                </div>
+            </div>
+
         </div>
+
+        <hr class="my-5">
+
+        <h3>Application Status Overview</h3>
+
+        <div class="dashboard-chart">
+            <canvas id="statusChart"></canvas>
+        </div>
+
+        <script>
+            const statusData = {
+                labels: ["Applied", "Interview Scheduled", "Rejected", "Offer Received", "Accepted"],
+                datasets: [{
+                    label: "Applications",
+                    data: [
+                        {{ current_user.applications | selectattr("status", "equalto", "Applied") | list | length }},
+                        {{ current_user.applications | selectattr("status", "equalto", "Interview Scheduled") | list | length }},
+                        {{ current_user.applications | selectattr("status", "equalto", "Rejected") | list | length }},
+                        {{ current_user.applications | selectattr("status", "equalto", "Offer Received") | list | length }},
+                        {{ current_user.applications | selectattr("status", "equalto", "Accepted") | list | length }}
+                    ],
+                    backgroundColor: [
+                        "#00e5ff",
+                        "#9d4edd",
+                        "#ff3366",
+                        "#00ff9d",
+                        "#ff2bd6"
+                    ],
+                    borderColor: [
+                        "#00e5ff",
+                        "#9d4edd",
+                        "#ff3366",
+                        "#00ff9d",
+                        "#ff2bd6"
+                    ],
+                    borderWidth: 2
+                }]
+            };
+
+            new Chart(
+                document.getElementById("statusChart"),
+                {
+                    type: "bar",
+                    data: statusData
+                }
+            );
+        </script>
+
+        <form method="GET" action="/dashboard" class="row g-3 mb-4">
+
+            <div class="col-md-4">
+                <input
+                    type="text"
+                    name="search"
+                    class="form-control"
+                    placeholder="Search company..."
+                    value="{{ request.args.get('search', '') }}"
+                >
+            </div>
+
+            <div class="col-md-3">
+                <select name="status" class="form-select">
+                    <option value="">All Statuses</option>
+                    <option value="Applied">Applied</option>
+                    <option value="Interview Scheduled">Interview Scheduled</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="Offer Received">Offer Received</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <select name="visa" class="form-select">
+                    <option value="">Visa Any</option>
+                    <option value="yes">Visa Yes</option>
+                    <option value="no">Visa No</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100">
+                    Filter
+                </button>
+            </div>
+
+        </form>
+
     </div>
 
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
+    <aside class="dashboard-panel">
+
+        <div class="card mb-3">
             <div class="card-body">
-                <h5>Interviews</h5>
-                <h2>
-                    {{ current_user.applications
-                        |selectattr("status", "equalto", "Interview Scheduled")
-                        |list
-                        |length }}
-                </h2>
+                <h5>Current Resume</h5>
+
+                {% if current_user.resumes %}
+                    {% set latest_resume = current_user.resumes[-1] %}
+                    <p class="mb-1">{{ latest_resume.version_name or "Unnamed Resume" }}</p>
+                    <small>{{ latest_resume.original_filename }}</small>
+                {% else %}
+                    <p>No resume uploaded.</p>
+                {% endif %}
             </div>
         </div>
-    </div>
 
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
+        <div class="card mb-3">
             <div class="card-body">
-                <h5>Offers</h5>
-                <h2>
-                    {{ current_user.applications
-                        |selectattr("status", "equalto", "Offer Received")
-                        |list
-                        |length }}
-                </h2>
+                <h5>Mission Control</h5>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                    AI Resume Review
+                </a>
+
+                <a href="/jobs/import-url" class="btn btn-info w-100 mb-2">
+                    Import Job URL
+                </a>
+
+                <a href="/applications/new" class="btn btn-primary w-100">
+                    Add Application
+                </a>
             </div>
         </div>
-    </div>
 
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
+        <div class="card mb-3">
             <div class="card-body">
-                <h5>Rejected</h5>
-                <h2>
-                    {{ current_user.applications
-                        |selectattr("status", "equalto", "Rejected")
-                        |list
-                        |length }}
-                </h2>
+                <h5>Next Follow-Up</h5>
+
+                {% if followups %}
+                    {% set next_followup = followups[0] %}
+                    <p class="mb-1">
+                        <strong>{{ next_followup.company_name }}</strong>
+                    </p>
+                    <small>
+                        {{ next_followup.follow_up_date.strftime('%Y-%m-%d') }}
+                    </small>
+                {% else %}
+                    <p>No follow-ups scheduled.</p>
+                {% endif %}
             </div>
         </div>
-    </div>
 
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
-            <div class="card-body">
-                <h5>Resume Versions</h5>
-                <h2>{{ current_user.resumes|length }}</h2>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-3 mb-3">
-        <div class="card text-center stat-card">
-            <div class="card-body">
-                <h5>Interview Prep</h5>
-                <h2>{{ current_user.interview_preps|length }}</h2>
-            </div>
-        </div>
-    </div>
-
+    </aside>
 </div>
-
-
-<hr class="my-5">
-
-<h3>Application Status Overview</h3>
-
-<div class="row">
-    <div class="col-md-6">
-        <canvas id="statusChart"></canvas>
-    </div>
-</div>
-
-<script>
-    const statusData = {
-        labels: ["Applied", "Interview Scheduled", "Rejected", "Offer Received", "Accepted"],
-        datasets: [{
-            label: "Applications",
-            data: [
-                {{ current_user.applications | selectattr("status", "equalto", "Applied") | list | length }},
-                {{ current_user.applications | selectattr("status", "equalto", "Interview Scheduled") | list | length }},
-                {{ current_user.applications | selectattr("status", "equalto", "Rejected") | list | length }},
-                {{ current_user.applications | selectattr("status", "equalto", "Offer Received") | list | length }},
-                {{ current_user.applications | selectattr("status", "equalto", "Accepted") | list | length }}
-            ]
-        }]
-    };
-
-    new Chart(
-        document.getElementById("statusChart"),
-        {
-            type: "bar",
-            data: statusData
-        }
-    );
-</script>
-
-
-<form method="GET" action="/dashboard" class="row g-3 mb-4">
-
-    <div class="col-md-4">
-        <input
-            type="text"
-            name="search"
-            class="form-control"
-            placeholder="Search company..."
-            value="{{ request.args.get('search', '') }}"
-        >
-    </div>
-
-    <div class="col-md-3">
-        <select name="status" class="form-select">
-
-            <option value="">All Statuses</option>
-
-            <option value="Applied">
-                Applied
-            </option>
-
-            <option value="Interview Scheduled">
-                Interview Scheduled
-            </option>
-
-            <option value="Rejected">
-                Rejected
-            </option>
-
-            <option value="Offer Received">
-                Offer Received
-            </option>
-
-        </select>
-    </div>
-
-    <div class="col-md-3">
-        <select name="visa" class="form-select">
-
-            <option value="">Visa Any</option>
-            <option value="yes">Visa Yes</option>
-            <option value="no">Visa No</option>
-
-        </select>
-    </div>
-
-    <div class="col-md-2">
-        <button class="btn btn-primary w-100">
-            Filter
-        </button>
-    </div>
-
-</form>
-
 
 <hr class="my-5">
 
 <h3>Upcoming Follow-Ups</h3>
-
-{% set followups = current_user.applications
-    |selectattr("follow_up_date")
-    |list
-%}
 
 {% if followups %}
     <ul class="list-group mb-4">
@@ -249,7 +252,6 @@
 {% else %}
     <p>No follow-ups scheduled.</p>
 {% endif %}
-
 
 <h3>Your Applications</h3>
 
@@ -277,9 +279,7 @@
                     </td>
                     <td>{{ app.position_title }}</td>
                     <td>{{ app.status }}</td>
-
                     <td>{{ app.legitimacy_score }}/100</td>
-
                     <td>
                         {% if app.risk_level == "Low Risk" %}
                             <span class="low-risk">{{ app.risk_level }}</span>
@@ -291,9 +291,7 @@
                             <span>{{ app.risk_level or "Unknown" }}</span>
                         {% endif %}
                     </td>
-
                     <td>{{ app.salary or "N/A" }}</td>
-
                     <td>
                         {% if app.visa_sponsorship %}
                             Yes
@@ -301,7 +299,6 @@
                             No
                         {% endif %}
                     </td>
-
                     <td>
                         <a href="/applications/{{ app.id }}/edit"
                            class="btn btn-sm btn-warning">
@@ -311,24 +308,19 @@
                         <form method="POST"
                               action="/applications/{{ app.id }}/delete"
                               style="display:inline;">
-
                             <button type="submit"
                                     class="btn btn-sm btn-danger">
                                 Delete
                             </button>
                         </form>
                     </td>
-
                 </tr>
             {% endfor %}
         </tbody>
     </table>
-
 {% else %}
     <p>No applications saved yet.</p>
-
 {% endif %}
-
 
 <hr class="my-5">
 
@@ -359,7 +351,7 @@
                             Preview
                         </a>
                         <a href="/resumes/{{ resume.id }}/download"
-                            class="btn btn-sm btn-secondary">
+                           class="btn btn-sm btn-secondary">
                             Download
                         </a>
                     </td>
@@ -370,7 +362,6 @@
 {% else %}
     <p>No resumes uploaded yet.</p>
 {% endif %}
-
 
 <hr class="my-5">
 
@@ -403,7 +394,6 @@
     <p>No saved interview prep yet.</p>
 {% endif %}
 
-
 <hr class="my-5">
 
 <h3>Saved Job Descriptions</h3>
@@ -435,37 +425,24 @@
     <p>No saved job descriptions yet.</p>
 {% endif %}
 
-
 <hr class="my-5">
 
 <h3>Recent Activity</h3>
 
 {% if current_user.audit_logs %}
-
     <div class="list-group mt-3">
-
         {% for log in current_user.audit_logs[-10:]|reverse %}
-
             <div class="list-group-item">
-
                 <strong>
                     {{ log.timestamp.strftime('%Y-%m-%d %I:%M %p') }}
                 </strong>
-
                 <br>
-
                 {{ log.action }}
-
             </div>
-
         {% endfor %}
-
     </div>
-
 {% else %}
-
     <p>No recent activity.</p>
-
 {% endif %}
 
 {% endblock %}

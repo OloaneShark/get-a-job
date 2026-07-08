@@ -66,8 +66,8 @@ The goal is to help users not only track applications, but also discover jobs, r
 - [x] Dark mode
 - [x] Light mode
 - [x] Neon synthwave theme
-- [ ] Sidebar navigation
-- [ ] Better charts
+- [x] Sidebar navigation
+- [x] Better charts
 - [ ] Dashboard animations
 - [ ] Mobile optimization
 
