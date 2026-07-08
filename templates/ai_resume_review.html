@@ -13,9 +13,35 @@
         <form method="POST">
             {{ form.hidden_tag() }}
 
-            <div class="mb-3">
-                {{ form.resume_text.label(class="form-label") }}
-                {{ form.resume_text(class="form-control", rows="12") }}
+            <div class="card mb-3">
+                <div class="card-body">
+
+                    <h5>📄 Resume Being Used</h5>
+
+                    {% if latest_resume %}
+                        <p class="mb-1">
+                            <strong>File:</strong>
+                            {{ latest_resume.original_filename }}
+                        </p>
+
+                        <p class="mb-1">
+                            <strong>Version:</strong>
+                            {{ latest_resume.version_name or "N/A" }}
+                        </p>
+
+                        <p class="mb-0 text-success">
+                            ✓ Resume loaded automatically
+                        </p>
+
+                    {% else %}
+
+                        <p class="text-danger">
+                            No resume uploaded.
+                        </p>
+
+                    {% endif %}
+
+                </div>
             </div>
 
             <div class="mb-3">

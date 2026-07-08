@@ -65,6 +65,15 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 
 
+def get_latest_resume_for_user(user_id):
+    return(
+        Resume.query
+        .filter_by(user_id=user_id)
+        .order_by(Resume.uploaded_at.desc())
+        .first()
+    )
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -453,16 +462,22 @@ def ai_resume_review():
 @login_required
 def ai_cover_letter():
     form = AICoverLetterForm()
+    
+    latest_resume = get_latest_resume_for_user(current_user.id)
 
     cover_letter = None
     manual_prompt = None
+
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before generating a cover letter.", "warning")
+        return redirect(url_for("upload_resume"))
 
     if form.validate_on_submit():
         try:
             cover_letter = generate_cover_letter(
                 form.company.data,
                 form.position.data,
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -472,7 +487,7 @@ def ai_cover_letter():
             manual_prompt = build_cover_letter_prompt(
                 form.company.data,
                 form.position.data,
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -482,12 +497,13 @@ def ai_cover_letter():
             )
 
             print(e)
-
+        
     return render_template(
         "ai_cover_letter.html",
         form=form,
         cover_letter=cover_letter,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
 
 
@@ -502,6 +518,8 @@ def application_ai_cover_letter(application_id):
 
     form = AICoverLetterForm()
 
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
     cover_letter = None
     manual_prompt = None
 
@@ -514,12 +532,16 @@ def application_ai_cover_letter(application_id):
             else ""
         )
 
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before generating a cover letter.", "warning")
+        return redirect(url_for("upload_resume"))
+
     if form.validate_on_submit():
         try:
             cover_letter = generate_cover_letter(
                 form.company.data,
                 form.position.data,
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -532,7 +554,7 @@ def application_ai_cover_letter(application_id):
             manual_prompt = build_cover_letter_prompt(
                 form.company.data,
                 form.position.data,
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -547,7 +569,8 @@ def application_ai_cover_letter(application_id):
         "ai_cover_letter.html",
         form=form,
         cover_letter=cover_letter,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
 
 
@@ -564,6 +587,7 @@ def application_ai_resume_review(application_id):
 
     ai_feedback = None
     manual_prompt = None
+    latest_resume = get_latest_resume_for_user(current_user.id)
 
     if request.method == "GET":
         form.job_description.data = (
@@ -573,9 +597,13 @@ def application_ai_resume_review(application_id):
         )
 
     if form.validate_on_submit():
+        if not latest_resume or not latest_resume.extracted_text:
+            flash("Upload a resume before running AI resume review.", "warning")
+            return redirect(url_for("upload_resume"))
+
         try:
             ai_feedback = analyze_resume(
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -586,7 +614,7 @@ def application_ai_resume_review(application_id):
 
         except Exception as e:
             manual_prompt = build_resume_review_prompt(
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -601,7 +629,8 @@ def application_ai_resume_review(application_id):
         "ai_resume_review.html",
         form=form,
         ai_feedback=ai_feedback,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
 
 

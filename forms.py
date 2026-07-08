@@ -152,10 +152,7 @@ class SavedJobDescriptionForm(FlaskForm):
     
     
 class AIResumeReviewForm(FlaskForm):
-    resume_text = TextAreaField(
-        "Paste Resume Text",
-        validators=[DataRequired()]
-    )
+    resume_text = TextAreaField("Resume Text")
 
     job_description = TextAreaField(
         "Optional Job Description"
@@ -168,10 +165,7 @@ class AICoverLetterForm(FlaskForm):
     company = StringField("Company", validators=[DataRequired()])
     position = StringField("Position", validators=[DataRequired()])
     
-    resume_text = TextAreaField(
-        "Paste Resume Text",
-        validators=[DataRequired()]
-    )
+    resume_text = TextAreaField("Resume Text")
     
     job_description = TextAreaField(
         "Paste Job Description",
