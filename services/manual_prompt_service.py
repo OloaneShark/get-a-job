@@ -23,7 +23,7 @@ Respond in clear markdown.
 """
 
 
-def build_cover_letter_prompt(company, position, resume_text, job_description):
+def build_interview_coach_prompt(company, position, job_description, resume_text=""):
     return f"""
 You are a professional career coach and technical recruiter.
 

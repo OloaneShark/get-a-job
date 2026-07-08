@@ -6,7 +6,7 @@ def get_client():
     return OpenAI()
 
 
-def generate_interview_coach(company, position, job_description):
+def generate_interview_coach(company, position, job_description, resume_text=""):
     prompt = f"""
 You are an experienced technical interviewer and security engineering hiring manager.
 
@@ -15,6 +15,9 @@ Company:
 
 Position:
 {position}
+
+Candidate Resume:
+{resume_text}
 
 Job Description:
 {job_description}

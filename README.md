@@ -29,16 +29,25 @@ This project is being built in phases. **Phase 1 (core tracking + AI tools) is c
 
 **Resume Tools**
 - Upload and store multiple resume versions (PDF/DOCX supported)
+- Automatically extracts and stores resume text for reuse across AI features
+- Latest uploaded resume is automatically used for AI resume review, cover letters, and interview preparation
 - In-browser resume preview and download
 - Rule-based resume strength scoring with specific improvement suggestions
 - AI-powered resume review against a specific job description
 - Resume-to-job-description keyword match scoring, with matched/missing keywords and priority gaps
 
 **AI-Assisted Writing**
-- AI cover letter generation, tailored to a company, role, and your latest resume
-- AI interview coach: generates likely behavioral/technical questions and study topics per company and role
+- AI cover letter generation automatically tailored to a company, role, and the user's latest uploaded resume
+- AI interview coach that generates role-specific behavioral questions, technical questions, study topics, interview strategy, and preparation checklists using both the job description and the user's latest resume
 - Saved interview prep, viewable later per application
 - **Graceful AI fallback:** if the AI API is unavailable, the app builds a manual prompt you can paste directly into ChatGPT instead of failing outright
+
+**Job Import**
+- Import job postings directly from a URL
+- Automatically cleans and extracts job posting content
+- Review and edit imported information before saving
+- Save imported postings directly into the application tracker
+- Built on a generic extraction pipeline that can be expanded to support multiple job platforms
 
 **Job Descriptions**
 - Save job descriptions independently of an application for later reference
@@ -72,6 +81,8 @@ This project is being built in phases. **Phase 1 (core tracking + AI tools) is c
 User → Flask App → SQLAlchemy → PostgreSQL
                  → OpenAI API (resume review, cover letters, interview coaching)
                  → Local file storage (uploaded resumes)
+                 → Job URL Import Pipeline
+                 → Resume Extraction (DOCX/PDF)
 ```
 
 If the OpenAI API call fails, the relevant route catches the exception and returns a manually-copyable prompt instead of erroring out, so the AI features degrade instead of breaking.
@@ -114,7 +125,13 @@ Deployed via Docker with Gunicorn as the app server. GitHub Actions handles CI o
 
 Get a Job is being built in phases. Planned for future phases:
 
-- Automated job scraping/aggregation from job boards
+- Intelligent multi-source job discovery (supported job boards and company career pages)
+- AI-powered structured extraction of job postings
+- Company OSINT and trust scoring
+- Automated skill-gap analysis and resume optimization
+- Email parsing for application status changes
+- Browser extension for one-click application logging
+- Analytics dashboard (response rates, interview rate, offer rate, ATS score trends)
 - Email parsing to auto-detect application status changes
 - Browser extension for one-click application logging
 - Team/mentor sharing of application progress

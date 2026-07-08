@@ -682,16 +682,22 @@ def interview_prep():
 @login_required
 def ai_interview_coach():
     form = AIInterviewCoachForm()
-
+    latest_resume = get_latest_resume_for_user(current_user.id)
+    
     interview_prep = None
     manual_prompt = None
 
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before generating interview prep.", "warning")
+        return redirect(url_for("upload_resume"))
+    
     if form.validate_on_submit():
         try:
             interview_prep = generate_interview_coach(
                 form.company.data,
                 form.position.data,
-                form.job_description.data
+                form.job_description.data,
+                latest_resume.extracted_text
             )
 
             log_action(current_user.id, "Generated AI interview prep")
@@ -700,7 +706,8 @@ def ai_interview_coach():
             manual_prompt = build_interview_coach_prompt(
                 form.company.data,
                 form.position.data,
-                form.job_description.data
+                form.job_description.data,
+                latest_resume.extracted_text
             )
 
             flash(
@@ -714,7 +721,8 @@ def ai_interview_coach():
         "ai_interview_coach.html",
         form=form,
         interview_prep=interview_prep,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
 
 
@@ -722,15 +730,17 @@ def ai_interview_coach():
 @login_required
 def application_ai_interview_coach(application_id):
     application = JobApplication.query.get_or_404(application_id)
-    
+
     if application.user_id != current_user.id:
         flash("You are not authorized.", "danger")
         return redirect(url_for("dashboard"))
-    
+
     form = AIInterviewCoachForm()
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
     interview_prep = None
     manual_prompt = None
-    
+
     if request.method == "GET":
         form.company.data = application.company_name
         form.position.data = application.position_title
@@ -739,39 +749,46 @@ def application_ai_interview_coach(application_id):
             if application.notes
             else ""
         )
-        
+
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before generating interview prep.", "warning")
+        return redirect(url_for("upload_resume"))
+
     if form.validate_on_submit():
         try:
-            interview_prep = generate_interview_prep(
+            interview_prep = generate_interview_coach(
                 form.company.data,
                 form.position.data,
-                form.job_description.data
+                form.job_description.data,
+                latest_resume.extracted_text
             )
-            
+
             log_action(
                 current_user.id,
                 f"Generated AI interview prep for {application.company_name}"
             )
-            
+
         except Exception as e:
             manual_prompt = build_interview_coach_prompt(
                 form.company.data,
                 form.position.data,
-                form.job_description.data
+                form.job_description.data,
+                latest_resume.extracted_text
             )
-            
+
             flash(
                 "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
                 "warning"
             )
-            
-            print (e)
-            
+
+            print(e)
+
     return render_template(
         "ai_interview_coach.html",
         form=form,
         interview_prep=interview_prep,
-        manual_prompt=manual_prompt
+        manual_prompt=manual_prompt,
+        latest_resume=latest_resume
     )
     
 
