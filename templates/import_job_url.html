@@ -5,44 +5,116 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-9">
+<div class="work-layout">
 
-        <h2>Import Job Posting</h2>
+    <div class="work-main">
+        <div class="form-page">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+            <h2>Import Job Posting</h2>
 
-            <div class="mb-3">
-                {{ form.job_url.label(class="form-label") }}
-                {{ form.job_url(class="form-control") }}
-            </div>
+            <p class="helper-text mb-4">
+                Paste a job URL, extract what we can, then review before saving.
+            </p>
 
-            {{ form.import_submit(class="btn btn-primary") }}
+            <form method="POST">
+                {{ form.hidden_tag() }}
 
-            <hr class="my-4">
+                <div class="mb-4">
+                    {{ form.job_url.label(class="form-label") }}
+                    {{ form.job_url(
+                        class="form-control",
+                        placeholder="https://example.com/job-posting"
+                    ) }}
+                </div>
 
-            <h3>Review Imported Job</h3>
+                <div class="mb-5 d-flex justify-content-center">
+                    {{ form.import_submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
 
-            <div class="mb-3">
-                {{ form.company_name.label(class="form-label") }}
-                {{ form.company_name(class="form-control") }}
-            </div>
+                <hr class="my-4">
 
-            <div class="mb-3">
-                {{ form.position_title.label(class="form-label") }}
-                {{ form.position_title(class="form-control") }}
-            </div>
+                <h3>Review Imported Job</h3>
 
-            <div class="mb-3">
-                {{ form.job_description.label(class="form-label") }}
-                {{ form.job_description(class="form-control", rows="18") }}
-            </div>
+                <p class="helper-text mb-4">
+                    Clean up the extracted details before saving them as an application.
+                </p>
 
-            {{ form.save_submit(class="btn btn-success") }}
-        </form>
+                <div class="form-grid">
+                    <div class="mb-3">
+                        {{ form.company_name.label(class="form-label") }}
+                        {{ form.company_name(
+                            class="form-control",
+                            placeholder="Company name..."
+                        ) }}
+                    </div>
 
+                    <div class="mb-3">
+                        {{ form.position_title.label(class="form-label") }}
+                        {{ form.position_title(
+                            class="form-control",
+                            placeholder="Position title..."
+                        ) }}
+                    </div>
+
+                    <div class="mb-3 full-width">
+                        <h5 class="mb-2">Job Description</h5>
+
+                        <p class="helper-text mb-3">
+                            Keep the useful posting details and remove navigation text, menus, or page clutter.
+                        </p>
+
+                        {{ form.job_description(
+                            class="form-control large-textarea",
+                            placeholder="Imported job description will appear here..."
+                        ) }}
+                    </div>
+
+                    <div class="full-width mt-4 d-flex justify-content-center">
+                        {{ form.save_submit(class="btn btn-success btn-lg px-5 py-3") }}
+                    </div>
+                </div>
+
+            </form>
+
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Import Flow</h5>
+
+                <p class="mb-2">
+                    Import first. Review second. Save only after the posting looks clean.
+                </p>
+
+                <p class="mb-0">
+                    Some sites include extra page text, so manual cleanup is still useful.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Next Actions</h5>
+
+                <a href="/job-match" class="btn btn-info w-100 mb-2">
+                    Job Match
+                </a>
+
+                <a href="/ai/cover-letter" class="btn btn-warning w-100 mb-2">
+                    AI Cover Letter
+                </a>
+
+                <a href="/ai/interview-coach" class="btn btn-warning w-100">
+                    AI Interview Coach
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

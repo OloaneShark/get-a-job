@@ -177,7 +177,7 @@ class JobUrlImportForm(FlaskForm):
     
     company_name = StringField("Company")
     position_title = StringField("Position")
-    job_description = StringField("Job Description")
+    job_description = TextAreaField("Job Description")
     
     import_submit = SubmitField("Import Job Posting")
     save_submit = SubmitField("Save as Application")

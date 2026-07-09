@@ -12,26 +12,44 @@
 
             <h2>AI Cover Letter Generator</h2>
 
+            <p class="helper-text mb-4">
+                Generate a tailored cover letter using your active resume and the target job posting.
+            </p>
+
             <form method="POST" class="form-grid">
                 {{ form.hidden_tag() }}
 
                 <div class="mb-3">
                     {{ form.company.label(class="form-label") }}
-                    {{ form.company(class="form-control") }}
+                    {{ form.company(
+                        class="form-control",
+                        placeholder="Company name..."
+                    ) }}
                 </div>
 
                 <div class="mb-3">
                     {{ form.position.label(class="form-label") }}
-                    {{ form.position(class="form-control") }}
+                    {{ form.position(
+                        class="form-control",
+                        placeholder="Position title..."
+                    ) }}
                 </div>
 
                 <div class="mb-3 full-width">
-                    {{ form.job_description.label(class="form-label") }}
-                    {{ form.job_description(class="form-control", rows="10") }}
+                    <h5 class="mb-2">Job Description</h5>
+
+                    <p class="helper-text mb-3">
+                        Paste the target posting so the cover letter can speak directly to the role.
+                    </p>
+
+                    {{ form.job_description(
+                        class="form-control large-textarea",
+                        placeholder="Paste the complete job description here..."
+                    ) }}
                 </div>
 
-                <div class="full-width">
-                    {{ form.submit(class="btn btn-primary") }}
+                <div class="full-width mt-4 d-flex justify-content-center">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
                 </div>
             </form>
 
@@ -51,7 +69,7 @@
                 <hr class="my-4">
 
                 <div class="alert alert-warning">
-                    <h4>🤖 AI API Currently Unavailable</h4>
+                    <h4>AI API Currently Unavailable</h4>
                     <p>
                         Copy the prepared prompt below and paste it into ChatGPT.
                     </p>
@@ -67,7 +85,7 @@
                     type="button"
                     class="btn btn-primary mt-3"
                     onclick="copyPrompt(event)">
-                    📋 Copy Prompt
+                    Copy Prompt
                 </button>
             {% endif %}
 
@@ -91,7 +109,7 @@
 
         <div class="card mb-3">
             <div class="card-body">
-                <h5>Mission Control</h5>
+                <h5>AI Toolkit</h5>
 
                 <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
                     AI Resume Review
