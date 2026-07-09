@@ -898,3 +898,44 @@ body.theme-light .helper-text {
     opacity: 1;
 }
 
+/* Fix checkbox sizing */
+.form-check-input {
+    width: 1.1em;
+    height: 1.1em;
+    min-height: 1.1em;
+    margin-top: 0.25em;
+}
+
+.form-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.form-select {
+    height: 54px;
+    border-radius: 10px;
+    background-color: #151d33;
+    color: #ffffff;
+    border: 1px solid #0ea5e9;
+}
+
+.form-select:focus {
+    background-color: #151d33;
+    color: #ffffff;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 0.2rem rgba(56, 189, 248, 0.15);
+}
+
+.visa-toggle .btn {
+    padding: 12px;
+    border-color: rgba(0, 229, 255, 0.35);
+}
+
+.visa-toggle .btn-check:checked + .btn {
+    background: linear-gradient(135deg, #00e5ff, #4f7cff);
+    color: #ffffff;
+    border-color: rgba(0, 229, 255, 0.7);
+    box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
+}
+

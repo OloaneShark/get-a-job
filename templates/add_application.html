@@ -59,9 +59,17 @@
                     {{ form.last_contacted_date(class="form-control") }}
                 </div>
 
-                <div class="form-check mb-3">
-                    {{ form.visa_sponsorship(class="form-check-input") }}
-                    {{ form.visa_sponsorship.label(class="form-check-label") }}
+                <div class="mb-3">
+                    <label class="form-label">{{ form.visa_sponsorship.label.text }}</label>
+
+                    <div class="btn-group w-100 visa-toggle" role="group">
+                        {% for subfield in form.visa_sponsorship %}
+                            {{ subfield(class="btn-check") }}
+                            <label class="btn btn-outline-info" for="{{ subfield.id }}">
+                                {{ subfield.label.text }}
+                            </label>
+                        {% endfor %}
+                    </div>
                 </div>
 
                 <div class="mb-3 full-width">

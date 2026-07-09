@@ -1,7 +1,7 @@
 
 from flask_wtf.file import FileField, FileAllowed
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField, TextAreaField, DateField
+from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField, TextAreaField, DateField, RadioField
 from wtforms.validators import DataRequired, Length, Email, EqualTo
 
 
@@ -78,7 +78,15 @@ class JobApplicationForm(FlaskForm):
     )
     
     salary = StringField("Salary")
-    visa_sponsorship = BooleanField("Visa Sponsorship Available")
+    visa_sponsorship = RadioField(
+        "Visa Sponsorship",
+        choices=[
+            ("Unknown", "Unknown"),
+            ("Yes", "Yes"),
+            ("No", "No")
+        ],
+        default="Unknown"
+    )
     notes = TextAreaField("Notes")
     
     submit = SubmitField("Save Application")
