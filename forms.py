@@ -99,11 +99,6 @@ class ResumeUploadForm(FlaskForm):
     
     
 class ResumeAnalysisForm(FlaskForm):
-    resume_text = TextAreaField(
-        "Paste Resume Text",
-        validators=[DataRequired()]
-    )
-
     submit = SubmitField("Analyze Resume")
     
     
@@ -131,11 +126,6 @@ class CompanyLookupForm(FlaskForm):
     
     
 class JobMatchForm(FlaskForm):
-    resume_text = TextAreaField(
-        "Paste Resume Text",
-        validators=[DataRequired()]
-    )
-
     job_description = TextAreaField(
         "Paste Job Description",
         validators=[DataRequired()]
@@ -178,7 +168,7 @@ class AICoverLetterForm(FlaskForm):
 class AIInterviewCoachForm(FlaskForm):
     company = StringField("Company", validators=[DataRequired()])
     position = StringField("Position", validators=[DataRequired()])
-    job_description = StringField("Job Description", validators=[DataRequired()])
+    job_description = TextAreaField("Job Description", validators=[DataRequired()])
     submit = SubmitField("Generate Interview Prep")
     
     

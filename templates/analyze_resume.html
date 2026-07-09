@@ -1,62 +1,153 @@
 
 {% extends "base.html" %}
 
-{% block title %}Analyze Resume - Get-A-Job{% endblock %}
+{% block title %}Resume Strength Analyzer{% endblock %}
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <h2>Resume Strength Analyzer</h2>
+<div class="work-layout">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+    <div class="work-main">
 
-            <div class="mb-3">
-                {{ form.resume_text.label(class="form-label") }}
-                {{ form.resume_text(class="form-control", rows="12") }}
+        <div class="form-page">
+
+            <h2>Resume Strength Analyzer</h2>
+
+            <p class="helper-text mb-4">
+                Analyze your active resume and receive a breakdown of strengths, weaknesses, and overall quality.
+            </p>
+
+            <div class="resume-preview-card mb-4">
+
+                <h5>Current Resume</h5>
+
+                {% if latest_resume %}
+                    <p class="mb-1">
+                        <strong>Version:</strong>
+                        {{ latest_resume.version_name or "Untitled Resume" }}
+                    </p>
+
+                    <p class="mb-0">
+                        <strong>File:</strong>
+                        {{ latest_resume.original_filename }}
+                    </p>
+
+                {% else %}
+                    <p>No resume uploaded.</p>
+                {% endif %}
+
             </div>
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+            <form method="POST">
+
+                {{ form.hidden_tag() }}
+
+                <div class="d-flex justify-content-center mt-4">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
+
+            </form>
+
+        </div>
 
         {% if score is not none %}
-            <hr class="my-4">
 
-            <h3>Resume Score: {{ score }}/100</h3>
-            <h4>Rating: {{ rating }}</h4>
+        <div class="analysis-results mt-5">
 
-            <hr class="my-4">
+            <div class="score-card mb-4">
+                <h3>Resume Score</h3>
 
-            <h4>Strengths</h4>
+                <div class="display-4 fw-bold">
+                    {{ score }}/100
+                </div>
 
-            {% if strengths %}
-                <ul class="list-group mb-4">
-                    {% for item in strengths %}
-                        <li class="list-group-item list-group-item-success">
-                            ✓ {{ item }}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>No strengths detected.</p>
-            {% endif %}
+                <p class="mb-0">
+                    {{ rating }}
+                </p>
+            </div>
 
-            <h4>Areas for Improvement</h4>
+            <div class="result-section">
 
-            {% if improvements %}
-                <ul class="list-group">
-                    {% for item in improvements %}
-                        <li class="list-group-item list-group-item-warning">
-                            ⚠ {{ item }}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>No improvement items detected.</p>
-            {% endif %}
+                <h4>Strengths</h4>
+
+                {% if strengths %}
+                    <ul class="list-group mb-4">
+                        {% for item in strengths %}
+                            <li class="list-group-item list-group-item-success">
+                                ✓ {{ item }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No strengths detected.</p>
+                {% endif %}
+
+            </div>
+
+            <div class="result-section">
+
+                <h4>Areas for Improvement</h4>
+
+                {% if improvements %}
+                    <ul class="list-group">
+                        {% for item in improvements %}
+                            <li class="list-group-item list-group-item-warning">
+                                ⚠ {{ item }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No improvement items detected.</p>
+                {% endif %}
+
+            </div>
+
+        </div>
+
         {% endif %}
+
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Resume Health</h5>
+
+                <p>
+                    Review your active resume for technical coverage,
+                    keyword strength, and missing sections.
+                </p>
+
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+
+                <h5>Next Actions</h5>
+
+                <a href="/resumes/upload"
+                   class="btn btn-info w-100 mb-2">
+                    Upload Resume
+                </a>
+
+                <a href="/job-match"
+                   class="btn btn-primary w-100 mb-2">
+                    Job Match
+                </a>
+
+                <a href="/ai/resume-review"
+                   class="btn btn-warning w-100">
+                    AI Resume Review
+                </a>
+
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

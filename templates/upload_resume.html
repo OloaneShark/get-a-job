@@ -1,30 +1,80 @@
 
 {% extends "base.html" %}
 
-{% block title %}Upload Resume - Get-A-Job{% endblock %}
+{% block title %}Upload Resume - Job Ad Infinitum{% endblock %}
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-6">
-        <h2>Upload Resume</h2>
+<div class="work-layout">
 
-        <form method="POST" enctype="multipart/form-data">
-            {{ form.hidden_tag() }}
+    <div class="work-main">
+        <div class="form-page">
 
-            <div class="mb-3">
-                {{ form.version_name.label(class="form-label") }}
-                {{ form.version_name(class="form-control") }}
-            </div>
+            <h2>Upload Resume</h2>
+            <p class="helper-text mb-4">
+                Add a new resume version to your workspace.
+            </p>
 
-            <div class="mb-3">
-                {{ form.resume_file.label(class="form-label") }}
-                {{ form.resume_file(class="form-control") }}
-            </div>
+            <form method="POST" enctype="multipart/form-data">
+                {{ form.hidden_tag() }}
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+                <div class="mb-4">
+                    {{ form.version_name.label(class="form-label") }}
+                    {{ form.version_name(
+                        class="form-control",
+                        placeholder="Example: DevSecOps Resume v1"
+                    ) }}
+                </div>
+
+                <div class="mb-4">
+                    {{ form.resume_file.label(class="form-label") }}
+                    {{ form.resume_file(class="form-control") }}
+                </div>
+
+                <div class="mt-4 d-flex justify-content-center">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
+            </form>
+
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Resume Vault</h5>
+
+                <p class="mb-2">
+                    Store a resume version for reviews, match scoring, cover letters, and interview prep.
+                </p>
+
+                <p class="mb-0">
+                    PDF and DOCX only.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Next Actions</h5>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                    AI Resume Review
+                </a>
+
+                <a href="/job-match" class="btn btn-info w-100 mb-2">
+                    Job Match
+                </a>
+
+                <a href="/dashboard" class="btn btn-primary w-100">
+                    Dashboard
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

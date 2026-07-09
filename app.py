@@ -404,11 +404,14 @@ def resume_analyzer():
     strengths = []
     improvements = []
     
+    latest_resume = get_latest_resume_for_user(current_user.id)
+    
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before analyzing resume strength.", "warning")
+        return redirect(url_for("upload_resume"))
+    
     if form.validate_on_submit():
-        score, rating, strengths, improvements = analyze_resume_text(form.resume_text.data)
-        
-        print("STRENGTHS:", strengths)
-        print("IMPROVEMENTS:", improvements)
+        score, rating, strengths, improvements = analyze_resume_text(latest_resume.extracted_text)
 
         log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100 - {rating}")
 
@@ -418,7 +421,8 @@ def resume_analyzer():
         score=score,
         rating=rating,
         strengths=strengths,
-        improvements=improvements
+        improvements=improvements,
+        latest_resume=latest_resume
     )
 
 
@@ -879,30 +883,38 @@ def import_job_url():
 def job_match():
     form = JobMatchForm()
 
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
     match_score = None
-    matched_keywords = None
-    missing_keywords = None
-    suggestions = None
-    priority_gaps = None
-    
+    matched_keywords = []
+    missing_keywords = []
+    priority_gaps = []
+    suggestions = []
+
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before matching jobs.", "warning")
+        return redirect(url_for("upload_resume"))
+
+    print("POST?", request.method)
+    print("Form errors:", form.errors)   
+
     if form.validate_on_submit():
-        match_score, matched_keywords, missing_keywords, priority_gaps, suggestions = (
-            analyze_resume_job_match(
-                form.resume_text.data,
-                form.job_description.data
-            )
+        result = analyze_resume_job_match(
+            latest_resume.extracted_text,
+            form.job_description.data
         )
 
-        log_action(current_user.id, f"Analyzed resume/job match. Score: {match_score}/100")
+        match_score, matched_keywords, missing_keywords, priority_gaps, suggestions = result
 
     return render_template(
         "job_match.html",
         form=form,
+        latest_resume=latest_resume,
         match_score=match_score,
         matched_keywords=matched_keywords,
         missing_keywords=missing_keywords,
-        suggestions=suggestions,
         priority_gaps=priority_gaps,
+        suggestions=suggestions
     )
 
 

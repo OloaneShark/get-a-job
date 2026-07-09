@@ -5,52 +5,114 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-8">
+<div class="work-layout">
 
-        <h2>Company Reputation Lookup</h2>
+    <div class="work-main">
+        <div class="form-page">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+            <h2>Company Reputation Lookup</h2>
 
-            <div class="mb-3">
-                {{ form.company_name.label(class="form-label") }}
-                {{ form.company_name(class="form-control") }}
-            </div>
+            <form method="POST">
+                {{ form.hidden_tag() }}
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+                <div class="mb-4">
+                    {{ form.company_name.label(class="form-label") }}
+                    {{ form.company_name(
+                        class="form-control",
+                        placeholder="Enter company name..."
+                    ) }}
+                </div>
 
-        {% if score is not none %}
+                <div class="mt-4">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
+            </form>
 
-            <hr class="my-4">
+            {% if score is not none %}
 
-            <h3>Trust Score: {{ score }}/100</h3>
-            <h4>Risk Level: {{ risk_level }}</h4>
+                <hr class="my-4">
 
-            <h4 class="mt-4">Positive Indicators</h4>
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h3>Trust Score: {{ score }}/100</h3>
 
-            <ul class="list-group mb-4">
-                {% for item in strengths %}
-                    <li class="list-group-item list-group-item-success">
-                        ✓ {{ item }}
-                    </li>
-                {% endfor %}
-            </ul>
+                        <p class="mb-0">
+                            <strong>Risk Level:</strong>
 
-            <h4>Warnings</h4>
+                            {% if risk_level == "Low Risk" %}
+                                <span class="low-risk">{{ risk_level }}</span>
+                            {% elif risk_level == "Medium Risk" %}
+                                <span class="medium-risk">{{ risk_level }}</span>
+                            {% elif risk_level == "High Risk" %}
+                                <span class="high-risk">{{ risk_level }}</span>
+                            {% else %}
+                                <span>{{ risk_level }}</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
 
-            <ul class="list-group">
-                {% for item in warnings %}
-                    <li class="list-group-item list-group-item-warning">
-                        ⚠ {{ item }}
-                    </li>
-                {% endfor %}
-            </ul>
+                <h4 class="mt-4">Positive Indicators</h4>
 
-        {% endif %}
+                <ul class="list-group mb-4">
+                    {% for item in strengths %}
+                        <li class="list-group-item">
+                            ✓ {{ item }}
+                        </li>
+                    {% endfor %}
+                </ul>
 
+                <h4>Warnings</h4>
+
+                <ul class="list-group">
+                    {% for item in warnings %}
+                        <li class="list-group-item">
+                            ⚠ {{ item }}
+                        </li>
+                    {% endfor %}
+                </ul>
+
+            {% endif %}
+
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Lookup Focus</h5>
+
+                <p class="mb-2">
+                    Check company reputation before saving or applying.
+                </p>
+
+                <p class="mb-0">
+                    Use this to spot basic red flags before spending time on a listing.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Related Tools</h5>
+
+                <a href="/applications/new" class="btn btn-primary w-100 mb-2">
+                    Add Application
+                </a>
+
+                <a href="/jobs/import-url" class="btn btn-info w-100 mb-2">
+                    Import Job URL
+                </a>
+
+                <a href="/job-match" class="btn btn-info w-100">
+                    Job Match
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

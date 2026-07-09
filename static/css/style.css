@@ -836,3 +836,65 @@ body.theme-light .chart-subtitle {
     color: #0891b2;
 }
 
+.large-textarea{
+    min-height:700px;
+    height:700px;
+    resize:vertical;
+
+    padding:22px;
+
+    font-size:15px;
+    line-height:1.7;
+
+    vertical-align:top;
+}
+
+textarea.large-textarea {
+    display: block;
+}
+
+.large-textarea::placeholder{
+    color:#7d8698;
+}
+
+.form-page hr{
+    opacity:.15;
+    margin:2rem 0;
+}
+
+.form-grid{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:28px;
+}
+
+.full-width{
+    grid-column:1 / -1;
+}
+
+.helper-text {
+    color: #9ca3af;
+}
+
+body.theme-dark .helper-text {
+    color: #cbd5e1;
+}
+
+body.theme-light .helper-text {
+    color: #4b5563;
+}
+
+/* ---------- Input Placeholder ---------- */
+
+.theme-dark input::placeholder,
+.theme-dark textarea::placeholder {
+    color: #8ea3c7;
+    opacity: 1;
+}
+
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+    color: #6b7280;
+    opacity: 1;
+}
+

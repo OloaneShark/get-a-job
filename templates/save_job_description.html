@@ -5,31 +5,93 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-8">
-        <h2>{{ title or "Save Job Description" }}</h2>
+<div class="work-layout">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+    <div class="work-main">
+        <div class="form-page">
 
-            <div class="mb-3">
-                {{ form.company.label(class="form-label") }}
-                {{ form.company(class="form-control") }}
-            </div>
+            <h2>{{ title or "Save Job Description" }}</h2>
 
-            <div class="mb-3">
-                {{ form.role.label(class="form-label") }}
-                {{ form.role(class="form-control") }}
-            </div>
+            <p class="helper-text mb-4">
+                Store a job posting for matching, cover letters, and interview prep.
+            </p>
 
-            <div class="mb-3">
-                {{ form.description.label(class="form-label") }}
-                {{ form.description(class="form-control", rows="10") }}
-            </div>
+            <form method="POST" class="form-grid">
+                {{ form.hidden_tag() }}
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+                <div class="mb-3">
+                    {{ form.company.label(class="form-label") }}
+                    {{ form.company(
+                        class="form-control",
+                        placeholder="Company name..."
+                    ) }}
+                </div>
+
+                <div class="mb-3">
+                    {{ form.role.label(class="form-label") }}
+                    {{ form.role(
+                        class="form-control",
+                        placeholder="Role title..."
+                    ) }}
+                </div>
+
+                <div class="mb-3 full-width">
+                    <h5 class="mb-2">Job Description</h5>
+
+                    <p class="helper-text mb-3">
+                        Paste the full posting so it can be reused across the app.
+                    </p>
+
+                    {{ form.description(
+                        class="form-control large-textarea",
+                        placeholder="Paste the complete job description here..."
+                    ) }}
+                </div>
+
+                <div class="full-width mt-4 d-flex justify-content-center">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
+            </form>
+
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Posting Archive</h5>
+
+                <p class="mb-2">
+                    Save job descriptions before they disappear or change.
+                </p>
+
+                <p class="mb-0">
+                    Useful for matching, interviews, and follow-up prep.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Next Actions</h5>
+
+                <a href="/job-match" class="btn btn-info w-100 mb-2">
+                    Job Match
+                </a>
+
+                <a href="/ai/cover-letter" class="btn btn-warning w-100 mb-2">
+                    AI Cover Letter
+                </a>
+
+                <a href="/ai/interview-coach" class="btn btn-warning w-100">
+                    AI Interview Coach
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}

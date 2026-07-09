@@ -5,91 +5,150 @@
 
 {% block content %}
 
-<div class="row justify-content-center">
-    <div class="col-md-9">
+<div class="work-layout">
 
-        <h2>Resume-to-Job Match Analyzer</h2>
+    <div class="work-main">
+        <div class="form-page">
 
-        <form method="POST">
-            {{ form.hidden_tag() }}
+            <h2>Resume-to-Job Match Analyzer</h2>
 
-            <div class="mb-3">
-                {{ form.resume_text.label(class="form-label") }}
-                {{ form.resume_text(class="form-control", rows="10") }}
-            </div>
+            <form method="POST" class="form-grid">
+                {{ form.hidden_tag() }}
 
-            <div class="mb-3">
-                {{ form.job_description.label(class="form-label") }}
-                {{ form.job_description(class="form-control", rows="10") }}
-            </div>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5>Current Resume</h5>
 
-            {{ form.submit(class="btn btn-primary") }}
-        </form>
+                        {% if latest_resume %}
+                            <p class="mb-1">{{ latest_resume.version_name or "Unnamed Resume" }}</p>
+                            <small>{{ latest_resume.original_filename }}</small>
+                        {% else %}
+                            <p class="text-danger">No resume uploaded.</p>
+                        {% endif %}
+                    </div>
+                </div>
 
-        {% if match_score is not none %}
+                <div class="mb-3 full-width">
+                    <h5 class="mb-2">Job Description</h5>
+                    <p class="helper-text mb-3">
+                        Paste the full job description so the analyzer can identify matched keywords, missing skills, and priority gaps.
+                    </p>
 
-            <hr class="my-4">
+                    {{ form.job_description(
+                        class="form-control large-textarea",
+                        placeholder="Paste the complete job description here..."
+                    ) }}
+                </div>
 
-            <h3>Match Score: {{ match_score }}/100</h3>
+                <div class="full-width mt-4 d-flex justify-content-center">
+                    {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
+                </div>
+            </form>
 
-            <h4 class="mt-4">Matched Keywords</h4>
+            {% if match_score is not none %}
 
-            {% if matched_keywords %}
-                <ul class="list-group mb-4">
-                    {% for keyword in matched_keywords %}
-                        <li class="list-group-item list-group-item-success">
-                            ✓ {{ keyword }}
+                <hr class="my-4">
+
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <h3>Match Score: {{ match_score }}/100</h3>
+                    </div>
+                </div>
+
+                <h4 class="mt-4">Matched Keywords</h4>
+
+                {% if matched_keywords %}
+                    <ul class="list-group mb-4">
+                        {% for keyword in matched_keywords %}
+                            <li class="list-group-item">
+                                ✓ {{ keyword }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No matched keywords detected.</p>
+                {% endif %}
+
+                <h4>Missing Keywords</h4>
+
+                {% if missing_keywords %}
+                    <ul class="list-group mb-4">
+                        {% for keyword in missing_keywords %}
+                            <li class="list-group-item">
+                                ⚠ {{ keyword }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No major missing keywords detected.</p>
+                {% endif %}
+
+                <h4>Priority Gaps</h4>
+
+                {% if priority_gaps %}
+                    <ul class="list-group mb-4">
+                        {% for gap in priority_gaps %}
+                            <li class="list-group-item">
+                                <strong>{{ gap.category }}</strong>:
+                                {{ gap.missing | join(", ") }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No major priority gaps detected.</p>
+                {% endif %}
+
+                <h4>Suggestions</h4>
+
+                <ul class="list-group">
+                    {% for suggestion in suggestions %}
+                        <li class="list-group-item">
+                            {{ suggestion }}
                         </li>
                     {% endfor %}
                 </ul>
-            {% else %}
-                <p>No matched keywords detected.</p>
+
             {% endif %}
 
-            <h4>Missing Keywords</h4>
-
-            {% if missing_keywords %}
-                <ul class="list-group mb-4">
-                    {% for keyword in missing_keywords %}
-                        <li class="list-group-item list-group-item-warning">
-                            ⚠ {{ keyword }}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>No major missing keywords detected.</p>
-            {% endif %}
-
-
-            <h4>Priority Gaps</h4>
-
-            {% if priority_gaps %}
-                <ul class="list-group mb-4">
-                    {% for gap in priority_gaps %}
-                        <li class="list-group-item list-group-item-danger">
-                            <strong>{{ gap.category }}</strong>:
-                            {{ gap.missing | join(", ") }}
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p>No major priority gaps detected.</p>
-            {% endif %}
-
-
-            <h4>Suggestions</h4>
-
-            <ul class="list-group">
-                {% for suggestion in suggestions %}
-                    <li class="list-group-item">
-                        {{ suggestion }}
-                    </li>
-                {% endfor %}
-            </ul>
-
-        {% endif %}
-
+        </div>
     </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Match Focus</h5>
+
+                <p class="mb-2">
+                    Compare your resume against a specific job posting.
+                </p>
+
+                <p class="mb-0">
+                    Strong matches usually share relevant skills, tools, responsibilities, and security keywords.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Match Tools</h5>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                    AI Resume Review
+                </a>
+
+                <a href="/ai/cover-letter" class="btn btn-warning w-100 mb-2">
+                    AI Cover Letter
+                </a>
+
+                <a href="/jobs/import-url" class="btn btn-info w-100">
+                    Import Job URL
+                </a>
+            </div>
+        </div>
+
+    </aside>
+
 </div>
 
 {% endblock %}
