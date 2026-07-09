@@ -97,11 +97,38 @@
 
         <h3>Application Status Overview</h3>
 
-        <div class="dashboard-chart">
-            <canvas id="statusChart"></canvas>
+        <div class="chart-card">
+
+            <div class="chart-header">
+                <h2>Application Status Overview</h2>
+                <span class="chart-subtitle">Live application pipeline</span>
+            </div>
+
+            <div class="chart-legend">
+                <span class="legend-item applied">● Applied</span>
+                <span class="legend-item interview">● Interview</span>
+                <span class="legend-item rejected">● Rejected</span>
+                <span class="legend-item offer">● Offer</span>
+                <span class="legend-item accepted">● Accepted</span>
+            </div>
+
+            <div class="chart-wrapper">
+                <canvas id="statusChart"></canvas>
+            </div>
+
         </div>
 
         <script>
+            const isLightMode = document.body.classList.contains("theme-light");
+
+            const gridColor = isLightMode
+                ? "rgba(17, 24, 39, .10)"
+                : "rgba(0,229,255,.08)";
+
+            const tickColor = isLightMode
+                ? "#374151"
+                : "#9ca3af";
+
             const statusData = {
                 labels: ["Applied", "Interview Scheduled", "Rejected", "Offer Received", "Accepted"],
                 datasets: [{
@@ -114,20 +141,22 @@
                         {{ current_user.applications | selectattr("status", "equalto", "Accepted") | list | length }}
                     ],
                     backgroundColor: [
-                        "#00e5ff",
-                        "#9d4edd",
-                        "#ff3366",
-                        "#00ff9d",
-                        "#ff2bd6"
+                        "#17d9ff",
+                        "#8b5cf6",
+                        "#ff2da6",
+                        "#ffb703",
+                        "#22c55e"
                     ],
                     borderColor: [
-                        "#00e5ff",
-                        "#9d4edd",
-                        "#ff3366",
-                        "#00ff9d",
-                        "#ff2bd6"
+                        "#17d9ff",
+                        "#8b5cf6",
+                        "#ff2da6",
+                        "#ffb703",
+                        "#22c55e"
                     ],
-                    borderWidth: 2
+                    borderWidth: 2,
+                    borderRadius: 12,
+                    borderSkipped: false
                 }]
             };
 
@@ -135,7 +164,40 @@
                 document.getElementById("statusChart"),
                 {
                     type: "bar",
-                    data: statusData
+                    data: statusData,
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: {
+                            duration: 1400,
+                            easing: "easeOutQuart"
+                        },
+                        plugins: {
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    color: gridColor
+                                },
+                                ticks: {
+                                    color: tickColor
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: gridColor
+                                },
+                                ticks: {
+                                    color: tickColor,
+                                    precision: 0
+                                }
+                            }
+                        }
+                    }
                 }
             );
         </script>

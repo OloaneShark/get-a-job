@@ -13,83 +13,87 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
+
 <body class="theme-dark">
 
-<nav class="navbar navbar-dark bg-dark">
 <div class="app-shell">
 
-        {% if current_user.is_authenticated %}
-            <aside class="sidebar">
-                <div class="sidebar-brand">
-                    GET<span>•</span>A<span>•</span>JOB
+    {% if current_user.is_authenticated %}
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="brand-top">
+                    JOB AD
                 </div>
+                <div class="brand-bottom">
+                    <span class="brand-infinity">∞</span>
+                    <span>INFINITUM</span>
+                </div>
+            </div>
 
-                <nav class="sidebar-nav">
-                    <a href="/dashboard">Dashboard</a>
+            <nav class="sidebar-nav">
+                <a href="/dashboard">Dashboard</a>
 
-                    <div class="sidebar-section">Applications</div>
-                    <a href="/applications/new">Add Application</a>
-                    <a href="/jobs/import-url">Import Job URL</a>
-                    <a href="/applications/export">Export CSV</a>
+                <div class="sidebar-section">Applications</div>
+                <a href="/applications/new">Add Application</a>
+                <a href="/jobs/import-url">Import Job URL</a>
+                <a href="/applications/export">Export CSV</a>
 
-                    <div class="sidebar-section">Resumes</div>
-                    <a href="/resumes/upload">Upload Resume</a>
-                    <a href="/resumes/analyze">Analyze Resume</a>
-                    <a href="/job-match">Job Match</a>
+                <div class="sidebar-section">Resumes</div>
+                <a href="/resumes/upload">Upload Resume</a>
+                <a href="/resumes/analyze">Analyze Resume</a>
+                <a href="/job-match">Job Match</a>
 
-                    <div class="sidebar-section">AI Tools</div>
-                    <a href="/ai/resume-review">AI Resume Review</a>
-                    <a href="/ai/cover-letter">AI Cover Letter</a>
-                    <a href="/ai/interview-coach">AI Interview Coach</a>
-                    <a href="/interview-prep">Interview Prep</a>
+                <div class="sidebar-section">AI Tools</div>
+                <a href="/ai/resume-review">AI Resume Review</a>
+                <a href="/ai/cover-letter">AI Cover Letter</a>
+                <a href="/ai/interview-coach">AI Interview Coach</a>
+                <a href="/interview-prep">Interview Prep</a>
 
-                    <div class="sidebar-section">Research</div>
-                    <a href="/company-lookup">Company Lookup</a>
-                    <a href="/job-descriptions/new">Save Job Description</a>
-                </nav>
+                <div class="sidebar-section">Research</div>
+                <a href="/company-lookup">Company Lookup</a>
+                <a href="/job-descriptions/new">Save Job Description</a>
+            </nav>
 
-                <div class="sidebar-footer">
-                    <button class="theme-toggle" onclick="toggleTheme()">
+            <div class="sidebar-footer">
+                <button type="button" class="theme-toggle" onclick="toggleTheme()">
+                    Toggle Theme
+                </button>
+
+                <a href="/logout" class="logout-link">Logout</a>
+            </div>
+        </aside>
+    {% endif %}
+
+    <main class="app-main">
+        {% if not current_user.is_authenticated %}
+            <nav class="navbar navbar-dark bg-dark mb-4">
+                <div>
+                    <a class="btn btn-outline-light btn-sm" href="/login">Login</a>
+                    <a class="btn btn-outline-light btn-sm" href="/register">Register</a>
+                    <button type="button" class="btn btn-outline-info btn-sm" onclick="toggleTheme()">
                         Toggle Theme
                     </button>
-
-                    <a href="/logout" class="logout-link">Logout</a>
                 </div>
-            </aside>
+            </nav>
         {% endif %}
 
-        <main class="app-main">
-            {% if not current_user.is_authenticated %}
-                <nav class="navbar navbar-dark bg-dark mb-4">
-                    <div>
-                        <a class="btn btn-outline-light btn-sm" href="/login">Login</a>
-                        <a class="btn btn-outline-light btn-sm" href="/register">Register</a>
-                        <button class="btn btn-outline-info btn-sm" onclick="toggleTheme()">
-                            Toggle Theme
-                        </button>
-                    </div>
-                </nav>
-            {% endif %}
+        <div class="container mt-5">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
 
-            <div class="container mt-5">
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }}">
-                                {{ message }}
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
-                {% block content %}
-                {% endblock %}
-            </div>
-        </main>
+            {% block content %}
+            {% endblock %}
+        </div>
+    </main>
 
 </div>
-</nav>
-
 
 <script src="{{ url_for('static', filename='js/copy_prompt.js') }}"></script>
 <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
