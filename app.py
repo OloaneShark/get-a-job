@@ -15,7 +15,7 @@ from flask import Flask, render_template, redirect, url_for, flash, request, Res
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from services.resume_service import analyze_resume_text
 from services.resume_text_service import extract_resume_text
-from models import db, User, JobApplication, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription
+from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -413,6 +413,26 @@ def resume_analyzer():
     if form.validate_on_submit():
         score, rating, strengths, improvements = analyze_resume_text(latest_resume.extracted_text)
 
+        report_content = (
+            f"Resume Score: {score}/100\n"
+            f"Rating: {rating}\n\n"
+            "Strengths:\n"
+            + "\n".join(f"- {item}" for item in strengths)
+            + "\n\nAreas for Improvement:\n"
+            + "\n".join(f"- {item}" for item in improvements)
+        )
+
+        report = AIReport(
+            user_id=current_user.id,
+            report_type="resume_analysis",
+            company=None,
+            position=None,
+            content=report_content
+        )
+
+        db.session.add(report)
+        db.session.commit()
+
         log_action(current_user.id, f"Analyzed resume strength. Score: {score}/100 - {rating}")
 
     return render_template(
@@ -707,7 +727,18 @@ def ai_interview_coach():
                 latest_resume.extracted_text
             )
 
-            log_action(current_user.id, "Generated AI interview prep")
+            report = AIReport(
+                user_id=current_user.id,
+                report_type="interview_coach",
+                company=form.company.data,
+                position=form.position.data,
+                content=interview_prep
+            )
+            
+            db.session.add(report)
+            db.session.commit()
+
+            log_action(current_user.id, f"Generated AI interview prep for {form.company.data} - {form.position.data}")
 
         except Exception as e:
             manual_prompt = build_interview_coach_prompt(
@@ -1115,6 +1146,37 @@ def export_applications():
     response.headers["Content-Disposition"] = "attachment; filename=applications.csv"
 
     return response
+
+
+@app.route("/ai/reports")
+@login_required
+def ai_reports():
+    reports = (
+        AIReport.query
+        .filter_by(user_id=current_user.id)
+        .order_by(AIReport.created_at.desc())
+        .all()
+    )
+    
+    return render_template(
+        "ai_reports.html",
+        reports=reports
+    )
+
+
+@app.route("/ai/reports/<int:report_id>")
+@login_required
+def view_ai_report(report_id):
+    report = AIReport.query.get_or_404(report_id)
+    
+    if report.user_id != current_user.id:
+        flash("You are not authorized to view this report", "danger")
+        return redirect(url_for("ai_reports"))
+    
+    return render_template(
+        "view_ai_report.html",
+        report=report
+    )
 
 
 if __name__ == "__main__":

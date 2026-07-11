@@ -1,0 +1,130 @@
+
+{% extends "base.html" %}
+
+{% block title %}Career Intelligence{% endblock %}
+
+{% block content %}
+
+<div class="work-layout">
+
+    <div class="work-main">
+        <div class="form-page">
+
+            <h2>Career Intelligence</h2>
+
+            <p class="helper-text mb-4">
+                Review previously generated resume reviews, cover letters, and interview reports.
+            </p>
+
+            {% if reports %}
+
+                <div class="row g-4">
+
+                    {% for report in reports %}
+                        <div class="col-xl-6">
+
+                            <div class="card h-100">
+                                <div class="card-body">
+
+                                    <h4>
+                                        {% if report.report_type == "interview_coach" %}
+                                            Interview Coach
+                                        {% elif report.report_type == "resume_review" %}
+                                            Resume Review
+                                        {% elif report.report_type == "resume_analysis" %}
+                                            Resume Analysis
+                                        {% elif report.report_type == "cover_letter" %}
+                                            Cover Letter
+                                        {% else %}
+                                            AI Report
+                                        {% endif %}
+                                    </h4>
+
+                                    {% if report.company %}
+                                        <p class="mb-1">
+                                            <strong>Company:</strong>
+                                            {{ report.company }}
+                                        </p>
+                                    {% endif %}
+
+                                    {% if report.position %}
+                                        <p class="mb-1">
+                                            <strong>Position:</strong>
+                                            {{ report.position }}
+                                        </p>
+                                    {% endif %}
+
+                                    <p class="helper-text mb-3">
+                                        {{ report.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+                                    </p>
+
+                                    <a
+                                        href="{{ url_for('view_ai_report', report_id=report.id) }}"
+                                        class="btn btn-primary">
+                                        View Report
+                                    </a>
+
+                                </div>
+                            </div>
+
+                        </div>
+                    {% endfor %}
+
+                </div>
+
+            {% else %}
+
+                <div class="card">
+                    <div class="card-body">
+                        <h4>No saved reports yet</h4>
+
+                        <p class="mb-0">
+                            Generate an AI interview guide, resume review, or cover letter to begin building your archive.
+                        </p>
+                    </div>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Report Archive</h5>
+
+                <p class="mb-0">
+                    Your generated AI reports are stored here for later review.
+                </p>
+
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>AI Toolkit</h5>
+
+                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                    AI Resume Review
+                </a>
+
+                <a href="/ai/cover-letter" class="btn btn-warning w-100 mb-2">
+                    AI Cover Letter
+                </a>
+
+                <a href="/ai/interview-coach" class="btn btn-warning w-100">
+                    AI Interview Coach
+                </a>
+
+            </div>
+        </div>
+
+    </aside>
+
+</div>
+
+{% endblock %}

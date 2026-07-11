@@ -1,0 +1,106 @@
+
+{% extends "base.html" %}
+
+{% block title %}View AI Report{% endblock %}
+
+{% block content %}
+
+<div class="work-layout">
+
+    <div class="work-main">
+        <div class="form-page">
+
+            <h2>
+                {% if report.report_type == "interview_coach" %}
+                    Interview Coach Report
+                {% elif report.report_type == "resume_review" %}
+                    Resume Review
+                {% elif report.report_type == "resume_analysis" %}
+                    Resume Analysis
+                {% elif report.report_type == "cover_letter" %}
+                    Cover Letter
+                {% else %}
+                    AI Report
+                {% endif %}
+            </h2>
+
+            <p class="helper-text mb-4">
+                Generated {{ report.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+            </p>
+
+            {% if report.company or report.position %}
+                <div class="card mb-4">
+                    <div class="card-body">
+
+                        {% if report.company %}
+                            <p class="mb-1">
+                                <strong>Company:</strong>
+                                {{ report.company }}
+                            </p>
+                        {% endif %}
+
+                        {% if report.position %}
+                            <p class="mb-0">
+                                <strong>Position:</strong>
+                                {{ report.position }}
+                            </p>
+                        {% endif %}
+
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card">
+                <div class="card-body">
+                    <pre style="white-space: pre-wrap; margin: 0;">{{ report.content }}</pre>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Report Actions</h5>
+
+                <a href="{{ url_for('ai_reports') }}"
+                class="btn btn-primary w-100 mb-2">
+                    Back to Reports
+                </a>
+
+                {% if report.report_type == "resume_analysis" %}
+                    <a href="{{ url_for('resume_analyzer') }}"
+                    class="btn btn-warning w-100">
+                        Run Another Analysis
+                    </a>
+
+                {% elif report.report_type == "resume_review" %}
+                    <a href="{{ url_for('ai_resume_review') }}"
+                    class="btn btn-warning w-100">
+                        Generate Another Review
+                    </a>
+
+                {% elif report.report_type == "cover_letter" %}
+                    <a href="{{ url_for('ai_cover_letter') }}"
+                    class="btn btn-warning w-100">
+                        Generate Another Cover Letter
+                    </a>
+
+                {% elif report.report_type == "interview_coach" %}
+                    <a href="{{ url_for('ai_interview_coach') }}"
+                    class="btn btn-warning w-100">
+                        Generate Another Interview Guide
+                    </a>
+                {% endif %}
+
+            </div>
+        </div>
+
+    </aside>
+
+</div>
+
+{% endblock %}
