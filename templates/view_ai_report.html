@@ -66,35 +66,65 @@
 
                 <h5>Report Actions</h5>
 
-                <a href="{{ url_for('ai_reports') }}"
-                class="btn btn-primary w-100 mb-2">
+                <a
+                    href="{{ url_for('ai_reports') }}"
+                    class="btn btn-primary w-100 mb-2"
+                >
                     Back to Reports
                 </a>
 
                 {% if report.report_type == "resume_analysis" %}
-                    <a href="{{ url_for('resume_analyzer') }}"
-                    class="btn btn-warning w-100">
+                    <a
+                        href="{{ url_for('resume_analyzer') }}"
+                        class="btn btn-warning w-100"
+                    >
                         Run Another Analysis
                     </a>
 
                 {% elif report.report_type == "resume_review" %}
-                    <a href="{{ url_for('ai_resume_review') }}"
-                    class="btn btn-warning w-100">
+                    <a
+                        href="{{ url_for('ai_resume_review') }}"
+                        class="btn btn-warning w-100"
+                    >
                         Generate Another Review
                     </a>
 
                 {% elif report.report_type == "cover_letter" %}
-                    <a href="{{ url_for('ai_cover_letter') }}"
-                    class="btn btn-warning w-100">
+                    <a
+                        href="{{ url_for('ai_cover_letter') }}"
+                        class="btn btn-warning w-100"
+                    >
                         Generate Another Cover Letter
                     </a>
 
                 {% elif report.report_type == "interview_coach" %}
-                    <a href="{{ url_for('ai_interview_coach') }}"
-                    class="btn btn-warning w-100">
+                    <a
+                        href="{{ url_for('ai_interview_coach') }}"
+                        class="btn btn-warning w-100"
+                    >
                         Generate Another Interview Guide
                     </a>
                 {% endif %}
+
+                <form
+                    method="POST"
+                    action="{{ url_for('delete_ai_report', report_id=report.id) }}"
+                    class="mt-2"
+                    onsubmit="return confirm('Delete this report permanently?');"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="btn btn-danger w-100"
+                    >
+                        Delete Report
+                    </button>
+                </form>
 
             </div>
         </div>

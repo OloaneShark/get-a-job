@@ -2,7 +2,7 @@
 from flask_wtf.file import FileField, FileAllowed
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField, TextAreaField, DateField, RadioField
-from wtforms.validators import DataRequired, Length, Email, EqualTo
+from wtforms.validators import DataRequired, Length, Email, EqualTo, URL, Optional
 
 
 class RegistrationForm(FlaskForm):
@@ -150,10 +150,9 @@ class SavedJobDescriptionForm(FlaskForm):
     
     
 class AIResumeReviewForm(FlaskForm):
-    resume_text = TextAreaField("Resume Text")
-
     job_description = TextAreaField(
-        "Optional Job Description"
+        "Job Description",
+        validators=[Optional()]
     )
 
     submit = SubmitField("Run AI Resume Review")
@@ -189,3 +188,4 @@ class JobUrlImportForm(FlaskForm):
     
     import_submit = SubmitField("Import Job Posting")
     save_submit = SubmitField("Save as Application")
+

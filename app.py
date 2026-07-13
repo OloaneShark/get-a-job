@@ -13,6 +13,7 @@ from io import StringIO
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, redirect, url_for, flash, request, Response, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_wtf.csrf import CSRFProtect
 from services.resume_service import analyze_resume_text
 from services.resume_text_service import extract_resume_text
 from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport
@@ -52,6 +53,7 @@ load_dotenv()
 
 
 app = Flask(__name__)
+csrf = CSRFProtect(app)
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
@@ -320,6 +322,61 @@ def delete_application(application_id):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/applications/export")
+@login_required
+def export_applications():
+    applications = JobApplication.query.filter_by(
+        user_id=current_user.id
+    ).all()
+
+    output = StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "Company",
+        "Position",
+        "Status",
+        "Salary",
+        "Visa Sponsorship",
+        "Application Date",
+        "Follow-Up Date",
+        "Last Contacted Date",
+        "Trust Score",
+        "Risk Level",
+        "Company Website",
+        "Job Posting URL",
+        "Recruiter Email"
+    ])
+
+    for app in applications:
+        writer.writerow([
+            app.company_name,
+            app.position_title,
+            app.status,
+            app.salary or "",
+            "Yes" if app.visa_sponsorship else "No",
+            app.application_date.strftime("%Y-%m-%d") if app.application_date else "",
+            app.follow_up_date.strftime("%Y-%m-%d") if app.follow_up_date else "",
+            app.last_contacted_date.strftime("%Y-%m-%d") if app.last_contacted_date else "",
+            app.legitimacy_score,
+            app.risk_level,
+            app.company_website or "",
+            app.job_posting_url or "",
+            app.recruiter_email or ""
+        ])
+
+    log_action(current_user.id, "Exported applications to CSV")
+
+    response = Response(
+        output.getvalue(),
+        mimetype="text/csv"
+    )
+
+    response.headers["Content-Disposition"] = "attachment; filename=applications.csv"
+
+    return response
+
+
 @app.route("/resumes/upload", methods=["GET", "POST"])
 @login_required
 def upload_resume():
@@ -450,24 +507,38 @@ def resume_analyzer():
 @login_required
 def ai_resume_review():
     form = AIResumeReviewForm()
-
     latest_resume = get_latest_resume_for_user(current_user.id)
 
     ai_feedback = None
     manual_prompt = None
 
+    if not latest_resume or not latest_resume.extracted_text:
+        flash("Upload a resume before running an AI resume review.", "warning")
+        return redirect(url_for("upload_resume"))
+
     if form.validate_on_submit():
         try:
             ai_feedback = analyze_resume(
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
+
+            report = AIReport(
+                user_id=current_user.id,
+                report_type="resume_review",
+                company=None,
+                position=None,
+                content=ai_feedback
+            )
+
+            db.session.add(report)
+            db.session.commit()
 
             log_action(current_user.id, "Ran AI resume review")
 
         except Exception as e:
             manual_prompt = build_resume_review_prompt(
-                form.resume_text.data,
+                latest_resume.extracted_text,
                 form.job_description.data
             )
 
@@ -510,7 +581,18 @@ def ai_cover_letter():
                 form.job_description.data
             )
 
-            log_action(current_user.id, "Generated AI cover letter")
+            report = AIReport(
+                user_id=current_user.id,
+                report_type="cover_letter",
+                company=form.company.data,
+                position=form.position.data,
+                content=cover_letter
+            )
+            
+            db.session.add(report)
+            db.session.commit()
+
+            log_action(current_user.id, f"Generated AI cover letter for {form.company.data} - {form.position.data}")
 
         except Exception as e:
             manual_prompt = build_cover_letter_prompt(
@@ -726,7 +808,7 @@ def ai_interview_coach():
                 form.job_description.data,
                 latest_resume.extracted_text
             )
-
+        
             report = AIReport(
                 user_id=current_user.id,
                 report_type="interview_coach",
@@ -828,6 +910,58 @@ def application_ai_interview_coach(application_id):
         manual_prompt=manual_prompt,
         latest_resume=latest_resume
     )
+
+
+@app.route("/ai/reports")
+@login_required
+def ai_reports():
+    reports = (
+        AIReport.query
+        .filter_by(user_id=current_user.id)
+        .order_by(AIReport.created_at.desc())
+        .all()
+    )
+    
+    return render_template(
+        "ai_reports.html",
+        reports=reports
+    )
+
+
+@app.route("/ai/reports/<int:report_id>")
+@login_required
+def view_ai_report(report_id):
+    report = AIReport.query.get_or_404(report_id)
+    
+    if report.user_id != current_user.id:
+        flash("You are not authorized to view this report", "danger")
+        return redirect(url_for("ai_reports"))
+    
+    return render_template(
+        "view_ai_report.html",
+        report=report
+    )
+
+
+@app.route("/ai/reports/<int:report_id>/delete")
+@login_required
+def delete_ai_report(report_id):
+    report = AIReport.query.get_or_404(report_id)
+    
+    if report.user_id != current_user.id:
+        flash("You are not authotized to delete this report", "danger")
+        return redirect(url_for("ai_reports"))
+    
+    report_type = report.report_type
+    
+    
+    db.sessions.delete(report)
+    db.sessions.commit()
+    
+    log_action(current_user.id, f"Deleted AI Report: {report_type}")
+    
+    flash("Report has been deleted successfully.", "success")
+    return redirect(url_for("ai_reports"))
     
 
 @app.route("/company-lookup", methods=["GET", "POST"])
@@ -1091,92 +1225,6 @@ def delete_job_description(job_id):
 
 with app.app_context():
     db.create_all()
-
-
-@app.route("/applications/export")
-@login_required
-def export_applications():
-    applications = JobApplication.query.filter_by(
-        user_id=current_user.id
-    ).all()
-
-    output = StringIO()
-    writer = csv.writer(output)
-
-    writer.writerow([
-        "Company",
-        "Position",
-        "Status",
-        "Salary",
-        "Visa Sponsorship",
-        "Application Date",
-        "Follow-Up Date",
-        "Last Contacted Date",
-        "Trust Score",
-        "Risk Level",
-        "Company Website",
-        "Job Posting URL",
-        "Recruiter Email"
-    ])
-
-    for app in applications:
-        writer.writerow([
-            app.company_name,
-            app.position_title,
-            app.status,
-            app.salary or "",
-            "Yes" if app.visa_sponsorship else "No",
-            app.application_date.strftime("%Y-%m-%d") if app.application_date else "",
-            app.follow_up_date.strftime("%Y-%m-%d") if app.follow_up_date else "",
-            app.last_contacted_date.strftime("%Y-%m-%d") if app.last_contacted_date else "",
-            app.legitimacy_score,
-            app.risk_level,
-            app.company_website or "",
-            app.job_posting_url or "",
-            app.recruiter_email or ""
-        ])
-
-    log_action(current_user.id, "Exported applications to CSV")
-
-    response = Response(
-        output.getvalue(),
-        mimetype="text/csv"
-    )
-
-    response.headers["Content-Disposition"] = "attachment; filename=applications.csv"
-
-    return response
-
-
-@app.route("/ai/reports")
-@login_required
-def ai_reports():
-    reports = (
-        AIReport.query
-        .filter_by(user_id=current_user.id)
-        .order_by(AIReport.created_at.desc())
-        .all()
-    )
-    
-    return render_template(
-        "ai_reports.html",
-        reports=reports
-    )
-
-
-@app.route("/ai/reports/<int:report_id>")
-@login_required
-def view_ai_report(report_id):
-    report = AIReport.query.get_or_404(report_id)
-    
-    if report.user_id != current_user.id:
-        flash("You are not authorized to view this report", "danger")
-        return redirect(url_for("ai_reports"))
-    
-    return render_template(
-        "view_ai_report.html",
-        report=report
-    )
 
 
 if __name__ == "__main__":

@@ -64,6 +64,26 @@
                                         View Report
                                     </a>
 
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for('delete_ai_report', report_id=report.id) }}"
+                                        class="d-inline"
+                                        onsubmit="return confirm('Delete this report permanently?');"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-danger"
+                                        >
+                                            Delete
+                                        </button>
+                                    </form>
+
                                 </div>
                             </div>
 
