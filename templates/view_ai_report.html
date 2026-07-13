@@ -19,6 +19,8 @@
                     Resume Analysis
                 {% elif report.report_type == "cover_letter" %}
                     Cover Letter
+                {% elif report.report_type == "job_match" %}
+                    Job Match Analysis
                 {% else %}
                     AI Report
                 {% endif %}
@@ -103,6 +105,14 @@
                         class="btn btn-warning w-100"
                     >
                         Generate Another Interview Guide
+                    </a>
+
+                {% elif report.report_type == "job_match" %}
+                    <a
+                        href="{{ url_for('job_match') }}"
+                        class="btn btn-warning w-100"
+                    >
+                        Run Another Job Match
                     </a>
                 {% endif %}
 

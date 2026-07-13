@@ -1071,6 +1071,57 @@ def job_match():
 
         match_score, matched_keywords, missing_keywords, priority_gaps, suggestions = result
 
+        priority_gap_lines = []
+
+        for gap in priority_gaps:
+            category = gap.get("category", "Other")
+            missing = ", ".join(gap.get("missing", []))
+            priority_gap_lines.append(f"- {category}: {missing}")
+
+        report_content = (
+            f"Job Match Score: {match_score}/100\n\n"
+            "Matched Keywords:\n"
+            + (
+                "\n".join(f"- {keyword}" for keyword in matched_keywords)
+                if matched_keywords
+                else "- None detected"
+            )
+            + "\n\nMissing Keywords:\n"
+            + (
+                "\n".join(f"- {keyword}" for keyword in missing_keywords)
+                if missing_keywords
+                else "- None detected"
+            )
+            + "\n\nPriority Gaps:\n"
+            + (
+                "\n".join(priority_gap_lines)
+                if priority_gap_lines
+                else "- No major priority gaps detected"
+            )
+            + "\n\nSuggestions:\n"
+            + (
+                "\n".join(f"- {suggestion}" for suggestion in suggestions)
+                if suggestions
+                else "- No additional suggestions"
+            )
+        )
+
+        report = AIReport(
+            user_id=current_user.id,
+            report_type="job_match",
+            company=None,
+            position=None,
+            content=report_content
+        )
+
+        db.session.add(report)
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Saved job match report with score {match_score}/100"
+        )
+
     return render_template(
         "job_match.html",
         form=form,
