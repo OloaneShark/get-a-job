@@ -16,6 +16,83 @@
                 Review previously generated resume reviews, cover letters, and interview reports.
             </p>
 
+            <form method="GET" action="{{ url_for('ai_reports') }}" class="report-search mb-4">
+
+                {% if selected_type != "all" %}
+                    <input
+                        type="hidden"
+                        name="type"
+                        value="{{ selected_type }}"
+                    >
+                {% endif %}
+
+                <div class="input-group">
+                    <input
+                        type="text"
+                        name="search"
+                        class="form-control"
+                        placeholder="Search company, position, report type, or report content..."
+                        value="{{ search_term }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary"
+                    >
+                        Search
+                    </button>
+
+                    {% if search_term %}
+                        <a
+                            href="{{ url_for('ai_reports', type=selected_type) }}"
+                            class="btn btn-outline-info"
+                        >
+                            Clear
+                        </a>
+                    {% endif %}
+                </div>
+
+            </form>
+
+            <div class="report-filters mb-4">
+
+                <a
+                    href="{{ url_for('ai_reports', search=search_term) }}"
+                    class="btn {% if selected_type == 'all' %}btn-primary{% else %}btn-outline-info{% endif %}"
+                >
+                    All
+                </a>
+
+                <a
+                    href="{{ url_for('ai_reports', type='resume', search=search_term) }}"
+                    class="btn {% if selected_type == 'resume' %}btn-primary{% else %}btn-outline-info{% endif %}"
+                >
+                    Resume
+                </a>
+
+                <a
+                    href="{{ url_for('ai_reports', type='job_match', search=search_term) }}"
+                    class="btn {% if selected_type == 'job_match' %}btn-primary{% else %}btn-outline-info{% endif %}"
+                >
+                    Job Match
+                </a>
+
+                <a
+                    href="{{ url_for('ai_reports', type='cover_letter', search=search_term) }}"
+                    class="btn {% if selected_type == 'cover_letter' %}btn-primary{% else %}btn-outline-info{% endif %}"
+                >
+                    Cover Letters
+                </a>
+
+                <a
+                    href="{{ url_for('ai_reports', type='interview_coach', search=search_term) }}"
+                    class="btn {% if selected_type == 'interview_coach' %}btn-primary{% else %}btn-outline-info{% endif %}"
+                >
+                    Interview
+                </a>
+
+            </div>
+
             {% if reports %}
 
                 <div class="row g-4">
@@ -98,11 +175,22 @@
 
                 <div class="card">
                     <div class="card-body">
-                        <h4>No saved reports yet</h4>
 
-                        <p class="mb-0">
-                            Generate an AI interview guide, resume review, or cover letter to begin building your archive.
-                        </p>
+                        {% if search_term or selected_type != "all" %}
+                            <h4>No matching reports</h4>
+
+                            <p class="mb-0">
+                                Try a different search term or report filter.
+                            </p>
+                        {% else %}
+                            <h4>No saved reports yet</h4>
+
+                            <p class="mb-0">
+                                Generate an AI interview guide, resume review, cover letter,
+                                resume analysis, or job match to begin building your archive.
+                            </p>
+                        {% endif %}
+
                     </div>
                 </div>
 

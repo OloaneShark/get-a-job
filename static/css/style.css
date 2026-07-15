@@ -939,3 +939,67 @@ body.theme-light .helper-text {
     box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
 }
 
+/* ===========================
+   Career Intelligence Filters
+=========================== */
+
+.report-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.report-filters .btn {
+    min-width: 110px;
+}
+
+body.theme-dark .btn-outline-info {
+    color: var(--neon-blue);
+    border-color: rgba(0, 229, 255, 0.4);
+    background: rgba(0, 229, 255, 0.04);
+}
+
+body.theme-dark .btn-outline-info:hover {
+    color: #ffffff;
+    background: rgba(0, 229, 255, 0.14);
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 14px rgba(0, 229, 255, 0.2);
+}
+
+body.theme-light .btn-outline-info {
+    color: #0369a1;
+    border-color: rgba(3, 105, 161, 0.35);
+}
+
+body.theme-light .btn-outline-info:hover {
+    color: #ffffff;
+}
+
+/* ===========================
+   Career Intelligence Search
+=========================== */
+
+.report-search .input-group {
+    width: 100%;
+}
+
+.report-search .form-control {
+    min-height: 50px;
+}
+
+.report-search .btn {
+    min-width: 100px;
+}
+
+@media (max-width: 760px) {
+    .report-search .input-group {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .report-search .btn {
+        width: 100%;
+    }
+}
+

@@ -915,16 +915,49 @@ def application_ai_interview_coach(application_id):
 @app.route("/ai/reports")
 @login_required
 def ai_reports():
+    selected_type = request.args.get("type", "all")
+    search_term = request.args.get("search", "").strip()
+
+    query = AIReport.query.filter_by(user_id=current_user.id)
+
+    if selected_type == "resume":
+        query = query.filter(
+            AIReport.report_type.in_([
+                "resume_analysis",
+                "resume_review"
+            ])
+        )
+
+    elif selected_type in {
+        "job_match",
+        "cover_letter",
+        "interview_coach"
+    }:
+        query = query.filter_by(report_type=selected_type)
+
+    if search_term:
+        search_pattern = f"%{search_term}%"
+
+        query = query.filter(
+            db.or_(
+                AIReport.company.ilike(search_pattern),
+                AIReport.position.ilike(search_pattern),
+                AIReport.report_type.ilike(search_pattern),
+                AIReport.content.ilike(search_pattern)
+            )
+        )
+
     reports = (
-        AIReport.query
-        .filter_by(user_id=current_user.id)
+        query
         .order_by(AIReport.created_at.desc())
         .all()
     )
-    
+
     return render_template(
         "ai_reports.html",
-        reports=reports
+        reports=reports,
+        selected_type=selected_type,
+        search_term=search_term
     )
 
 
