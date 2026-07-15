@@ -1,0 +1,367 @@
+
+{% extends "base.html" %}
+
+{% block title %}
+    {{ application.company_name }} - Application
+{% endblock %}
+
+{% block content %}
+
+<div class="work-layout">
+
+    <div class="work-main">
+
+        <div class="form-page">
+
+            <div class="application-detail-header">
+
+                <div>
+                    <p class="application-eyebrow">
+                        Application Workspace
+                    </p>
+
+                    <h2>{{ application.company_name }}</h2>
+
+                    <p class="helper-text mb-0">
+                        {{ application.position_title }}
+                    </p>
+                </div>
+
+                <div class="application-header-actions">
+
+                    <a
+                        href="{{ url_for('edit_application', application_id=application.id) }}"
+                        class="btn btn-warning"
+                    >
+                        Edit Application
+                    </a>
+
+                    {% if application.job_posting_url %}
+                        <a
+                            href="{{ application.job_posting_url }}"
+                            class="btn btn-info"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            Open Job Posting
+                        </a>
+                    {% endif %}
+
+                </div>
+
+            </div>
+
+            <div class="application-metrics">
+
+                <div class="application-metric-card">
+                    <span>Status</span>
+                    <strong>{{ application.status }}</strong>
+                </div>
+
+                <div class="application-metric-card">
+                    <span>Trust Score</span>
+                    <strong>{{ application.legitimacy_score }}/100</strong>
+                </div>
+
+                <div class="application-metric-card">
+                    <span>Risk Level</span>
+                    <strong>{{ application.risk_level or "Unknown" }}</strong>
+                </div>
+
+                <div class="application-metric-card">
+                    <span>Visa Sponsorship</span>
+                    <strong>
+                        {% if application.visa_sponsorship in [true, "True", "true", 1] %}
+                            Yes
+                        {% elif application.visa_sponsorship in [false, "False", "false", 0] %}
+                            No
+                        {% else %}
+                            {{ application.visa_sponsorship or "Unknown" }}
+                        {% endif %}
+                    </strong>
+                </div>
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
+                    <h3>Application Details</h3>
+                </div>
+
+                <div class="application-info-grid">
+
+                    <div class="application-info-item">
+                        <span>Salary</span>
+                        <strong>{{ application.salary or "Not provided" }}</strong>
+                    </div>
+
+                    <div class="application-info-item">
+                        <span>Recruiter Email</span>
+
+                        {% if application.recruiter_email %}
+                            <a href="mailto:{{ application.recruiter_email }}">
+                                {{ application.recruiter_email }}
+                            </a>
+                        {% else %}
+                            <strong>Not provided</strong>
+                        {% endif %}
+                    </div>
+
+                    <div class="application-info-item">
+                        <span>Application Date</span>
+                        <strong>
+                            {{ application.application_date.strftime('%Y-%m-%d') }}
+                        </strong>
+                    </div>
+
+                    <div class="application-info-item">
+                        <span>Follow-Up Date</span>
+                        <strong>
+                            {% if application.follow_up_date %}
+                                {{ application.follow_up_date.strftime('%Y-%m-%d') }}
+                            {% else %}
+                                Not scheduled
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="application-info-item">
+                        <span>Last Contacted</span>
+                        <strong>
+                            {% if application.last_contacted_date %}
+                                {{ application.last_contacted_date.strftime('%Y-%m-%d') }}
+                            {% else %}
+                                No contact recorded
+                            {% endif %}
+                        </strong>
+                    </div>
+
+                    <div class="application-info-item">
+                        <span>Company Website</span>
+
+                        {% if application.company_website %}
+                            <a
+                                href="{{ application.company_website }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                Visit Website
+                            </a>
+                        {% else %}
+                            <strong>Not provided</strong>
+                        {% endif %}
+                    </div>
+
+                </div>
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
+                    <h3>Notes</h3>
+                </div>
+
+                {% if application.notes %}
+                    <div class="application-notes">
+                        {{ application.notes }}
+                    </div>
+                {% else %}
+                    <p class="helper-text mb-0">
+                        No notes have been added to this application.
+                    </p>
+                {% endif %}
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
+                    <div>
+                        <h3>Career Intelligence</h3>
+
+                        <p class="helper-text mb-0">
+                            Reports connected to this company or position.
+                        </p>
+                    </div>
+                </div>
+
+                {% if related_reports %}
+
+                    <div class="application-report-grid">
+
+                        {% for report in related_reports %}
+                            <div class="application-report-card">
+
+                                <div>
+                                    <h4>
+                                        {% if report.report_type == "resume_analysis" %}
+                                            Resume Analysis
+                                        {% elif report.report_type == "resume_review" %}
+                                            Resume Review
+                                        {% elif report.report_type == "job_match" %}
+                                            Job Match Analysis
+                                        {% elif report.report_type == "cover_letter" %}
+                                            Cover Letter
+                                        {% elif report.report_type == "interview_coach" %}
+                                            Interview Coach
+                                        {% else %}
+                                            AI Report
+                                        {% endif %}
+                                    </h4>
+
+                                    <p class="helper-text mb-0">
+                                        {{ report.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+                                    </p>
+                                </div>
+
+                                <a
+                                    href="{{ url_for('view_ai_report', report_id=report.id) }}"
+                                    class="btn btn-primary"
+                                >
+                                    View Report
+                                </a>
+
+                            </div>
+                        {% endfor %}
+
+                    </div>
+
+                {% else %}
+
+                    <div class="application-empty-state">
+                        <h4>No connected reports</h4>
+
+                        <p>
+                            Generate a job match, cover letter, resume review,
+                            or interview guide for this application.
+                        </p>
+                    </div>
+
+                {% endif %}
+
+            </div>
+
+            {% if application.history %}
+
+                <div class="application-section-card">
+
+                    <div class="application-section-header">
+                        <h3>Application Timeline</h3>
+                    </div>
+
+                    <div class="application-timeline">
+
+                        {% for event in application.history | sort(attribute="created_at", reverse=true) %}
+
+                            <div class="application-timeline-item">
+
+                                <div class="application-timeline-marker"></div>
+
+                                <div>
+                                    <strong>
+                                        {{ event.action or event.status or "Application updated" }}
+                                    </strong>
+
+                                    {% if event.created_at %}
+                                        <p class="helper-text mb-0">
+                                            {{ event.created_at.strftime('%Y-%m-%d %I:%M %p') }}
+                                        </p>
+                                    {% endif %}
+                                </div>
+
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+                </div>
+
+            {% endif %}
+
+        </div>
+
+    </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Application Actions</h5>
+
+                <a
+                    href="{{ url_for('job_match') }}"
+                    class="btn btn-info w-100 mb-2"
+                >
+                    Run Job Match
+                </a>
+
+                <a
+                    href="{{ url_for('ai_resume_review') }}"
+                    class="btn btn-warning w-100 mb-2"
+                >
+                    AI Resume Review
+                </a>
+
+                <a
+                    href="{{ url_for('ai_cover_letter') }}"
+                    class="btn btn-warning w-100 mb-2"
+                >
+                    Generate Cover Letter
+                </a>
+
+                <a
+                    href="{{ url_for('ai_interview_coach') }}"
+                    class="btn btn-warning w-100"
+                >
+                    Interview Coach
+                </a>
+
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Follow-Up</h5>
+
+                {% if application.follow_up_date %}
+                    <p class="mb-1">
+                        Scheduled for
+                    </p>
+
+                    <strong>
+                        {{ application.follow_up_date.strftime('%Y-%m-%d') }}
+                    </strong>
+                {% else %}
+                    <p class="mb-0">
+                        No follow-up date scheduled.
+                    </p>
+                {% endif %}
+
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+
+                <h5>Navigation</h5>
+
+                <a
+                    href="{{ url_for('dashboard') }}"
+                    class="btn btn-primary w-100"
+                >
+                    Back to Dashboard
+                </a>
+
+            </div>
+        </div>
+
+    </aside>
+
+</div>
+
+{% endblock %}

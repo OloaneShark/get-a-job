@@ -355,11 +355,7 @@
                     </td>
                     <td>{{ app.salary or "N/A" }}</td>
                     <td>
-                        {% if app.visa_sponsorship %}
-                            Yes
-                        {% else %}
-                            No
-                        {% endif %}
+                        {{ app.visa_sponsorship or "Unknown" }}
                     </td>
                     <td>
                         <a href="/applications/{{ app.id }}/edit"

@@ -322,6 +322,35 @@ def delete_application(application_id):
     return redirect(url_for("dashboard"))
 
 
+@app.route("/applications/<int:application_id>")
+@login_required
+def application_detail(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash("You are not authorized to view this application.", "danger")
+        return redirect(url_for("dashboard"))
+
+    related_reports = (
+        AIReport.query
+        .filter_by(user_id=current_user.id)
+        .filter(
+            db.or_(
+                AIReport.company.ilike(application.company_name),
+                AIReport.position.ilike(application.position_title)
+            )
+        )
+        .order_by(AIReport.created_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "application_detail.html",
+        application=application,
+        related_reports=related_reports
+    )
+
+
 @app.route("/applications/export")
 @login_required
 def export_applications():
