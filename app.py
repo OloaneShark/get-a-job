@@ -212,11 +212,12 @@ def add_application():
             risk_level=risk_level,
             user_id=current_user.id,
             follow_up_date=form.follow_up_date.data,
-            last_contacted_date=form.last_contacted_date.data
+            last_contacted_date=form.last_contacted_date.data,
+            job_description=form.job_description.data
         )
 
         db.session.add(application)
-        db.session.commit()
+        db.session.flush()
 
         history_entry = ApplicationHistory(
             status=application.status,
@@ -261,6 +262,7 @@ def edit_application(application_id):
         application.position_title = form.position_title.data
         application.company_website = form.company_website.data
         application.job_posting_url = form.job_posting_url.data
+        application.job_description = form.job_description.data
         application.recruiter_email = form.recruiter_email.data
         application.status = form.status.data
         application.salary = form.salary.data
@@ -292,6 +294,7 @@ def edit_application(application_id):
         form.position_title.data = application.position_title
         form.company_website.data = application.company_website
         form.job_posting_url.data = application.job_posting_url
+        form.job_description.data = application.job_description
         form.recruiter_email.data = application.recruiter_email
         form.status.data = application.status
         form.salary.data = application.salary
@@ -591,15 +594,29 @@ def ai_resume_review():
 @login_required
 def ai_cover_letter():
     form = AICoverLetterForm()
-    
+
     latest_resume = get_latest_resume_for_user(current_user.id)
 
     cover_letter = None
     manual_prompt = None
 
+    application_id = request.args.get("application_id", type=int)
+    application = None
+
+    if application_id:
+        application = JobApplication.query.filter_by(
+            id=application_id,
+            user_id=current_user.id
+        ).first_or_404()
+
     if not latest_resume or not latest_resume.extracted_text:
         flash("Upload a resume before generating a cover letter.", "warning")
         return redirect(url_for("upload_resume"))
+
+    if request.method == "GET" and application:
+        form.company.data = application.company_name
+        form.position.data = application.position_title
+        form.job_description.data = application.job_description or ""
 
     if form.validate_on_submit():
         try:
@@ -617,11 +634,15 @@ def ai_cover_letter():
                 position=form.position.data,
                 content=cover_letter
             )
-            
+
             db.session.add(report)
             db.session.commit()
 
-            log_action(current_user.id, f"Generated AI cover letter for {form.company.data} - {form.position.data}")
+            log_action(
+                current_user.id,
+                f"Generated AI cover letter for "
+                f"{form.company.data} - {form.position.data}"
+            )
 
         except Exception as e:
             manual_prompt = build_cover_letter_prompt(
@@ -637,7 +658,7 @@ def ai_cover_letter():
             )
 
             print(e)
-        
+
     return render_template(
         "ai_cover_letter.html",
         form=form,

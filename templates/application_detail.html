@@ -492,28 +492,28 @@
                 <h5>Application Actions</h5>
 
                 <a
-                    href="{{ url_for('job_match') }}"
+                    href="{{ url_for('job_match', application_id=application.id) }}"
                     class="btn btn-info w-100 mb-2"
                 >
                     Run Job Match
                 </a>
 
                 <a
-                    href="{{ url_for('ai_resume_review') }}"
+                    href="{{ url_for('ai_resume_review', application_id=application.id) }}"
                     class="btn btn-warning w-100 mb-2"
                 >
                     AI Resume Review
                 </a>
 
                 <a
-                    href="{{ url_for('ai_cover_letter') }}"
+                    href="{{ url_for('ai_cover_letter', application_id=application.id) }}"
                     class="btn btn-warning w-100 mb-2"
                 >
                     Generate Cover Letter
                 </a>
 
                 <a
-                    href="{{ url_for('ai_interview_coach') }}"
+                    href="{{ url_for('ai_interview_coach', application_id=application.id) }}"
                     class="btn btn-warning w-100"
                 >
                     Interview Coach

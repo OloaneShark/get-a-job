@@ -61,6 +61,14 @@ class JobApplicationForm(FlaskForm):
     
     company_website = StringField("Company Website")
     job_posting_url = StringField("Job Posting URL")
+    job_description = TextAreaField(
+        "Job Description",
+        validators=[Optional()],
+        render_kw={
+            "rows": 10,
+            "placeholder": "Paste the complete job description here..."
+        }
+    )
     recruiter_email = StringField("Recruiter Email")
     follow_up_date = DateField("Follow-Up Date", format="%Y-%m-%d")
     last_contacted_date = DateField("Last Contacted Date", format="%Y-%m-%d")

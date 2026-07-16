@@ -30,6 +30,7 @@ class JobApplication(db.Model):
     
     company_website = db.Column(db.String(255))
     job_posting_url = db.Column(db.String(255))
+    job_description = db.Column(db.Text)
     recruiter_email = db.Column(db.String(120))
     
     legitimacy_score = db.Column(db.Integer, default=0)
@@ -180,6 +181,5 @@ class CompanyIntelligence(db.Model):
         nullable=False,
         unique=True
     )
-    
     
     
