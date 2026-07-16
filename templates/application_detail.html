@@ -178,6 +178,133 @@
             <div class="application-section-card">
 
                 <div class="application-section-header">
+
+                    <div>
+                        <h3>Company Intelligence</h3>
+
+                        <p class="helper-text mb-0">
+                            Reputation signals and risk indicators for
+                            {{ application.company_name }}.
+                        </p>
+                    </div>
+
+                    <form
+                        method="POST"
+                        action="{{ url_for(
+                            'generate_company_intelligence',
+                            application_id=application.id
+                        ) }}"
+                    >
+                        <input
+                            type="hidden"
+                            name="csrf_token"
+                            value="{{ csrf_token() }}"
+                        >
+
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                        >
+                            {% if application.company_intelligence %}
+                                Refresh Intelligence
+                            {% else %}
+                                Generate Intelligence
+                            {% endif %}
+                        </button>
+                    </form>
+
+                </div>
+
+                {% if application.company_intelligence %}
+
+                    {% set intelligence = application.company_intelligence %}
+
+                    <div class="application-metrics company-intelligence-metrics">
+
+                        <div class="application-metric-card">
+                            <span>Trust Score</span>
+
+                            <strong>
+                                {{ application.legitimacy_score }}/100
+                            </strong>
+                        </div>
+
+                        <div class="application-metric-card">
+                            <span>Risk Level</span>
+
+                            <strong>
+                                {{ application.risk_level or "Unknown" }}
+                            </strong>
+                        </div>
+
+                        <div class="application-metric-card">
+                            <span>Last Updated</span>
+
+                            <strong>
+                                {{ intelligence.updated_at.strftime(
+                                    '%Y-%m-%d'
+                                ) }}
+                            </strong>
+                        </div>
+
+                    </div>
+
+                    <div class="company-intelligence-grid">
+
+                        <div class="company-signal-card positive">
+
+                            <h4>Positive Signals</h4>
+
+                            {% if intelligence.positive_signals %}
+                                <div class="company-signal-content">
+                                    {{ intelligence.positive_signals }}
+                                </div>
+                            {% else %}
+                                <p class="helper-text mb-0">
+                                    No positive signals detected.
+                                </p>
+                            {% endif %}
+
+                        </div>
+
+                        <div class="company-signal-card warning">
+
+                            <h4>Risk Signals</h4>
+
+                            {% if intelligence.risk_signals %}
+                                <div class="company-signal-content">
+                                    {{ intelligence.risk_signals }}
+                                </div>
+                            {% else %}
+                                <p class="helper-text mb-0">
+                                    No major risk signals detected.
+                                </p>
+                            {% endif %}
+
+                        </div>
+
+                    </div>
+
+                {% else %}
+
+                    <div class="application-empty-state">
+
+                        <h4>No company intelligence generated</h4>
+
+                        <p class="mb-0">
+                            Run the analysis to calculate a trust score and
+                            identify basic company risk signals.
+                        </p>
+
+                    </div>
+
+                {% endif %}
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
                     <div>
                         <h3>Career Intelligence</h3>
 
@@ -261,8 +388,14 @@
 
                                 <div>
                                     <strong>
-                                        {{ event.action or event.status or "Application updated" }}
+                                        {{ event.status }}
                                     </strong>
+
+                                    {% if event.note %}
+                                        <p class="mb-1">
+                                            {{ event.note }}
+                                        </p>
+                                    {% endif %}
 
                                     {% if event.created_at %}
                                         <p class="helper-text mb-0">

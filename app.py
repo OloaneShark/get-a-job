@@ -16,7 +16,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_wtf.csrf import CSRFProtect
 from services.resume_service import analyze_resume_text
 from services.resume_text_service import extract_resume_text
-from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport
+from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport, CompanyIntelligence
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -249,7 +249,7 @@ def edit_application(application_id):
     if form.validate_on_submit():
         old_status = application.status
 
-        score, risk_level, red_flags = calculate_legitimacy_score(
+        score, risk_level, _ = calculate_legitimacy_score(
             form.company_website.data,
             form.job_posting_url.data,
             form.recruiter_email.data,
@@ -285,7 +285,7 @@ def edit_application(application_id):
         log_action(current_user.id, f"Updated application for {application.company_name}")
 
         flash("Application updated successfully.", "success")
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("application_detail", application_id=application.id))
 
     elif request.method == "GET":
         form.company_name.data = application.company_name
@@ -1054,6 +1054,73 @@ def company_lookup():
         risk_level=risk_level,
         strengths=strengths,
         warnings=warnings
+    )
+
+
+@app.route("/applications/<int:application_id>/company-intelligence/generate", methods=["POST"])
+@login_required
+def generate_company_intelligence(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash(
+            "You are not authorized to analyze this application.",
+            "danger"
+        )
+        return redirect(url_for("dashboard"))
+
+    score, risk_level, strengths, warnings = analyze_company(
+        application.company_name
+    )
+
+    intelligence = application.company_intelligence
+
+    if intelligence is None:
+        intelligence = CompanyIntelligence(
+            user_id=current_user.id,
+            application_id=application.id,
+            company_name=application.company_name
+        )
+
+        db.session.add(intelligence)
+
+    intelligence.company_name = application.company_name
+
+    intelligence.positive_signals = "\n".join(
+        f"- {item}" for item in strengths
+    )
+
+    intelligence.risk_signals = "\n".join(
+        f"- {item}" for item in warnings
+    )
+
+    intelligence.summary = (
+        f"Trust Score: {score}/100\n"
+        f"Risk Level: {risk_level}"
+    )
+
+    # Keep the original application record synchronized.
+    application.legitimacy_score = score
+    application.risk_level = risk_level
+
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        f"Generated company intelligence for "
+        f"{application.company_name}"
+    )
+
+    flash(
+        "Company intelligence generated successfully.",
+        "success"
+    )
+
+    return redirect(
+        url_for(
+            "application_detail",
+            application_id=application.id
+        )
     )
 
 

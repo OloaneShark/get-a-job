@@ -45,7 +45,9 @@ class JobApplication(db.Model):
     follow_up_date = db.Column(db.DateTime)
     last_contacted_date = db.Column(db.DateTime)
     
-    history = db.relationship("ApplicationHistory", backref="application", lazy=True, cascade="all, delete-orphan")
+    history = db.relationship("ApplicationHistory",backref="application", lazy=True, cascade="all, delete-orphan")
+    
+    company_intelligence = db.relationship("CompanyIntelligence", backref="application", uselist=False, cascade="all, delete-orphan")
     
     
 class AuditLog(db.Model):
@@ -142,3 +144,42 @@ class AIReport(db.Model):
     )
     
 
+class CompanyIntelligence(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    company_name = db.Column(db.String(150), nullable=False)
+
+    industry = db.Column(db.String(150))
+    headquarters = db.Column(db.String(150))
+    company_size = db.Column(db.String(100))
+    work_style = db.Column(db.String(100))
+    visa_summary = db.Column(db.String(255))
+
+    tech_stack = db.Column(db.Text)
+    positive_signals = db.Column(db.Text)
+    risk_signals = db.Column(db.Text)
+    interview_topics = db.Column(db.Text)
+    summary = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("job_application.id"),
+        nullable=False,
+        unique=True
+    )
+    
+    
+    
