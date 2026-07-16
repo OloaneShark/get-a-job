@@ -206,6 +206,7 @@ def add_application():
             recruiter_email=form.recruiter_email.data,
             status=form.status.data,
             salary=form.salary.data,
+            location=form.location.data,
             visa_sponsorship=form.visa_sponsorship.data,
             notes=encrypt_text(form.notes.data),
             legitimacy_score=score,
@@ -266,6 +267,7 @@ def edit_application(application_id):
         application.recruiter_email = form.recruiter_email.data
         application.status = form.status.data
         application.salary = form.salary.data
+        application.location = form.location.data,
         application.visa_sponsorship = form.visa_sponsorship.data
         application.notes = encrypt_text(form.notes.data)
         application.legitimacy_score = score
@@ -298,6 +300,7 @@ def edit_application(application_id):
         form.recruiter_email.data = application.recruiter_email
         form.status.data = application.status
         form.salary.data = application.salary
+        form.location.data = application.location
         form.visa_sponsorship.data = application.visa_sponsorship
         form.notes.data = decrypt_text(application.notes)
         form.follow_up_date.data = application.follow_up_date
@@ -1155,36 +1158,73 @@ def import_job_url():
         try:
             extracted_job = extract_job_from_url(form.job_url.data)
 
-            form.position_title.data = extracted_job.get("page_title", "")
-            form.company_name.data = ""
+            visa_value = extracted_job.get("visa_sponsorship")
+
+            if visa_value in [True, "True", "true", "Yes", "yes"]:
+                visa_value = "Yes"
+            elif visa_value in [False, "False", "false", "No", "no"]:
+                visa_value = "No"
+            else:
+                visa_value = "Unknown"
+
+            form.company_name.data = extracted_job.get("company_name", "")
+            form.position_title.data = (extracted_job.get("position_title") or extracted_job.get("page_title", ""))
+            form.salary.data = extracted_job.get("salary", "")
+            form.visa_sponsorship.data = visa_value
+            form.location.data = extracted_job.get("location", "")
             form.job_description.data = extracted_job.get("job_description", "")
 
             flash("Job posting imported successfully.", "success")
 
         except Exception as e:
-            flash(f"Could not import job posting: {str(e)}", "danger")
+            flash(
+                f"Could not import job posting: {str(e)}",
+                "danger"
+            )
 
     elif form.save_submit.data and form.validate_on_submit():
-        job_description = form.job_description.data or ""
-
         application = JobApplication(
-            company_name=form.company_name.data or "Unknown Company",
-            position_title=form.position_title.data or "Unknown Position",
+            company_name=(form.company_name.data or "Unknown Company"),
+            position_title=(form.position_title.data or "Unknown Position"),
             job_posting_url=form.job_url.data,
-            notes=encrypt_text(job_description),
+            job_description=(form.job_description.data or ""),
+            salary=form.salary.data,
+            location=form.location.data,
+            visa_sponsorship=(form.visa_sponsorship.data or "Unknown"),
+            status="Applied",
+            notes=encrypt_text(""),
             user_id=current_user.id
         )
 
         db.session.add(application)
+        db.session.flush()
+
+        history_entry = ApplicationHistory(
+            status=application.status,
+            note="Application created from imported job posting",
+            application_id=application.id
+        )
+
+        db.session.add(history_entry)
         db.session.commit()
 
         log_action(
             current_user.id,
-            f"Saved imported job application: {application.company_name}"
+            f"Saved imported job application: "
+            f"{application.company_name}"
         )
 
-        flash("Imported job saved as application.", "success")
-        return redirect(url_for("view_application", application_id=application.id))
+        flash(
+            "Imported job saved as application.",
+            "success"
+        )
+
+        return redirect(
+            url_for(
+                "application_detail",
+                application_id=application.id
+            )
+        )
 
     return render_template(
         "import_job_url.html",

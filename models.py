@@ -38,6 +38,7 @@ class JobApplication(db.Model):
     
     status = db.Column(db.String(50), nullable=False, default="Applied")
     salary = db.Column(db.String(50))
+    location = db.Column(db.String(100))
     visa_sponsorship = db.Column(db.String(20), default="Unknown")
     application_date = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)

@@ -56,6 +56,31 @@
                         ) }}
                     </div>
 
+                    <div class="form-grid">
+
+                        <div class="mb-3">
+                            {{ form.salary.label(class="form-label") }}
+                            {{ form.salary(
+                                class="form-control",
+                                placeholder="Imported salary will appear here..."
+                            ) }}
+                        </div>
+
+                        <div class="mb-3">
+                            {{ form.visa_sponsorship.label(class="form-label") }}
+                            {{ form.visa_sponsorship(class="form-select") }}
+                        </div>
+
+                        <div class="mb-3 full-width">
+                            {{ form.location.label(class="form-label") }}
+                            {{ form.location(
+                                class="form-control",
+                                placeholder="Imported location will appear here..."
+                            ) }}
+                        </div>
+
+                    </div>
+
                     <div class="mb-3 full-width">
                         <h5 class="mb-2">Job Description</h5>
 

@@ -192,12 +192,30 @@ class AIInterviewCoachForm(FlaskForm):
     
     
 class JobUrlImportForm(FlaskForm):
-    job_url = StringField("Job Posting URL", validators=[DataRequired()])
-    
+    job_url = StringField(
+        "Job Posting URL",
+        validators=[DataRequired()]
+    )
+
     company_name = StringField("Company")
     position_title = StringField("Position")
+
+    salary = StringField("Salary")
+
+    visa_sponsorship = SelectField(
+        "Visa Sponsorship",
+        choices=[
+            ("Unknown", "Unknown"),
+            ("Yes", "Yes"),
+            ("No", "No")
+        ],
+        default="Unknown"
+    )
+
+    location = StringField("Location")
+
     job_description = TextAreaField("Job Description")
-    
+
     import_submit = SubmitField("Import Job Posting")
     save_submit = SubmitField("Save as Application")
 
