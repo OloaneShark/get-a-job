@@ -340,7 +340,11 @@
                         </a>
                     </td>
                     <td>{{ app.position_title }}</td>
-                    <td>{{ app.status }}</td>
+                    <td>
+                        <span class="status-badge status-{{ app.status|lower|replace(' ', '-') }}">
+                            {{ app.status }}
+                        </span>
+                    </td>
                     <td>{{ app.legitimacy_score }}/100</td>
                     <td>
                         {% if app.risk_level == "Low Risk" %}

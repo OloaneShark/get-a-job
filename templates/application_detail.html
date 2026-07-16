@@ -55,7 +55,9 @@
 
                 <div class="application-metric-card">
                     <span>Status</span>
-                    <strong>{{ application.status }}</strong>
+                    <strong class="status-badge status-{{ application.status|lower|replace(' ', '-') }}">
+                        {{ application.status }}
+                    </strong>
                 </div>
 
                 <div class="application-metric-card">
@@ -80,6 +82,70 @@
                         {% endif %}
                     </strong>
                 </div>
+
+            </div>
+
+            {% set pipeline = [
+                "Applied",
+                "HR Screen",
+                "Technical Interview",
+                "Manager Interview",
+                "Final Interview",
+                "Offer Received",
+                "Accepted"
+            ] %}
+
+            {% set current_index = pipeline.index(application.status)
+                if application.status in pipeline
+                else -1
+            %}
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
+                    <div>
+                        <h3>Application Pipeline</h3>
+                        <p class="helper-text mb-0">
+                            Current progress through the hiring process.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="pipeline-track">
+
+                    {% for stage in pipeline %}
+                        {% set stage_index = loop.index0 %}
+
+                        <div
+                            class="pipeline-stage
+                            {% if application.status in ["Rejected", "Withdrawn"] %}
+                                pipeline-muted
+                            {% elif stage_index < current_index %}
+                                pipeline-complete
+                            {% elif stage_index == current_index %}
+                                pipeline-current
+                            {% endif %}"
+                        >
+                            <div class="pipeline-marker">
+                                {% if stage_index < current_index %}
+                                    ✓
+                                {% else %}
+                                    {{ loop.index }}
+                                {% endif %}
+                            </div>
+
+                            <span>{{ stage }}</span>
+                        </div>
+                    {% endfor %}
+
+                </div>
+
+                {% if application.status in ["Rejected", "Withdrawn"] %}
+                    <div class="pipeline-terminal-status">
+                        Application marked as
+                        <strong>{{ application.status }}</strong>.
+                    </div>
+                {% endif %}
 
             </div>
 

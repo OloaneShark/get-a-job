@@ -69,10 +69,14 @@ class JobApplicationForm(FlaskForm):
         "Status",
         choices=[
             ("Applied", "Applied"),
-            ("Interview Scheduled", "Interview Scheduled"),
-            ("Rejected", "Rejected"),
+            ("HR Screen", "HR Screen"),
+            ("Technical Interview", "Technical Interview"),
+            ("Manager Interview", "Manager Interview"),
+            ("Final Interview", "Final Interview"),
             ("Offer Received", "Offer Received"),
-            ("Accepted", "Accepted")
+            ("Accepted", "Accepted"),
+            ("Rejected", "Rejected"),
+            ("Withdrawn", "Withdrawn")
         ],
         validators=[DataRequired()]
     )

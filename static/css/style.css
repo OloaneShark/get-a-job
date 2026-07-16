@@ -1294,3 +1294,159 @@ body.theme-light .company-signal-card {
     }
 }
 
+/* =========================================
+   APPLICATION STATUS BADGES
+========================================= */
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 6px 11px;
+    border-radius: 999px;
+    font-size: 0.88rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.status-applied {
+    color: #17d9ff;
+    background: rgba(23, 217, 255, 0.12);
+    border: 1px solid rgba(23, 217, 255, 0.35);
+}
+
+.status-hr-screen,
+.status-technical-interview,
+.status-manager-interview,
+.status-final-interview {
+    color: #a78bfa;
+    background: rgba(139, 92, 246, 0.13);
+    border: 1px solid rgba(139, 92, 246, 0.38);
+}
+
+.status-offer-received {
+    color: #ffb703;
+    background: rgba(255, 183, 3, 0.12);
+    border: 1px solid rgba(255, 183, 3, 0.4);
+}
+
+.status-accepted {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.38);
+}
+
+.status-rejected,
+.status-withdrawn {
+    color: #ff2d55;
+    background: rgba(255, 45, 85, 0.12);
+    border: 1px solid rgba(255, 45, 85, 0.38);
+}
+
+/* =========================================
+   APPLICATION PIPELINE
+========================================= */
+
+.pipeline-track {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.pipeline-stage {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    text-align: center;
+    color: #7f8ca3;
+}
+
+.pipeline-stage:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 17px;
+    left: calc(50% + 22px);
+    width: calc(100% - 36px);
+    height: 2px;
+    background: rgba(148, 163, 184, 0.22);
+}
+
+.pipeline-marker {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 50%;
+    background: #111b31;
+    font-weight: 800;
+}
+
+.pipeline-stage span {
+    max-width: 120px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.pipeline-complete,
+.pipeline-current {
+    color: #ffffff;
+}
+
+.pipeline-complete .pipeline-marker {
+    color: #08111f;
+    background: #22c55e;
+    border-color: #22c55e;
+}
+
+.pipeline-complete:not(:last-child)::after {
+    background: rgba(34, 197, 94, 0.65);
+}
+
+.pipeline-current .pipeline-marker {
+    color: #ffffff;
+    background: linear-gradient(135deg, #17d9ff, #4f7cff);
+    border-color: #17d9ff;
+    box-shadow: 0 0 16px rgba(23, 217, 255, 0.35);
+}
+
+.pipeline-muted {
+    opacity: 0.45;
+}
+
+.pipeline-terminal-status {
+    margin-top: 20px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 45, 85, 0.35);
+    border-radius: 10px;
+    background: rgba(255, 45, 85, 0.08);
+    color: #ff6b88;
+}
+
+body.theme-light .pipeline-marker {
+    background: #ffffff;
+}
+
+@media (max-width: 1100px) {
+    .pipeline-track {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        row-gap: 24px;
+    }
+
+    .pipeline-stage::after {
+        display: none;
+    }
+}
+
+@media (max-width: 650px) {
+    .pipeline-track {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
