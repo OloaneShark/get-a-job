@@ -35,6 +35,20 @@
                     ) }}
                 </div>
 
+                <div class="mb-3 full-width">
+                    {{ form.job_description.label(class="form-label") }}
+
+                    <p class="helper-text mb-2">
+                        Review the saved posting or edit it before generating your interview prep.
+                    </p>
+
+                    {{ form.job_description(
+                        class="form-control",
+                        rows="12",
+                        placeholder="Paste the full job description here..."
+                    ) }}
+                </div>
+
                 <div class="full-width mt-4 d-flex justify-content-center">
                     {{ form.submit(class="btn btn-primary btn-lg px-5 py-3") }}
                 </div>
@@ -86,11 +100,11 @@
                 <h5>Prep Mode</h5>
 
                 <p class="mb-2">
-                    Build a quick interview practice set from company and role context.
+                    Build a focused interview practice set using the company, role, and saved job description.
                 </p>
 
                 <p class="mb-0">
-                    Use AI Interview Coach when you have a full job description.
+                    The generator uses posting keywords to tailor technical questions and study topics.
                 </p>
             </div>
         </div>

@@ -807,14 +807,29 @@ def interview_prep():
     technical_questions = None
     study_topics = None
 
+    application_id = request.args.get("application_id", type=int)
+    application = None
+
+    if application_id:
+        application = JobApplication.query.filter_by(
+            id=application_id,
+            user_id=current_user.id
+        ).first_or_404()
+
+    if request.method == "GET" and application:
+        form.company.data = application.company_name
+        form.role.data = application.position_title
+        form.job_description.data = application.job_description or ""
+
     if form.validate_on_submit():
         behavioral_questions, technical_questions, study_topics = (
             generate_interview_prep(
                 form.company.data,
-                form.role.data
+                form.role.data,
+                form.job_description.data
             )
         )
-        
+
         saved_prep = InterviewPrep(
             company=form.company.data,
             role=form.role.data,
@@ -827,16 +842,19 @@ def interview_prep():
         db.session.add(saved_prep)
         db.session.commit()
 
-        log_action(current_user.id, f"Saved interview prep for {form.company.data} - {form.role.data}")
-
-        log_action(current_user.id, f"Generated interview prep for {form.company.data}")
+        log_action(
+            current_user.id,
+            f"Saved interview prep for "
+            f"{form.company.data} - {form.role.data}"
+        )
 
     return render_template(
         "interview_prep.html",
         form=form,
         behavioral_questions=behavioral_questions,
         technical_questions=technical_questions,
-        study_topics=study_topics
+        study_topics=study_topics,
+        application=application
     )
 
 

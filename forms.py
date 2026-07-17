@@ -133,6 +133,15 @@ class InterviewPrepForm(FlaskForm):
         validators=[DataRequired()]
     )
 
+    job_description = TextAreaField(
+        "Job Description",
+        validators=[Optional()],
+        render_kw={
+            "rows": 10,
+            "placeholder": "Paste the job description..."
+        }
+    )
+
     submit = SubmitField("Generate Interview Prep")
     
 

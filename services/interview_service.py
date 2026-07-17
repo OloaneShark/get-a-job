@@ -1,5 +1,5 @@
 
-def generate_interview_prep(company, role):
+def generate_interview_prep(company, role, job_description):
     behavioral_questions = [
         "Tell me about yourself.",
         "Describe a time you faced a difficult challenge.",
@@ -14,6 +14,7 @@ def generate_interview_prep(company, role):
     study_topics = []
 
     role_text = role.lower()
+    job_text = (job_description or "").lower()
 
     if "security" in role_text or "cyber" in role_text:
         technical_questions.extend([
@@ -120,6 +121,47 @@ def generate_interview_prep(company, role):
             "Basic Statistics",
             "Data Visualization"
         ])
+
+    if "docker" in job_text:
+        technical_questions.extend([
+            "How do Docker containers differ from virtual machines?",
+            "How would you secure a Docker container?"
+        ])
+
+        study_topics.extend([
+            "Docker",
+            "Container Security"
+        ])
+
+    if "terraform" in job_text:
+        technical_questions.extend([
+            "What problem does Terraform solve?",
+            "Explain Terraform state files."
+        ])
+
+        study_topics.extend([
+            "Terraform",
+            "Infrastructure as Code"
+        ])
+
+    if "kubernetes" in job_text:
+        technical_questions.extend([
+            "What is a Kubernetes Pod?",
+            "How do ConfigMaps differ from Secrets?"
+        ])
+
+        study_topics.extend([
+            "Kubernetes",
+            "Kubernetes Security"
+        ])
+
+    if "git" in job_text:
+        technical_questions.append(
+            "Explain your Git workflow on a recent project."
+        )
+
+    if "sql" in job_text:
+        study_topics.append("SQL")
 
     if not technical_questions:
         technical_questions.append(
