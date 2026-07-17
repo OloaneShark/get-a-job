@@ -12,7 +12,15 @@
 
             <h2>Resume-to-Job Match Analyzer</h2>
 
-            <form method="POST" class="form-grid">
+            <form
+                method="POST"
+                class="form-grid"
+                {% if application %}
+                    action="{{ url_for('job_match', application_id=application.id) }}"
+                {% else %}
+                    action="{{ url_for('job_match') }}"
+                {% endif %}
+            >
                 {{ form.hidden_tag() }}
 
                 <div class="card mb-3">
@@ -133,13 +141,39 @@
             <div class="card-body">
                 <h5>Match Tools</h5>
 
-                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
-                    AI Resume Review
-                </a>
+                {% if application %}
 
-                <a href="/ai/cover-letter" class="btn btn-warning w-100 mb-2">
-                    AI Cover Letter
-                </a>
+                    <a
+                        href="{{ url_for('ai_resume_review', application_id=application.id) }}"
+                        class="btn btn-warning w-100 mb-2"
+                    >
+                        AI Resume Review
+                    </a>
+
+                    <a
+                        href="{{ url_for('ai_cover_letter', application_id=application.id) }}"
+                        class="btn btn-warning w-100 mb-2"
+                    >
+                        AI Cover Letter
+                    </a>
+
+                {% else %}
+
+                    <a
+                        href="{{ url_for('ai_resume_review') }}"
+                        class="btn btn-warning w-100 mb-2"
+                    >
+                        AI Resume Review
+                    </a>
+
+                    <a
+                        href="{{ url_for('ai_cover_letter') }}"
+                        class="btn btn-warning w-100 mb-2"
+                    >
+                        AI Cover Letter
+                    </a>
+
+                {% endif %}
 
                 <a href="/jobs/import-url" class="btn btn-info w-100">
                     Import Job URL
