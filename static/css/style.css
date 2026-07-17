@@ -1450,3 +1450,115 @@ body.theme-light .pipeline-marker {
     }
 }
 
+/* =========================================
+   APPLICATION READINESS
+========================================= */
+
+.readiness-score {
+    display: grid;
+    place-items: center;
+    min-width: 76px;
+    min-height: 52px;
+    padding: 8px 14px;
+    border: 1px solid rgba(23, 217, 255, 0.42);
+    border-radius: 13px;
+    background: rgba(23, 217, 255, 0.08);
+    color: #17d9ff;
+    font-size: 1.35rem;
+    font-weight: 900;
+    box-shadow: 0 0 14px rgba(23, 217, 255, 0.12);
+}
+
+.readiness-progress {
+    width: 100%;
+    height: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.16);
+}
+
+.readiness-progress-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(
+        90deg,
+        #17d9ff,
+        #8b5cf6,
+        #ff2da6
+    );
+    box-shadow: 0 0 15px rgba(23, 217, 255, 0.3);
+    transition: width 0.45s ease;
+}
+
+.readiness-checklist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.readiness-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 14px 16px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 11px;
+    color: #8d9bb2;
+    background: rgba(17, 27, 49, 0.42);
+}
+
+.readiness-item.complete {
+    color: #dfffea;
+    border-color: rgba(34, 197, 94, 0.36);
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.readiness-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 27px;
+    width: 27px;
+    height: 27px;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    font-weight: 900;
+}
+
+.readiness-item.complete .readiness-icon {
+    color: #22c55e;
+}
+
+.readiness-recommendation {
+    margin-top: 22px;
+    padding: 16px 18px;
+    border-left: 4px solid #17d9ff;
+    border-radius: 8px;
+    background: rgba(23, 217, 255, 0.07);
+    line-height: 1.65;
+}
+
+body.theme-light .readiness-item {
+    color: #64748b;
+    background: rgba(255, 255, 255, 0.55);
+}
+
+body.theme-light .readiness-item.complete {
+    color: #166534;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+body.theme-light .readiness-recommendation {
+    background: rgba(14, 165, 233, 0.08);
+}
+
+@media (max-width: 760px) {
+    .readiness-checklist {
+        grid-template-columns: 1fr;
+    }
+
+    .readiness-score {
+        min-width: 68px;
+    }
+}
+

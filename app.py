@@ -331,29 +331,91 @@ def delete_application(application_id):
 @app.route("/applications/<int:application_id>")
 @login_required
 def application_detail(application_id):
-    application = JobApplication.query.get_or_404(application_id)
+    application = JobApplication.query.get_or_404(
+        application_id
+    )
 
     if application.user_id != current_user.id:
-        flash("You are not authorized to view this application.", "danger")
+        flash(
+            "You are not authorized to view this application.",
+            "danger"
+        )
         return redirect(url_for("dashboard"))
+    
+    saved_interview_prep = InterviewPrep.query.filter_by(
+        user_id=current_user.id,
+        company=application.company_name,
+        role=application.position_title
+    ).first()
 
     related_reports = (
         AIReport.query
         .filter_by(user_id=current_user.id)
         .filter(
             db.or_(
-                AIReport.company.ilike(application.company_name),
-                AIReport.position.ilike(application.position_title)
+                db.and_(
+                    AIReport.company.ilike(application.company_name),
+                    AIReport.position.ilike(application.position_title)
+                ),
+                db.and_(
+                    AIReport.company.ilike(application.company_name),
+                    AIReport.position.is_(None)
+                )
             )
         )
         .order_by(AIReport.created_at.desc())
         .all()
     )
 
+    latest_resume = get_latest_resume_for_user(
+        current_user.id
+    )
+
+    readiness = {
+        "resume": bool(
+            latest_resume and latest_resume.extracted_text
+        ),
+        "job_description": bool(
+            application.job_description
+            and application.job_description.strip()
+        ),
+        "cover_letter": False,
+        "resume_review": False,
+        "job_match": False,
+        "interview_coach": False,
+        "interview_prep": saved_interview_prep is not None,
+        "company_intelligence": (
+            application.company_intelligence is not None
+        )
+    }
+
+    for report in related_reports:
+        if report.report_type == "cover_letter":
+            readiness["cover_letter"] = True
+
+        elif report.report_type == "resume_review":
+            readiness["resume_review"] = True
+
+        elif report.report_type == "job_match":
+            readiness["job_match"] = True
+
+        elif report.report_type == "interview_coach":
+            readiness["interview_coach"] = True
+
+    completed_items = sum(readiness.values())
+    total_items = len(readiness)
+
+    readiness_percent = round(
+        completed_items / total_items * 100
+    )
+
     return render_template(
         "application_detail.html",
         application=application,
-        related_reports=related_reports
+        related_reports=related_reports,
+        readiness=readiness,
+        readiness_percent=readiness_percent,
+        latest_resume=latest_resume
     )
 
 
@@ -543,6 +605,15 @@ def resume_analyzer():
 def ai_resume_review():
     form = AIResumeReviewForm()
     latest_resume = get_latest_resume_for_user(current_user.id)
+    
+    application_id = request.args.get("application_id", type=int)
+    application = None
+
+    if application_id:
+        application = JobApplication.query.filter_by(
+            id=application_id,
+            user_id=current_user.id
+        ).first_or_404()
 
     ai_feedback = None
     manual_prompt = None
@@ -550,6 +621,9 @@ def ai_resume_review():
     if not latest_resume or not latest_resume.extracted_text:
         flash("Upload a resume before running an AI resume review.", "warning")
         return redirect(url_for("upload_resume"))
+
+    if request.method == "GET" and application:
+        form.job_description.data = application.job_description or ""
 
     if form.validate_on_submit():
         try:
@@ -561,8 +635,8 @@ def ai_resume_review():
             report = AIReport(
                 user_id=current_user.id,
                 report_type="resume_review",
-                company=None,
-                position=None,
+                company=application.company_name if application else None,
+                position=application.position_title if application else None,
                 content=ai_feedback
             )
 
@@ -1257,6 +1331,15 @@ def job_match():
     form = JobMatchForm()
 
     latest_resume = get_latest_resume_for_user(current_user.id)
+    
+    application_id = request.args.get("application_id", type=int)
+    application = None
+
+    if application_id:
+        application = JobApplication.query.filter_by(
+            id=application_id,
+            user_id=current_user.id
+        ).first_or_404()
 
     match_score = None
     matched_keywords = []
@@ -1268,8 +1351,8 @@ def job_match():
         flash("Upload a resume before matching jobs.", "warning")
         return redirect(url_for("upload_resume"))
 
-    print("POST?", request.method)
-    print("Form errors:", form.errors)   
+    if request.method == "GET" and application:
+        form.job_description.data = application.job_description or "" 
 
     if form.validate_on_submit():
         result = analyze_resume_job_match(
@@ -1317,8 +1400,8 @@ def job_match():
         report = AIReport(
             user_id=current_user.id,
             report_type="job_match",
-            company=None,
-            position=None,
+            company=application.company_name if application else None,
+            position=application.position_title if application else None,
             content=report_content
         )
 
@@ -1334,6 +1417,7 @@ def job_match():
         "job_match.html",
         form=form,
         latest_resume=latest_resume,
+        application=application,
         match_score=match_score,
         matched_keywords=matched_keywords,
         missing_keywords=missing_keywords,

@@ -162,7 +162,7 @@
                         <strong>{{ application.salary or "Not provided" }}</strong>
                     </div>
 
-                    <div class="application-detail-card">
+                    <div class="application-info-item">
                         <span>Location</span>
                         <strong>{{ application.location or "Not provided" }}</strong>
                     </div>
@@ -223,6 +223,143 @@
                             <strong>Not provided</strong>
                         {% endif %}
                     </div>
+
+                </div>
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
+
+                    <div>
+                        <h3>Application Readiness</h3>
+
+                        <p class="helper-text mb-0">
+                            Preparation completed for this application.
+                        </p>
+                    </div>
+
+                    <div class="readiness-score">
+                        {{ readiness_percent }}%
+                    </div>
+
+                </div>
+
+                <div class="readiness-progress">
+                    <div
+                        class="readiness-progress-fill"
+                        style="width: {{ readiness_percent }}%;"
+                    ></div>
+                </div>
+
+                <div class="readiness-checklist">
+
+                    <div class="readiness-item
+                        {% if readiness.resume %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.resume %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Active resume uploaded</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.job_description %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.job_description %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Job description saved</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.job_match %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.job_match %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Job match completed</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.resume_review %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.resume_review %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Resume review completed</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.cover_letter %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.cover_letter %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Cover letter generated</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.interview_coach %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.interview_coach %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Interview guide generated</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.company_intelligence %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.company_intelligence %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Company intelligence generated</span>
+                    </div>
+
+                    <div class="readiness-item
+                        {% if readiness.interview_prep %}complete{% endif %}">
+                        <span class="readiness-icon">
+                            {% if readiness.interview_prep %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>Interview prep completed</span>
+                    </div>
+
+                </div>
+
+                <div class="readiness-recommendation">
+
+                    <strong>Recommended next action:</strong>
+
+                    {% if not readiness.resume %}
+                        Upload an active resume.
+
+                    {% elif not readiness.job_description %}
+                        Save the complete job description.
+
+                    {% elif not readiness.job_match %}
+                        Run a job match analysis.
+
+                    {% elif not readiness.resume_review %}
+                        Generate an AI resume review.
+
+                    {% elif not readiness.cover_letter %}
+                        Generate a tailored cover letter.
+
+                    {% elif not readiness.interview_prep %}
+                        Generate an interview practice set.
+
+                    {% elif not readiness.interview_coach %}
+                        Generate an AI interview guide.
+
+                    {% elif not readiness.company_intelligence %}
+                        Generate company intelligence.
+
+                    {% else %}
+                        Preparation complete. Review your reports and follow-up schedule.
+                    {% endif %}
 
                 </div>
 
