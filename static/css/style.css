@@ -1562,3 +1562,34 @@ body.theme-light .readiness-recommendation {
     }
 }
 
+/* =========================================
+   APPLICATION INTELLIGENCE SUMMARY
+========================================= */
+
+.application-summary-list {
+    display: grid;
+    gap: 12px;
+}
+
+.application-summary-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 15px 17px;
+    border: 1px solid rgba(23, 217, 255, 0.2);
+    border-radius: 11px;
+    background: rgba(17, 27, 49, 0.46);
+    line-height: 1.6;
+}
+
+.application-summary-marker {
+    flex: 0 0 auto;
+    color: #17d9ff;
+    font-weight: 900;
+}
+
+body.theme-light .application-summary-item {
+    background: rgba(255, 255, 255, 0.58);
+    border-color: rgba(14, 165, 233, 0.2);
+}
+

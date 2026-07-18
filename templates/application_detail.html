@@ -368,6 +368,31 @@
             <div class="application-section-card">
 
                 <div class="application-section-header">
+                    <div>
+                        <h3>Application Intelligence Summary</h3>
+
+                        <p class="helper-text mb-0">
+                            A consolidated overview of preparation, risk, and recommended actions.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="application-summary-list">
+
+                    {% for item in application_summary %}
+                        <div class="application-summary-item">
+                            <span class="application-summary-marker">→</span>
+                            <span>{{ item }}</span>
+                        </div>
+                    {% endfor %}
+
+                </div>
+
+            </div>
+
+            <div class="application-section-card">
+
+                <div class="application-section-header">
                     <h3>Notes</h3>
                 </div>
 

@@ -388,7 +388,7 @@ def application_detail(application_id):
             application.company_intelligence is not None
         )
     }
-
+    
     for report in related_reports:
         if report.report_type == "cover_letter":
             readiness["cover_letter"] = True
@@ -402,12 +402,61 @@ def application_detail(application_id):
         elif report.report_type == "interview_coach":
             readiness["interview_coach"] = True
 
+
     completed_items = sum(readiness.values())
     total_items = len(readiness)
 
-    readiness_percent = round(
-        completed_items / total_items * 100
-    )
+    readiness_percent = (round(completed_items / total_items * 100) if total_items else 0)
+
+    application_summary = []
+
+    if readiness_percent >= 85:
+        application_summary.append(
+            "This application is highly prepared and ready for final review."
+        )
+    elif readiness_percent >= 60:
+        application_summary.append(
+            "This application is partially prepared but still has important gaps."
+        )
+    else:
+        application_summary.append(
+            "This application needs more preparation before it is interview-ready."
+        )
+
+    if not readiness["job_match"]:
+        application_summary.append(
+            "Run a job match analysis to identify resume gaps."
+        )
+
+    if not readiness["resume_review"]:
+        application_summary.append(
+            "Generate a resume review tailored to this posting."
+        )
+
+    if not readiness["cover_letter"]:
+        application_summary.append(
+            "Create a tailored cover letter for this application."
+        )
+
+    if not readiness["interview_prep"]:
+        application_summary.append(
+            "Generate structured interview practice questions."
+        )
+
+    if not readiness["interview_coach"]:
+        application_summary.append(
+            "Generate a complete AI interview guide."
+        )
+
+    if application.risk_level == "High Risk":
+        application_summary.append(
+            "Review the company carefully because the current risk level is high."
+        )
+    elif application.risk_level == "Medium Risk":
+        application_summary.append(
+            "Complete additional company research before proceeding."
+        )
+
 
     return render_template(
         "application_detail.html",
@@ -415,7 +464,8 @@ def application_detail(application_id):
         related_reports=related_reports,
         readiness=readiness,
         readiness_percent=readiness_percent,
-        latest_resume=latest_resume
+        latest_resume=latest_resume,
+        application_summary=application_summary
     )
 
 
