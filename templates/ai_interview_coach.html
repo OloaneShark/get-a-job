@@ -12,7 +12,15 @@
 
             <h2>AI Interview Coach</h2>
 
-            <form method="POST" class="form-grid">
+            <form
+                method="POST"
+                class="form-grid"
+                {% if application %}
+                    action="{{ url_for('ai_interview_coach', application_id=application.id) }}"
+                {% else %}
+                    action="{{ url_for('ai_interview_coach') }}"
+                {% endif %}
+            >
                 {{ form.hidden_tag() }}
 
                 <div class="mb-4">

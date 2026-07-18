@@ -663,7 +663,8 @@ def ai_resume_review():
         form=form,
         ai_feedback=ai_feedback,
         manual_prompt=manual_prompt,
-        latest_resume=latest_resume
+        latest_resume=latest_resume,
+        application=application
     )
 
 
@@ -937,14 +938,28 @@ def interview_prep():
 def ai_interview_coach():
     form = AIInterviewCoachForm()
     latest_resume = get_latest_resume_for_user(current_user.id)
-    
+
+    application_id = request.args.get("application_id", type=int)
+    application = None
+
+    if application_id:
+        application = JobApplication.query.filter_by(
+            id=application_id,
+            user_id=current_user.id
+        ).first_or_404()
+
     interview_prep = None
     manual_prompt = None
 
     if not latest_resume or not latest_resume.extracted_text:
         flash("Upload a resume before generating interview prep.", "warning")
         return redirect(url_for("upload_resume"))
-    
+
+    if request.method == "GET" and application:
+        form.company.data = application.company_name
+        form.position.data = application.position_title
+        form.job_description.data = application.job_description or ""
+
     if form.validate_on_submit():
         try:
             interview_prep = generate_interview_coach(
@@ -953,19 +968,23 @@ def ai_interview_coach():
                 form.job_description.data,
                 latest_resume.extracted_text
             )
-        
+
             report = AIReport(
                 user_id=current_user.id,
                 report_type="interview_coach",
-                company=form.company.data,
-                position=form.position.data,
+                company=application.company_name if application else form.company.data,
+                position=application.position_title if application else form.position.data,
                 content=interview_prep
             )
-            
+
             db.session.add(report)
             db.session.commit()
 
-            log_action(current_user.id, f"Generated AI interview prep for {form.company.data} - {form.position.data}")
+            log_action(
+                current_user.id,
+                f"Generated AI interview prep for "
+                f"{form.company.data} - {form.position.data}"
+            )
 
         except Exception as e:
             manual_prompt = build_interview_coach_prompt(
@@ -987,7 +1006,8 @@ def ai_interview_coach():
         form=form,
         interview_prep=interview_prep,
         manual_prompt=manual_prompt,
-        latest_resume=latest_resume
+        latest_resume=latest_resume,
+        application=application
     )
 
 

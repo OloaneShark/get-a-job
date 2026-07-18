@@ -16,7 +16,14 @@
                 Review your active resume against a target job description.
             </p>
 
-            <form method="POST">
+            <form
+                method="POST"
+                {% if application %}
+                    action="{{ url_for('ai_resume_review', application_id=application.id) }}"
+                {% else %}
+                    action="{{ url_for('ai_resume_review') }}"
+                {% endif %}
+            >
                 {{ form.hidden_tag() }}
 
                 <div class="mb-3">
