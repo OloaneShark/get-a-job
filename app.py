@@ -524,6 +524,153 @@ def export_applications():
     return response
 
 
+@app.route("/applications/<int:application_id>/intelligence-report", methods=["POST"])
+@login_required
+def generate_application_intelligence_report(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash(
+            "You are not authorized to generate this report.",
+            "danger"
+        )
+        return redirect(url_for("dashboard"))
+
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
+    related_reports = (
+        AIReport.query
+        .filter_by(user_id=current_user.id)
+        .filter(
+            db.and_(
+                AIReport.company.ilike(application.company_name),
+                AIReport.position.ilike(application.position_title)
+            )
+        )
+        .order_by(AIReport.created_at.desc())
+        .all()
+    )
+
+    report_types = {
+        report.report_type
+        for report in related_reports
+    }
+
+    readiness_items = {
+        "Resume uploaded": bool(
+            latest_resume and latest_resume.extracted_text
+        ),
+        "Job description saved": bool(
+            application.job_description
+            and application.job_description.strip()
+        ),
+        "Job match completed": "job_match" in report_types,
+        "Resume review completed": "resume_review" in report_types,
+        "Cover letter generated": "cover_letter" in report_types,
+        "Interview guide generated": "interview_coach" in report_types,
+        "Company intelligence generated": (
+            application.company_intelligence is not None
+        )
+    }
+
+    completed = sum(readiness_items.values())
+    total = len(readiness_items)
+
+    readiness_percent = (
+        round(completed / total * 100)
+        if total
+        else 0
+    )
+
+    completed_lines = [
+        f"- {label}"
+        for label, done in readiness_items.items()
+        if done
+    ]
+
+    missing_lines = [
+        f"- {label}"
+        for label, done in readiness_items.items()
+        if not done
+    ]
+
+    report_content = (
+        "APPLICATION INTELLIGENCE REPORT\n\n"
+        f"Company: {application.company_name}\n"
+        f"Position: {application.position_title}\n"
+        f"Status: {application.status}\n"
+        f"Location: {application.location or 'Not provided'}\n"
+        f"Salary: {application.salary or 'Not provided'}\n"
+        f"Visa Sponsorship: "
+        f"{application.visa_sponsorship or 'Unknown'}\n"
+        f"Trust Score: {application.legitimacy_score}/100\n"
+        f"Risk Level: {application.risk_level or 'Unknown'}\n"
+        f"Application Readiness: {readiness_percent}%\n\n"
+        "Completed Preparation:\n"
+        + (
+            "\n".join(completed_lines)
+            if completed_lines
+            else "- None"
+        )
+        + "\n\nRemaining Preparation:\n"
+        + (
+            "\n".join(missing_lines)
+            if missing_lines
+            else "- Preparation complete"
+        )
+        + "\n\nRecommended Next Step:\n"
+    )
+
+    if not readiness_items["Resume uploaded"]:
+        report_content += "- Upload an active resume."
+    elif not readiness_items["Job description saved"]:
+        report_content += "- Save the complete job description."
+    elif not readiness_items["Job match completed"]:
+        report_content += "- Run a job match analysis."
+    elif not readiness_items["Resume review completed"]:
+        report_content += "- Generate a tailored resume review."
+    elif not readiness_items["Cover letter generated"]:
+        report_content += "- Generate a tailored cover letter."
+    elif not readiness_items["Interview guide generated"]:
+        report_content += "- Generate an interview guide."
+    elif not readiness_items["Company intelligence generated"]:
+        report_content += "- Generate company intelligence."
+    else:
+        report_content += (
+            "- Review all reports and prepare for follow-up."
+        )
+
+    report = AIReport(
+        user_id=current_user.id,
+        report_type="application_intelligence",
+        company=application.company_name,
+        position=application.position_title,
+        content=report_content
+    )
+
+    db.session.add(report)
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        f"Generated application intelligence report for "
+        f"{application.company_name} - "
+        f"{application.position_title}"
+    )
+
+    flash(
+        "Application intelligence report generated.",
+        "success"
+    )
+
+    return redirect(
+        url_for(
+            "view_ai_report",
+            report_id=report.id
+        )
+    )
+
+
 @app.route("/resumes/upload", methods=["GET", "POST"])
 @login_required
 def upload_resume():

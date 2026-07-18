@@ -17,6 +17,8 @@
                     Resume Review
                 {% elif report.report_type == "resume_analysis" %}
                     Resume Analysis
+                {% elif report.report_type == "application_intelligence" %}
+                    Application Intelligence Report
                 {% elif report.report_type == "cover_letter" %}
                     Cover Letter
                 {% elif report.report_type == "job_match" %}
@@ -81,6 +83,14 @@
                         class="btn btn-warning w-100"
                     >
                         Run Another Analysis
+                    </a>
+
+                {% elif report.report_type == "application_intelligence" %}
+                    <a
+                        href="{{ url_for('ai_reports') }}"
+                        class="btn btn-warning w-100"
+                    >
+                        Back to Intelligence Reports
                     </a>
 
                 {% elif report.report_type == "resume_review" %}

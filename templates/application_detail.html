@@ -658,6 +658,28 @@
 
                 <h5>Application Actions</h5>
 
+                <form
+                    method="POST"
+                    action="{{ url_for(
+                        'generate_application_intelligence_report',
+                        application_id=application.id
+                    ) }}"
+                    class="mb-2"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary w-100"
+                    >
+                        Generate Intelligence Report
+                    </button>
+                </form>
+
                 <a
                     href="{{ url_for('job_match', application_id=application.id) }}"
                     class="btn btn-info w-100 mb-2"
