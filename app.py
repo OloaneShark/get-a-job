@@ -47,6 +47,7 @@ from services.manual_prompt_service import (
     build_cover_letter_prompt,
     build_interview_coach_prompt
 )
+from services.ai_application_intelligence import (generate_application_intelligence)
 
 
 load_dotenv()
@@ -551,93 +552,76 @@ def generate_application_intelligence_report(application_id):
         .all()
     )
 
-    report_types = {
-        report.report_type
-        for report in related_reports
-    }
-
-    readiness_items = {
-        "Resume uploaded": bool(
-            latest_resume and latest_resume.extracted_text
+    resume_review = next(
+        (
+            report.content
+            for report in related_reports
+            if report.report_type == "resume_review"
         ),
-        "Job description saved": bool(
-            application.job_description
-            and application.job_description.strip()
-        ),
-        "Job match completed": "job_match" in report_types,
-        "Resume review completed": "resume_review" in report_types,
-        "Cover letter generated": "cover_letter" in report_types,
-        "Interview guide generated": "interview_coach" in report_types,
-        "Company intelligence generated": (
-            application.company_intelligence is not None
-        )
-    }
-
-    completed = sum(readiness_items.values())
-    total = len(readiness_items)
-
-    readiness_percent = (
-        round(completed / total * 100)
-        if total
-        else 0
+        "No resume review has been generated."
     )
 
-    completed_lines = [
-        f"- {label}"
-        for label, done in readiness_items.items()
-        if done
-    ]
-
-    missing_lines = [
-        f"- {label}"
-        for label, done in readiness_items.items()
-        if not done
-    ]
-
-    report_content = (
-        "APPLICATION INTELLIGENCE REPORT\n\n"
-        f"Company: {application.company_name}\n"
-        f"Position: {application.position_title}\n"
-        f"Status: {application.status}\n"
-        f"Location: {application.location or 'Not provided'}\n"
-        f"Salary: {application.salary or 'Not provided'}\n"
-        f"Visa Sponsorship: "
-        f"{application.visa_sponsorship or 'Unknown'}\n"
-        f"Trust Score: {application.legitimacy_score}/100\n"
-        f"Risk Level: {application.risk_level or 'Unknown'}\n"
-        f"Application Readiness: {readiness_percent}%\n\n"
-        "Completed Preparation:\n"
-        + (
-            "\n".join(completed_lines)
-            if completed_lines
-            else "- None"
-        )
-        + "\n\nRemaining Preparation:\n"
-        + (
-            "\n".join(missing_lines)
-            if missing_lines
-            else "- Preparation complete"
-        )
-        + "\n\nRecommended Next Step:\n"
+    job_match = next(
+        (
+            report.content
+            for report in related_reports
+            if report.report_type == "job_match"
+        ),
+        "No job match analysis has been generated."
     )
 
-    if not readiness_items["Resume uploaded"]:
-        report_content += "- Upload an active resume."
-    elif not readiness_items["Job description saved"]:
-        report_content += "- Save the complete job description."
-    elif not readiness_items["Job match completed"]:
-        report_content += "- Run a job match analysis."
-    elif not readiness_items["Resume review completed"]:
-        report_content += "- Generate a tailored resume review."
-    elif not readiness_items["Cover letter generated"]:
-        report_content += "- Generate a tailored cover letter."
-    elif not readiness_items["Interview guide generated"]:
-        report_content += "- Generate an interview guide."
-    elif not readiness_items["Company intelligence generated"]:
-        report_content += "- Generate company intelligence."
+    interview_guide = next(
+        (
+            report.content
+            for report in related_reports
+            if report.report_type == "interview_coach"
+        ),
+        "No interview guide has been generated."
+    )
+
+    if application.company_intelligence:
+        company_intelligence = (
+            "Summary:\n"
+            f"{application.company_intelligence.summary or 'Not available'}\n\n"
+            "Positive Signals:\n"
+            f"{application.company_intelligence.positive_signals or 'None'}\n\n"
+            "Risk Signals:\n"
+            f"{application.company_intelligence.risk_signals or 'None'}"
+        )
     else:
-        report_content += (
-            "- Review all reports and prepare for follow-up."
+        company_intelligence = (
+            "No company intelligence has been generated."
+        )
+
+    resume_text = (
+        latest_resume.extracted_text
+        if latest_resume and latest_resume.extracted_text
+        else "No resume is available."
+    )
+
+    try:
+        report_content = generate_application_intelligence(
+            application=application,
+            resume_text=resume_text,
+            resume_review=resume_review,
+            job_match=job_match,
+            interview_guide=interview_guide,
+            company_intelligence=company_intelligence
+        )
+
+    except Exception as e:
+        print("APPLICATION INTELLIGENCE ERROR:", repr(e))
+
+        flash(
+            "The AI intelligence report could not be generated right now.",
+            "danger"
+        )
+
+        return redirect(
+            url_for(
+                "application_detail",
+                application_id=application.id
+            )
         )
 
     report = AIReport(

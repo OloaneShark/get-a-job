@@ -6,13 +6,6 @@ def get_client():
     return OpenAI()
 
 
-from openai import OpenAI
-
-
-def get_client():
-    return OpenAI()
-
-
 def generate_cover_letter(company, position, resume_text, job_description):
     prompt = f"""
 You are a professional career coach and technical recruiter.
