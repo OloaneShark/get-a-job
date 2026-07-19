@@ -653,18 +653,22 @@
 
     <aside class="work-panel">
 
-        <div class="card mb-3">
+        <div class="card mb-3 quick-actions-card">
             <div class="card-body">
 
-                <h5>Application Actions</h5>
+                <h5>Quick Actions</h5>
+
+                <p class="helper-text mb-3">
+                    Complete and review the preparation tools for this application.
+                </p>
 
                 <form
                     method="POST"
                     action="{{ url_for(
-                        'generate_application_intelligence_report',
+                        'run_complete_analysis',
                         application_id=application.id
                     ) }}"
-                    class="mb-2"
+                    class="mb-3"
                 >
                     <input
                         type="hidden"
@@ -676,44 +680,128 @@
                         type="submit"
                         class="btn btn-primary w-100"
                     >
-                        Generate Intelligence Report
+                        Run Complete Analysis
                     </button>
                 </form>
 
                 <a
                     href="{{ url_for('job_match', application_id=application.id) }}"
-                    class="btn btn-info w-100 mb-2"
+                    class="quick-action-link {% if readiness.job_match %}complete{% endif %}"
                 >
-                    Run Job Match
+                    <span class="quick-action-status">
+                        {% if readiness.job_match %}✓{% else %}○{% endif %}
+                    </span>
+
+                    <span>Job Match</span>
                 </a>
 
                 <a
                     href="{{ url_for('ai_resume_review', application_id=application.id) }}"
-                    class="btn btn-warning w-100 mb-2"
+                    class="quick-action-link {% if readiness.resume_review %}complete{% endif %}"
                 >
-                    AI Resume Review
+                    <span class="quick-action-status">
+                        {% if readiness.resume_review %}✓{% else %}○{% endif %}
+                    </span>
+
+                    <span>AI Resume Review</span>
                 </a>
 
                 <a
                     href="{{ url_for('ai_cover_letter', application_id=application.id) }}"
-                    class="btn btn-warning w-100 mb-2"
+                    class="quick-action-link {% if readiness.cover_letter %}complete{% endif %}"
                 >
-                    Generate Cover Letter
+                    <span class="quick-action-status">
+                        {% if readiness.cover_letter %}✓{% else %}○{% endif %}
+                    </span>
+
+                    <span>Cover Letter</span>
                 </a>
 
                 <a
                     href="{{ url_for('ai_interview_coach', application_id=application.id) }}"
-                    class="btn btn-warning w-100"
+                    class="quick-action-link {% if readiness.interview_coach %}complete{% endif %}"
                 >
-                    Interview Coach
+                    <span class="quick-action-status">
+                        {% if readiness.interview_coach %}✓{% else %}○{% endif %}
+                    </span>
+
+                    <span>AI Interview Coach</span>
                 </a>
 
                 <a
                     href="{{ url_for('interview_prep', application_id=application.id) }}"
-                    class="btn btn-info w-100 mt-2"
+                    class="quick-action-link {% if readiness.interview_prep %}complete{% endif %}"
                 >
-                    Interview Prep Center
+                    <span class="quick-action-status">
+                        {% if readiness.interview_prep %}✓{% else %}○{% endif %}
+                    </span>
+
+                    <span>Interview Prep Center</span>
                 </a>
+
+                <form
+                    method="POST"
+                    action="{{ url_for(
+                        'generate_company_intelligence',
+                        application_id=application.id
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="quick-action-link quick-action-button
+                        {% if readiness.company_intelligence %}complete{% endif %}"
+                    >
+                        <span class="quick-action-status">
+                            {% if readiness.company_intelligence %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>
+                            {% if readiness.company_intelligence %}
+                                Refresh Company Intelligence
+                            {% else %}
+                                Company Intelligence
+                            {% endif %}
+                        </span>
+                    </button>
+                </form>
+
+                <form
+                    method="POST"
+                    action="{{ url_for(
+                        'generate_application_intelligence_report',
+                        application_id=application.id
+                    ) }}"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="quick-action-link quick-action-button
+                        {% if readiness.application_intelligence %}complete{% endif %}"
+                    >
+                        <span class="quick-action-status">
+                            {% if readiness.application_intelligence %}✓{% else %}○{% endif %}
+                        </span>
+
+                        <span>
+                            {% if readiness.application_intelligence %}
+                                Regenerate Executive Report
+                            {% else %}
+                                Executive Intelligence Report
+                            {% endif %}
+                        </span>
+                    </button>
+                </form>
 
             </div>
         </div>

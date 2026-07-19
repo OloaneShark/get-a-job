@@ -21,6 +21,7 @@ from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
 from services.interview_service import generate_interview_prep
+from openai import RateLimitError
 from forms import (
     RegistrationForm,
     LoginForm,
@@ -387,7 +388,8 @@ def application_detail(application_id):
         "interview_prep": saved_interview_prep is not None,
         "company_intelligence": (
             application.company_intelligence is not None
-        )
+        ),
+        "application_intelligence": False
     }
     
     for report in related_reports:
@@ -402,6 +404,9 @@ def application_detail(application_id):
 
         elif report.report_type == "interview_coach":
             readiness["interview_coach"] = True
+            
+        elif report.report_type == "application_intelligence":
+            readiness["application_intelligence"] = True
 
 
     completed_items = sum(readiness.values())
@@ -467,6 +472,91 @@ def application_detail(application_id):
         readiness_percent=readiness_percent,
         latest_resume=latest_resume,
         application_summary=application_summary
+    )
+
+
+@app.route("/applications/<int:application_id>/run-analysis", methods=["POST"])
+@login_required
+def run_complete_analysis(application_id):
+    application = JobApplication.query.get_or_404(application_id)
+
+    if application.user_id != current_user.id:
+        flash(
+            "You are not authorized to analyze this application.",
+            "danger"
+        )
+        return redirect(url_for("dashboard"))
+
+    latest_resume = get_latest_resume_for_user(current_user.id)
+
+    if not latest_resume or not latest_resume.extracted_text:
+        flash(
+            "Upload a resume before running the complete analysis.",
+            "warning"
+        )
+        return redirect(
+            url_for(
+                "application_detail",
+                application_id=application.id
+            )
+        )
+
+    try:
+        resume_review = analyze_resume(
+            latest_resume.extracted_text,
+            application.job_description or ""
+        )
+
+        report = AIReport(
+            user_id=current_user.id,
+            report_type="resume_review",
+            company=application.company_name,
+            position=application.position_title,
+            content=resume_review
+        )
+
+        db.session.add(report)
+        db.session.commit()
+
+        flash(
+            "Resume review generated successfully.",
+            "success"
+        )
+
+    except RateLimitError as e:
+        db.session.rollback()
+
+        print("OPENAI QUOTA ERROR:", repr(e))
+
+        if current_user.is_admin:
+            flash(
+                "OpenAI API quota has been exceeded. Please check your API billing or credits.",
+                "danger"
+            )
+        else:
+            flash(
+                "The AI service is temporarily unavailable. Please try again later.",
+                "warning"
+            )
+
+    except Exception as e:
+        print(
+            "COMPLETE ANALYSIS RESUME REVIEW ERROR:",
+            repr(e)
+        )
+
+        db.session.rollback()
+
+        flash(
+            "An unexpected error occurred while generating the Resume Review.",
+            "warning"
+        )
+
+    return redirect(
+        url_for(
+            "application_detail",
+            application_id=application.id
+        )
     )
 
 
@@ -609,13 +699,26 @@ def generate_application_intelligence_report(application_id):
             company_intelligence=company_intelligence
         )
 
-    except Exception as e:
-        print("APPLICATION INTELLIGENCE ERROR:", repr(e))
+    except RateLimitError as e:
+        db.session.rollback()
 
-        flash(
-            "The AI intelligence report could not be generated right now.",
-            "danger"
+        print(
+            "APPLICATION INTELLIGENCE QUOTA ERROR:",
+            repr(e)
         )
+
+        if current_user.is_admin:
+            flash(
+                "OpenAI API quota has been exceeded. "
+                "Check your API billing or credits.",
+                "danger"
+            )
+        else:
+            flash(
+                "The AI service is temporarily unavailable. "
+                "You can still use the manual prompt below.",
+                "warning"
+    )
 
         return redirect(
             url_for(
@@ -624,35 +727,26 @@ def generate_application_intelligence_report(application_id):
             )
         )
 
-    report = AIReport(
-        user_id=current_user.id,
-        report_type="application_intelligence",
-        company=application.company_name,
-        position=application.position_title,
-        content=report_content
-    )
+    except Exception as e:
+        db.session.rollback()
 
-    db.session.add(report)
-    db.session.commit()
-
-    log_action(
-        current_user.id,
-        f"Generated application intelligence report for "
-        f"{application.company_name} - "
-        f"{application.position_title}"
-    )
-
-    flash(
-        "Application intelligence report generated.",
-        "success"
-    )
-
-    return redirect(
-        url_for(
-            "view_ai_report",
-            report_id=report.id
+        print(
+            "APPLICATION INTELLIGENCE ERROR:",
+            repr(e)
         )
-    )
+
+        flash(
+            "An unexpected error occurred while generating "
+            "the Application Intelligence Report.",
+            "warning"
+        )
+
+        return redirect(
+            url_for(
+                "application_detail",
+                application_id=application.id
+            )
+        )
 
 
 @app.route("/resumes/upload", methods=["GET", "POST"])
@@ -826,18 +920,45 @@ def ai_resume_review():
 
             log_action(current_user.id, "Ran AI resume review")
 
+        except RateLimitError as e:
+            db.session.rollback()
+
+            manual_prompt = build_resume_review_prompt(
+                latest_resume.extracted_text,
+                form.job_description.data
+            )
+
+            if current_user.is_admin:
+                flash(
+                    "OpenAI API quota has been exceeded. "
+                    "Check your API billing or credits. "
+                    "You can use the manual prompt below in ChatGPT.",
+                    "danger"
+                )
+            else:
+                flash(
+                    "The AI service is temporarily unavailable. "
+                    "You can use the manual prompt below in ChatGPT.",
+                    "warning"
+                )
+
+            print("AI RESUME REVIEW QUOTA ERROR:", repr(e))
+
         except Exception as e:
+            db.session.rollback()
+
             manual_prompt = build_resume_review_prompt(
                 latest_resume.extracted_text,
                 form.job_description.data
             )
 
             flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "The AI API is currently unavailable. "
+                "Copy the prompt below into ChatGPT.",
                 "warning"
             )
 
-            print(e)
+            print("AI RESUME REVIEW ERROR:", repr(e))
 
     return render_template(
         "ai_resume_review.html",
@@ -869,13 +990,18 @@ def ai_cover_letter():
         ).first_or_404()
 
     if not latest_resume or not latest_resume.extracted_text:
-        flash("Upload a resume before generating a cover letter.", "warning")
+        flash(
+            "Upload a resume before generating a cover letter.",
+            "warning"
+        )
         return redirect(url_for("upload_resume"))
 
     if request.method == "GET" and application:
         form.company.data = application.company_name
         form.position.data = application.position_title
-        form.job_description.data = application.job_description or ""
+        form.job_description.data = (
+            application.job_description or ""
+        )
 
     if form.validate_on_submit():
         try:
@@ -889,8 +1015,16 @@ def ai_cover_letter():
             report = AIReport(
                 user_id=current_user.id,
                 report_type="cover_letter",
-                company=form.company.data,
-                position=form.position.data,
+                company=(
+                    application.company_name
+                    if application
+                    else form.company.data
+                ),
+                position=(
+                    application.position_title
+                    if application
+                    else form.position.data
+                ),
                 content=cover_letter
             )
 
@@ -903,7 +1037,38 @@ def ai_cover_letter():
                 f"{form.company.data} - {form.position.data}"
             )
 
+        except RateLimitError as e:
+            db.session.rollback()
+
+            manual_prompt = build_cover_letter_prompt(
+                form.company.data,
+                form.position.data,
+                latest_resume.extracted_text,
+                form.job_description.data
+            )
+
+            if current_user.is_admin:
+                flash(
+                    "OpenAI API quota has been exceeded. "
+                    "Check your API billing or credits. "
+                    "You can use the manual prompt below in ChatGPT.",
+                    "danger"
+                )
+            else:
+                flash(
+                    "The AI service is temporarily unavailable. "
+                    "You can use the manual prompt below in ChatGPT.",
+                    "warning"
+                )
+
+            print(
+                "AI COVER LETTER QUOTA ERROR:",
+                repr(e)
+            )
+
         except Exception as e:
+            db.session.rollback()
+
             manual_prompt = build_cover_letter_prompt(
                 form.company.data,
                 form.position.data,
@@ -912,18 +1077,23 @@ def ai_cover_letter():
             )
 
             flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "The AI API is currently unavailable. "
+                "Copy the prompt below into ChatGPT.",
                 "warning"
             )
 
-            print(e)
+            print(
+                "AI COVER LETTER ERROR:",
+                repr(e)
+            )
 
     return render_template(
         "ai_cover_letter.html",
         form=form,
         cover_letter=cover_letter,
         manual_prompt=manual_prompt,
-        latest_resume=latest_resume
+        latest_resume=latest_resume,
+        application=application
     )
 
 
@@ -1153,8 +1323,16 @@ def ai_interview_coach():
             report = AIReport(
                 user_id=current_user.id,
                 report_type="interview_coach",
-                company=application.company_name if application else form.company.data,
-                position=application.position_title if application else form.position.data,
+                company=(
+                    application.company_name
+                    if application
+                    else form.company.data
+                ),
+                position=(
+                    application.position_title
+                    if application
+                    else form.position.data
+                ),
                 content=interview_prep
             )
 
@@ -1167,7 +1345,34 @@ def ai_interview_coach():
                 f"{form.company.data} - {form.position.data}"
             )
 
+        except RateLimitError as e:
+            db.session.rollback()
+
+            manual_prompt = build_interview_coach_prompt(
+                form.company.data,
+                form.position.data,
+                form.job_description.data,
+                latest_resume.extracted_text
+            )
+
+            if current_user.is_admin:
+                flash(
+                    "OpenAI API quota has been exceeded. "
+                    "Check your API billing or credits.",
+                    "danger"
+                )
+            else:
+                flash(
+                    "The AI service is temporarily unavailable. "
+                    "You can still use the manual prompt below.",
+                    "warning"
+                )
+
+            print("AI INTERVIEW COACH QUOTA ERROR:", repr(e))
+
         except Exception as e:
+            db.session.rollback()
+
             manual_prompt = build_interview_coach_prompt(
                 form.company.data,
                 form.position.data,
@@ -1176,11 +1381,12 @@ def ai_interview_coach():
             )
 
             flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
+                "The AI API is currently unavailable. "
+                "Copy the prompt below into ChatGPT.",
                 "warning"
             )
 
-            print(e)
+            print("AI INTERVIEW COACH ERROR:", repr(e))
 
     return render_template(
         "ai_interview_coach.html",

@@ -1,5 +1,5 @@
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 
 
 def get_client():

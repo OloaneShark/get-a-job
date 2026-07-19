@@ -12,6 +12,9 @@ class User(db.Model, UserMixin):
     username = db.Column( db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
+    
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    
     applications = db.relationship("JobApplication", backref="owner", lazy=True)
     audit_logs = db.relationship("AuditLog", backref="user", lazy=True)
     resumes = db.relationship("Resume", backref="owner", lazy=True)
@@ -181,6 +184,24 @@ class CompanyIntelligence(db.Model):
         db.ForeignKey("job_application.id"),
         nullable=False,
         unique=True
+    )
+    
+    
+class AIUsage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    feature = db.Column(db.String(50), nullable=False)
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
     )
     
     

@@ -16,7 +16,11 @@
                 Generate a tailored cover letter using your active resume and the target job posting.
             </p>
 
-            <form method="POST" class="form-grid">
+            <form
+                method="POST"
+                class="form-grid"
+                action="{% if application %}{{ url_for('ai_cover_letter', application_id=application.id) }}{% else %}{{ url_for('ai_cover_letter') }}{% endif %}"
+            >
                 {{ form.hidden_tag() }}
 
                 <div class="mb-3">
@@ -111,11 +115,17 @@
             <div class="card-body">
                 <h5>AI Toolkit</h5>
 
-                <a href="/ai/resume-review" class="btn btn-warning w-100 mb-2">
+                <a
+                    href="{{ url_for('ai_resume_review', application_id=application.id if application else none) }}"
+                    class="btn btn-warning w-100 mb-2"
+                >
                     AI Resume Review
                 </a>
 
-                <a href="/ai/interview-coach" class="btn btn-warning w-100 mb-2">
+                <a
+                    href="{{ url_for('ai_interview_coach', application_id=application.id if application else none) }}"
+                    class="btn btn-warning w-100 mb-2"
+                >
                     AI Interview Coach
                 </a>
 
