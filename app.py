@@ -55,6 +55,10 @@ from services.ai_usage_service import (
     record_ai_usage,
     get_daily_ai_limit
 )
+from services.account_security_service import (
+    get_client_ip,
+    record_security_event
+)
 
 
 load_dotenv()
@@ -126,46 +130,81 @@ def home():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     form = RegistrationForm()
-    
+
     if form.validate_on_submit():
         hashed_password = bcrypt.hashpw(
             form.password.data.encode("utf-8"),
             bcrypt.gensalt()
         ).decode("utf-8")
-        
+
         user = User(
             username=form.username.data,
             email=form.email.data,
-            password=hashed_password
+            password=hashed_password,
+            last_ip=get_client_ip()
         )
-        
-        db.session.add(user)
-        db.session.commit()
-        
-        flash("Account successfully created! You can now log in.", "success")
-        return redirect(url_for("home"))
-    
+
+        try:
+            db.session.add(user)
+            db.session.flush()
+
+            record_security_event(user.id, "registration")
+
+            db.session.commit()
+
+            flash("Account successfully created! You can now log in.", "success")
+
+            return redirect(url_for("home"))
+
+        except Exception as e:
+            db.session.rollback()
+
+            print("REGISTRATION SECURITY EVENT ERROR:", repr(e))
+
+            flash("The account could not be created. Please try again.", "danger")
+
     return render_template("register.html", form=form)
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     form = LoginForm()
-    
+
     if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        
+        user = User.query.filter_by(
+            email=form.email.data
+        ).first()
+
         if user and bcrypt.checkpw(
             form.password.data.encode("utf-8"),
             user.password.encode("utf-8")
         ):
-            login_user(user)
-            log_action(user.id, "User logged in")
-            flash("Login successful.", "success")
-            return redirect(url_for("dashboard"))
-        
-        flash("Login failed. Check your email and passowrd again.", "danger")
-        
+            try:
+                user.last_ip = get_client_ip()
+
+                record_security_event(user.id, "login")
+
+                db.session.commit()
+
+                login_user(user)
+
+                log_action(user.id, "User logged in")
+
+                flash("Login successful.", "success")
+
+                return redirect(url_for("dashboard"))
+
+            except Exception as e:
+                db.session.rollback()
+
+                print("LOGIN SECURITY EVENT ERROR:", repr(e))
+
+                flash("Login could not be completed. Please try again.", "danger")
+
+                return render_template("login.html", form=form)
+
+        flash("Login failed. Check your email and password again.", "danger")
+
     return render_template("login.html", form=form)
 
 
