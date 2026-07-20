@@ -51,9 +51,9 @@ from services.manual_prompt_service import (
 from services.ai_application_intelligence import (generate_application_intelligence)
 from services.ai_usage_service import (
     can_use_ai,
-    get_daily_ai_limit,
     get_remaining_ai_requests,
-    record_ai_usage
+    record_ai_usage,
+    get_daily_ai_limit
 )
 
 
@@ -89,6 +89,33 @@ def get_latest_resume_for_user(user_id):
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
+@app.context_processor
+def inject_ai_usage():
+    if not current_user.is_authenticated:
+        return {
+            "ai_daily_limit": None,
+            "ai_requests_remaining": None,
+            "ai_usage_unlimited": False,
+            "user_plan": None
+        }
+
+    daily_limit = get_daily_ai_limit(current_user)
+    remaining = get_remaining_ai_requests(current_user)
+
+    user_plan = (
+        "Admin"
+        if current_user.is_admin
+        else current_user.plan.title()
+    )
+
+    return {
+        "ai_daily_limit": daily_limit,
+        "ai_requests_remaining": remaining,
+        "ai_usage_unlimited": daily_limit is None,
+        "user_plan": user_plan
+    }
 
 
 @app.route("/")

@@ -56,11 +56,41 @@
             </nav>
 
             <div class="sidebar-footer">
-                <button type="button" class="theme-toggle" onclick="toggleTheme()">
+
+                <div class="ai-usage-card">
+
+                    <div class="usage-plan">
+                        {{ user_plan }}
+                    </div>
+
+                    <div class="usage-title">
+                        AI Requests
+                    </div>
+
+                    {% if ai_usage_unlimited %}
+                        <div class="usage-count">
+                            Unlimited
+                        </div>
+                    {% else %}
+                        <div class="usage-count">
+                            {{ ai_requests_remaining }} / {{ ai_daily_limit }}
+                        </div>
+                    {% endif %}
+
+                </div>
+
+                <button
+                    type="button"
+                    class="theme-toggle"
+                    onclick="toggleTheme()"
+                >
                     Toggle Theme
                 </button>
 
-                <a href="/logout" class="logout-link">Logout</a>
+                <a href="/logout" class="logout-link">
+                    Logout
+                </a>
+
             </div>
         </aside>
     {% endif %}

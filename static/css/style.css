@@ -1706,3 +1706,37 @@ body.theme-light .quick-action-link.complete {
     color: #1b1b1b !important;
 }
 
+/* ===========================
+   AI Usage Card
+=========================== */
+
+.ai-usage-card{
+    margin-bottom:20px;
+    padding:14px;
+    border-radius:12px;
+    text-align:center;
+
+    background:#181f29;
+    border:1px solid rgba(23,217,255,.18);
+}
+
+.usage-plan{
+    font-size:.70rem;
+    text-transform:uppercase;
+    letter-spacing:.12em;
+    color:#8aa5bb;
+    margin-bottom:6px;
+}
+
+.usage-title{
+    font-size:.82rem;
+    color:#c8d6e5;
+}
+
+.usage-count{
+    margin-top:6px;
+    font-size:1.25rem;
+    font-weight:700;
+    color:#17d9ff;
+}
+
