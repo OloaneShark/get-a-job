@@ -16,7 +16,7 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_wtf.csrf import CSRFProtect
 from services.resume_service import analyze_resume_text
 from services.resume_text_service import extract_resume_text
-from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport, CompanyIntelligence
+from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport, CompanyIntelligence, AIUsage
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action
@@ -49,6 +49,12 @@ from services.manual_prompt_service import (
     build_interview_coach_prompt
 )
 from services.ai_application_intelligence import (generate_application_intelligence)
+from services.ai_usage_service import (
+    can_use_ai,
+    get_daily_ai_limit,
+    get_remaining_ai_requests,
+    record_ai_usage
+)
 
 
 load_dotenv()
@@ -688,6 +694,21 @@ def generate_application_intelligence_report(application_id):
         if latest_resume and latest_resume.extracted_text
         else "No resume is available."
     )
+    
+    if not can_use_ai(current_user):
+        limit = 25 if current_user.plan == "premium" else 5
+
+        flash(
+            f"You have reached your daily limit of {limit} AI requests.",
+            "warning"
+        )
+
+        return redirect(
+            url_for(
+                "application_detail",
+                application_id=application.id
+            )
+        )
 
     try:
         report_content = generate_application_intelligence(
@@ -697,6 +718,42 @@ def generate_application_intelligence_report(application_id):
             job_match=job_match,
             interview_guide=interview_guide,
             company_intelligence=company_intelligence
+        )
+
+        report = AIReport(
+            user_id=current_user.id,
+            report_type="application_intelligence",
+            company=application.company_name,
+            position=application.position_title,
+            content=report_content
+        )
+
+        db.session.add(report)
+
+        record_ai_usage(
+            current_user.id,
+            "application_intelligence"
+        )
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Generated application intelligence report for "
+            f"{application.company_name} - "
+            f"{application.position_title}"
+        )
+
+        flash(
+            "Application intelligence report generated.",
+            "success"
+        )
+
+        return redirect(
+            url_for(
+                "view_ai_report",
+                report_id=report.id
+            )
         )
 
     except RateLimitError as e:
@@ -716,9 +773,9 @@ def generate_application_intelligence_report(application_id):
         else:
             flash(
                 "The AI service is temporarily unavailable. "
-                "You can still use the manual prompt below.",
+                "Please try again later.",
                 "warning"
-    )
+            )
 
         return redirect(
             url_for(
@@ -901,6 +958,20 @@ def ai_resume_review():
         form.job_description.data = application.job_description or ""
 
     if form.validate_on_submit():
+        
+        if not can_use_ai(current_user):
+            limit = get_daily_ai_limit(current_user)
+            flash(f"You have reached your daily limit of {limit} AI requests.", "warning")
+
+            return render_template(
+                "ai_resume_review.html",
+                form=form,
+                ai_feedback=None,
+                manual_prompt=None,
+                latest_resume=latest_resume,
+                application=application
+            )
+        
         try:
             ai_feedback = analyze_resume(
                 latest_resume.extracted_text,
@@ -916,6 +987,7 @@ def ai_resume_review():
             )
 
             db.session.add(report)
+            record_ai_usage(current_user.id, "resume_review")
             db.session.commit()
 
             log_action(current_user.id, "Ran AI resume review")
@@ -1004,6 +1076,24 @@ def ai_cover_letter():
         )
 
     if form.validate_on_submit():
+
+        if not can_use_ai(current_user):
+            limit = 25 if current_user.plan == "premium" else 5
+
+            flash(
+                f"You have reached your daily limit of {limit} AI requests.",
+                "warning"
+            )
+
+            return render_template(
+                "ai_cover_letter.html",
+                form=form,
+                cover_letter=None,
+                manual_prompt=None,
+                latest_resume=latest_resume,
+                application=application
+            )
+
         try:
             cover_letter = generate_cover_letter(
                 form.company.data,
@@ -1029,6 +1119,12 @@ def ai_cover_letter():
             )
 
             db.session.add(report)
+
+            record_ai_usage(
+                current_user.id,
+                "cover_letter"
+            )
+
             db.session.commit()
 
             log_action(
@@ -1094,133 +1190,6 @@ def ai_cover_letter():
         manual_prompt=manual_prompt,
         latest_resume=latest_resume,
         application=application
-    )
-
-
-@app.route("/applications/<int:application_id>/ai/cover-letter", methods=["GET", "POST"])
-@login_required
-def application_ai_cover_letter(application_id):
-    application = JobApplication.query.get_or_404(application_id)
-
-    if application.user_id != current_user.id:
-        flash("You are not authorized to access this application.", "danger")
-        return redirect(url_for("dashboard"))
-
-    form = AICoverLetterForm()
-
-    latest_resume = get_latest_resume_for_user(current_user.id)
-
-    cover_letter = None
-    manual_prompt = None
-
-    if request.method == "GET":
-        form.company.data = application.company_name
-        form.position.data = application.position_title
-        form.job_description.data = (
-            decrypt_text(application.notes)
-            if application.notes
-            else ""
-        )
-
-    if not latest_resume or not latest_resume.extracted_text:
-        flash("Upload a resume before generating a cover letter.", "warning")
-        return redirect(url_for("upload_resume"))
-
-    if form.validate_on_submit():
-        try:
-            cover_letter = generate_cover_letter(
-                form.company.data,
-                form.position.data,
-                latest_resume.extracted_text,
-                form.job_description.data
-            )
-
-            log_action(
-                current_user.id,
-                f"Generated AI cover letter for {application.company_name}"
-            )
-
-        except Exception as e:
-            manual_prompt = build_cover_letter_prompt(
-                form.company.data,
-                form.position.data,
-                latest_resume.extracted_text,
-                form.job_description.data
-            )
-
-            flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
-                "warning"
-            )
-
-            print(e)
-
-    return render_template(
-        "ai_cover_letter.html",
-        form=form,
-        cover_letter=cover_letter,
-        manual_prompt=manual_prompt,
-        latest_resume=latest_resume
-    )
-
-
-@app.route("/applications/<int:application_id>/ai/resume-review", methods=["GET", "POST"])
-@login_required
-def application_ai_resume_review(application_id):
-    application = JobApplication.query.get_or_404(application_id)
-
-    if application.user_id != current_user.id:
-        flash("You are not authorized to access this application.", "danger")
-        return redirect(url_for("dashboard"))
-
-    form = AIResumeReviewForm()
-
-    ai_feedback = None
-    manual_prompt = None
-    latest_resume = get_latest_resume_for_user(current_user.id)
-
-    if request.method == "GET":
-        form.job_description.data = (
-            decrypt_text(application.notes)
-            if application.notes
-            else ""
-        )
-
-    if form.validate_on_submit():
-        if not latest_resume or not latest_resume.extracted_text:
-            flash("Upload a resume before running AI resume review.", "warning")
-            return redirect(url_for("upload_resume"))
-
-        try:
-            ai_feedback = analyze_resume(
-                latest_resume.extracted_text,
-                form.job_description.data
-            )
-
-            log_action(
-                current_user.id,
-                f"Generated AI resume review for {application.company_name}"
-            )
-
-        except Exception as e:
-            manual_prompt = build_resume_review_prompt(
-                latest_resume.extracted_text,
-                form.job_description.data
-            )
-
-            flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
-                "warning"
-            )
-
-            print(e)
-
-    return render_template(
-        "ai_resume_review.html",
-        form=form,
-        ai_feedback=ai_feedback,
-        manual_prompt=manual_prompt,
-        latest_resume=latest_resume
     )
 
 
@@ -1303,7 +1272,10 @@ def ai_interview_coach():
     manual_prompt = None
 
     if not latest_resume or not latest_resume.extracted_text:
-        flash("Upload a resume before generating interview prep.", "warning")
+        flash(
+            "Upload a resume before generating interview prep.",
+            "warning"
+        )
         return redirect(url_for("upload_resume"))
 
     if request.method == "GET" and application:
@@ -1312,6 +1284,24 @@ def ai_interview_coach():
         form.job_description.data = application.job_description or ""
 
     if form.validate_on_submit():
+
+        if not can_use_ai(current_user):
+            limit = get_daily_ai_limit(current_user)
+
+            flash(
+                f"You have reached your daily limit of {limit} AI requests.",
+                "warning"
+            )
+
+            return render_template(
+                "ai_interview_coach.html",
+                form=form,
+                interview_prep=None,
+                manual_prompt=None,
+                latest_resume=latest_resume,
+                application=application
+            )
+
         try:
             interview_prep = generate_interview_coach(
                 form.company.data,
@@ -1337,6 +1327,12 @@ def ai_interview_coach():
             )
 
             db.session.add(report)
+
+            record_ai_usage(
+                current_user.id,
+                "interview_coach"
+            )
+
             db.session.commit()
 
             log_action(
@@ -1358,17 +1354,21 @@ def ai_interview_coach():
             if current_user.is_admin:
                 flash(
                     "OpenAI API quota has been exceeded. "
-                    "Check your API billing or credits.",
+                    "Check your API billing or credits. "
+                    "You can use the manual prompt below in ChatGPT.",
                     "danger"
                 )
             else:
                 flash(
                     "The AI service is temporarily unavailable. "
-                    "You can still use the manual prompt below.",
+                    "You can use the manual prompt below in ChatGPT.",
                     "warning"
                 )
 
-            print("AI INTERVIEW COACH QUOTA ERROR:", repr(e))
+            print(
+                "AI INTERVIEW COACH QUOTA ERROR:",
+                repr(e)
+            )
 
         except Exception as e:
             db.session.rollback()
@@ -1386,7 +1386,10 @@ def ai_interview_coach():
                 "warning"
             )
 
-            print("AI INTERVIEW COACH ERROR:", repr(e))
+            print(
+                "AI INTERVIEW COACH ERROR:",
+                repr(e)
+            )
 
     return render_template(
         "ai_interview_coach.html",
@@ -1395,72 +1398,6 @@ def ai_interview_coach():
         manual_prompt=manual_prompt,
         latest_resume=latest_resume,
         application=application
-    )
-
-
-@app.route("/applications/<int:application_id>/ai/interview-coach", methods=["GET", "POST"])
-@login_required
-def application_ai_interview_coach(application_id):
-    application = JobApplication.query.get_or_404(application_id)
-
-    if application.user_id != current_user.id:
-        flash("You are not authorized.", "danger")
-        return redirect(url_for("dashboard"))
-
-    form = AIInterviewCoachForm()
-    latest_resume = get_latest_resume_for_user(current_user.id)
-
-    interview_prep = None
-    manual_prompt = None
-
-    if request.method == "GET":
-        form.company.data = application.company_name
-        form.position.data = application.position_title
-        form.job_description.data = (
-            decrypt_text(application.notes)
-            if application.notes
-            else ""
-        )
-
-    if not latest_resume or not latest_resume.extracted_text:
-        flash("Upload a resume before generating interview prep.", "warning")
-        return redirect(url_for("upload_resume"))
-
-    if form.validate_on_submit():
-        try:
-            interview_prep = generate_interview_coach(
-                form.company.data,
-                form.position.data,
-                form.job_description.data,
-                latest_resume.extracted_text
-            )
-
-            log_action(
-                current_user.id,
-                f"Generated AI interview prep for {application.company_name}"
-            )
-
-        except Exception as e:
-            manual_prompt = build_interview_coach_prompt(
-                form.company.data,
-                form.position.data,
-                form.job_description.data,
-                latest_resume.extracted_text
-            )
-
-            flash(
-                "The AI API is currently unavailable. Copy the prompt below into ChatGPT.",
-                "warning"
-            )
-
-            print(e)
-
-    return render_template(
-        "ai_interview_coach.html",
-        form=form,
-        interview_prep=interview_prep,
-        manual_prompt=manual_prompt,
-        latest_resume=latest_resume
     )
 
 

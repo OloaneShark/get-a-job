@@ -15,6 +15,10 @@ class User(db.Model, UserMixin):
     
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     
+    plan = db.Column(db.String(20), default="free", nullable=False)
+    
+    ai_usage = db.relationship("AIUsage", backref="user", lazy=True, cascade="all, delete-orphan")
+    
     applications = db.relationship("JobApplication", backref="owner", lazy=True)
     audit_logs = db.relationship("AuditLog", backref="user", lazy=True)
     resumes = db.relationship("Resume", backref="owner", lazy=True)
