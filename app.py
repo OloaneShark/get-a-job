@@ -16,7 +16,22 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from flask_wtf.csrf import CSRFProtect
 from services.resume_service import analyze_resume_text
 from services.resume_text_service import extract_resume_text
-from models import db, User, JobApplication, AuditLog, Resume, InterviewPrep, ApplicationHistory, SavedJobDescription, AIReport, CompanyIntelligence, AIUsage
+from models import (
+    db,
+    User,
+    JobApplication,
+    AuditLog, Resume,
+    InterviewPrep,
+    ApplicationHistory,
+    SavedJobDescription,
+    AIReport,
+    CompanyIntelligence,
+    AIUsage,
+    AccountSecurityEvent,
+    JobSearchProfile,
+    DiscoveredJob,
+    ApplicationPackage
+)
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
 from utils.audit_logger import log_action

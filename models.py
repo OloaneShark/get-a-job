@@ -13,7 +13,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     
-    last_ip = db.Column(db.String(45))
+    last_ip = db.Column(db.String(45), nullale=True)
     
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     
@@ -252,3 +252,122 @@ class AccountSecurityEvent(db.Model):
     )
     
 
+class JobSearchProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    name = db.Column(db.String(100), nullable=False)
+    keywords = db.Column(db.String(255), nullable=False)
+    location = db.Column(db.String(120))
+    employment_type = db.Column(db.String(50))
+    experience_level = db.Column(db.String(50))
+    remote_preference = db.Column(db.String(50))
+    minimum_salary = db.Column(db.Integer)
+    visa_sponsorship_required = db.Column(
+        db.Boolean,
+        default=False,
+        nullable=False
+    )
+    is_active = db.Column(
+        db.Boolean,
+        default=True,
+        nullable=False
+    )
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+    
+    
+class DiscoveredJob(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    source = db.Column(db.String(80), nullable=False)
+    external_id = db.Column(db.String(255))
+    company_name = db.Column(db.String(150), nullable=False)
+    position_title = db.Column(db.String(150), nullable=False)
+    location = db.Column(db.String(150))
+    employment_type = db.Column(db.String(50))
+    salary = db.Column(db.String(100))
+    visa_sponsorship = db.Column(db.String(20), default="Unknown")
+
+    posting_url = db.Column(db.String(1000), nullable=False)
+    apply_url = db.Column(db.String(1000))
+    job_description = db.Column(db.Text)
+
+    fingerprint = db.Column(
+        db.String(64),
+        nullable=False,
+        index=True
+    )
+
+    discovered_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "user_id",
+            "fingerprint",
+            name="uq_user_discovered_job"
+        ),
+    )
+    
+    
+class ApplicationPackage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    status = db.Column(
+        db.String(50),
+        default="Prepared",
+        nullable=False
+    )
+
+    resume_id = db.Column(
+        db.Integer,
+        db.ForeignKey("resume.id"),
+        nullable=False
+    )
+
+    cover_letter_text = db.Column(db.Text)
+    answers_json = db.Column(db.Text)
+
+    confirmation_reference = db.Column(db.String(255))
+    confirmation_url = db.Column(db.String(1000))
+    failure_reason = db.Column(db.Text)
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    submitted_at = db.Column(db.DateTime)
+
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("job_application.id"),
+        nullable=False
+    )
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False
+    )
+    
+    
