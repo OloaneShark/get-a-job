@@ -74,6 +74,7 @@ from services.account_security_service import (
     get_client_ip,
     record_security_event
 )
+from services.scheduler_service import start_scheduler
 
 
 load_dotenv()
@@ -84,6 +85,12 @@ csrf = CSRFProtect(app)
 
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+    "pool_size": 3,
+    "max_overflow": 2,
+}
 app.config["UPLOAD_FOLDER"] = "uploads"
 
 if not app.config["SQLALCHEMY_DATABASE_URI"]:
@@ -1991,9 +1998,10 @@ def delete_job_description(job_id):
     return redirect(url_for("dashboard"))
 
 
-with app.app_context():
-    db.create_all()
-
-
 if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+
+    start_scheduler()
+
     app.run(host="0.0.0.0", port=5000, debug=True)
