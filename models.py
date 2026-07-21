@@ -13,7 +13,7 @@ class User(db.Model, UserMixin):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     
-    last_ip = db.Column(db.String(45), nullale=True)
+    last_ip = db.Column(db.String(45), nullable=True)
     
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     
