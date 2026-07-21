@@ -1,0 +1,62 @@
+
+{% extends "base.html" %}
+
+{% block title %}Search Profile{% endblock %}
+
+{% block content %}
+
+<div class="form-page">
+
+    <h2>{{ title }}</h2>
+
+    <form method="POST">
+
+        {{ form.hidden_tag() }}
+
+        <div class="mb-3">
+            {{ form.name.label(class="form-label") }}
+            {{ form.name(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.keywords.label(class="form-label") }}
+            {{ form.keywords(class="form-control", rows=5) }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.locations.label(class="form-label") }}
+            {{ form.locations(class="form-control", rows=4) }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.employment_types.label(class="form-label") }}
+            {{ form.employment_types(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.minimum_salary.label(class="form-label") }}
+            {{ form.minimum_salary(class="form-control") }}
+        </div>
+
+        <div class="form-check">
+            {{ form.remote_only(class="form-check-input") }}
+            {{ form.remote_only.label(class="form-check-label") }}
+        </div>
+
+        <div class="form-check">
+            {{ form.visa_required(class="form-check-input") }}
+            {{ form.visa_required.label(class="form-check-label") }}
+        </div>
+
+        <div class="form-check mb-4">
+            {{ form.active(class="form-check-input") }}
+            {{ form.active.label(class="form-check-label") }}
+        </div>
+
+        {{ form.submit(class="btn btn-primary") }}
+
+    </form>
+
+</div>
+
+{% endblock %}

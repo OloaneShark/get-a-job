@@ -28,9 +28,9 @@ from models import (
     CompanyIntelligence,
     AIUsage,
     AccountSecurityEvent,
-    JobSearchProfile,
     DiscoveredJob,
-    ApplicationPackage
+    ApplicationPackage,
+    JobSearchProfile
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -50,7 +50,8 @@ from forms import (
     AIResumeReviewForm,
     AICoverLetterForm,
     AIInterviewCoachForm,
-    JobUrlImportForm
+    JobUrlImportForm,
+    JobSearchProfileForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -1754,6 +1755,61 @@ def import_job_url():
         "import_job_url.html",
         form=form,
         extracted_job=extracted_job
+    )
+
+
+@app.route("/search-profiles")
+@login_required
+def search_profiles():
+    profiles = JobSearchProfile.query.filter_by(
+        user_id=current_user.id
+    ).order_by(
+        JobSearchProfile.created_at.desc()
+    ).all()
+
+    return render_template(
+        "search_profiles.html",
+        profiles=profiles
+    )
+
+
+@app.route("/search-profiles/new", methods=["GET", "POST"])
+@login_required
+def new_search_profile():
+    form = JobSearchProfileForm()
+
+    if form.validate_on_submit():
+        profile = JobSearchProfile(
+            user_id=current_user.id,
+            name=form.name.data,
+            keywords=form.keywords.data,
+            locations=form.locations.data,
+            employment_types=form.employment_types.data,
+            remote_only=form.remote_only.data,
+            visa_required=form.visa_required.data,
+            minimum_salary=form.minimum_salary.data,
+            active=form.active.data
+        )
+
+        db.session.add(profile)
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Created search profile '{profile.name}'"
+        )
+
+        flash(
+            "Search profile created successfully.",
+            "success"
+        )
+
+        return redirect(url_for("search_profiles"))
+
+    return render_template(
+        "search_profile_form.html",
+        form=form,
+        title="New Search Profile"
     )
 
 

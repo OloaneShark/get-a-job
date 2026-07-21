@@ -1,8 +1,28 @@
 
 from flask_wtf.file import FileField, FileAllowed
 from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SubmitField, BooleanField, SelectField, TextAreaField, DateField, RadioField
-from wtforms.validators import DataRequired, Length, Email, EqualTo, URL, Optional
+from wtforms import (
+    StringField,
+    PasswordField,
+    SubmitField,
+    TextAreaField,
+    BooleanField,
+    SelectField,
+    IntegerField,
+    DateField,
+    EmailField,
+    FloatField,
+    HiddenField,
+    RadioField
+)
+from wtforms.validators import (
+    DataRequired,
+    Length,
+    Email,
+    EqualTo,
+    URL,
+    Optional
+)
 
 
 class RegistrationForm(FlaskForm):
@@ -228,3 +248,24 @@ class JobUrlImportForm(FlaskForm):
     import_submit = SubmitField("Import Job Posting")
     save_submit = SubmitField("Save as Application")
 
+
+class JobSearchProfileForm(FlaskForm):
+    name = StringField("Profile Name", validators=[DataRequired()])
+
+    keywords = TextAreaField("Keywords", validators=[DataRequired()])
+
+    locations = TextAreaField("Locations", validators=[DataRequired()])
+
+    employment_types = StringField("Employment Types")
+
+    minimum_salary = IntegerField("Minimum Salary")
+
+    remote_only = BooleanField("Remote Only")
+
+    visa_required = BooleanField("Visa Sponsorship Required")
+
+    active = BooleanField("Active", default=True)
+
+    submit = SubmitField("Save Search Profile")
+    
+    

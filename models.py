@@ -29,6 +29,8 @@ class User(db.Model, UserMixin):
     interview_preps = db.relationship("InterviewPrep", backref="owner", lazy=True)
     saved_job_descriptions = db.relationship("SavedJobDescription", backref="owner", lazy=True)
     
+    job_search_profiles = db.relationship("JobSearchProfile", backref="owner", lazy=True, cascade="all, delete-orphan")
+    
     def __repr__(self):
         return f"<User {self.username}>"
     
@@ -251,39 +253,6 @@ class AccountSecurityEvent(db.Model):
         index=True
     )
     
-
-class JobSearchProfile(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-
-    name = db.Column(db.String(100), nullable=False)
-    keywords = db.Column(db.String(255), nullable=False)
-    location = db.Column(db.String(120))
-    employment_type = db.Column(db.String(50))
-    experience_level = db.Column(db.String(50))
-    remote_preference = db.Column(db.String(50))
-    minimum_salary = db.Column(db.Integer)
-    visa_sponsorship_required = db.Column(
-        db.Boolean,
-        default=False,
-        nullable=False
-    )
-    is_active = db.Column(
-        db.Boolean,
-        default=True,
-        nullable=False
-    )
-    created_at = db.Column(
-        db.DateTime,
-        default=datetime.utcnow,
-        nullable=False
-    )
-
-    user_id = db.Column(
-        db.Integer,
-        db.ForeignKey("user.id"),
-        nullable=False
-    )
-    
     
 class DiscoveredJob(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -369,5 +338,23 @@ class ApplicationPackage(db.Model):
         db.ForeignKey("user.id"),
         nullable=False
     )
+    
+    
+class JobSearchProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    keywords = db.Column(db.Text, nullable=False)
+    locations = db.Column(db.Text, nullable=False)
+    employment_types = db.Column(db.Text, nullable=True)
+    remote_only = db.Column(db.Boolean, default=False, nullable=False)
+    visa_required = db.Column(db.Boolean, default=False, nullable=False)
+    minimum_salary = db.Column(db.Integer, nullable=True)
+    search_frequency = db.Column(db.String(20), default="hourly", nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<JobSearchProfile {self.name}>"
     
     
