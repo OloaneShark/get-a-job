@@ -353,6 +353,10 @@ class JobSearchProfile(db.Model):
     search_frequency = db.Column(db.String(20), default="hourly", nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_searched_at = db.Column(db.DateTime, nullable=True)
+    last_result_count = db.Column(db.Integer, default=0, nullable=False)
+    last_search_status = db.Column(db.String(30), default="Never Run", nullable=False)
+    last_search_error = db.Column(db.Text, nullable=True)
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
