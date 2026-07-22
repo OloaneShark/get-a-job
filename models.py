@@ -256,7 +256,6 @@ class AccountSecurityEvent(db.Model):
     
 class DiscoveredJob(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-
     source = db.Column(db.String(80), nullable=False)
     external_id = db.Column(db.String(255))
     company_name = db.Column(db.String(150), nullable=False)
@@ -265,27 +264,22 @@ class DiscoveredJob(db.Model):
     employment_type = db.Column(db.String(50))
     salary = db.Column(db.String(100))
     visa_sponsorship = db.Column(db.String(20), default="Unknown")
-
     posting_url = db.Column(db.String(1000), nullable=False)
     apply_url = db.Column(db.String(1000))
     job_description = db.Column(db.Text)
-
-    fingerprint = db.Column(
-        db.String(64),
-        nullable=False,
-        index=True
-    )
-
-    discovered_at = db.Column(
-        db.DateTime,
-        default=datetime.utcnow,
-        nullable=False
-    )
+    fingerprint = db.Column(db.String(64), nullable=False, index=True)
+    discovered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     user_id = db.Column(
         db.Integer,
         db.ForeignKey("user.id"),
         nullable=False
+    )
+
+    search_profile_id = db.Column(
+        db.Integer,
+        db.ForeignKey("job_search_profile.id"),
+        nullable=True
     )
 
     __table_args__ = (
@@ -357,6 +351,12 @@ class JobSearchProfile(db.Model):
     last_result_count = db.Column(db.Integer, default=0, nullable=False)
     last_search_status = db.Column(db.String(30), default="Never Run", nullable=False)
     last_search_error = db.Column(db.Text, nullable=True)
+
+    discovered_jobs = db.relationship(
+        "DiscoveredJob",
+        backref="search_profile",
+        lazy=True
+    )
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
