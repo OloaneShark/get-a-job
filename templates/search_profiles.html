@@ -5,62 +5,237 @@
 
 {% block content %}
 
-<h2>Job Search Profiles</h2>
+<div class="work-layout">
 
-<a href="{{ url_for('new_search_profile') }}"
-   class="btn btn-success mb-4">
-    New Search Profile
-</a>
+    <div class="work-main">
+        <div class="form-page">
 
-{% if profiles %}
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2>Job Search Profiles</h2>
 
-<table class="table table-dark table-striped">
+                    <p class="helper-text mb-0">
+                        Create and manage automated searches for jobs and internships.
+                    </p>
+                </div>
 
-    <thead>
+                <a
+                    href="{{ url_for('new_search_profile') }}"
+                    class="btn btn-primary"
+                >
+                    New Search Profile
+                </a>
+            </div>
 
-        <tr>
-            <th>Name</th>
-            <th>Keywords</th>
-            <th>Locations</th>
-            <th>Status</th>
-        </tr>
+            {% if profiles %}
 
-    </thead>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped align-middle">
 
-    <tbody>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Keywords</th>
+                                <th>Locations</th>
+                                <th>Employment Types</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
 
-    {% for profile in profiles %}
+                        <tbody>
+                            {% for profile in profiles %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ profile.name }}</strong>
 
-        <tr>
+                                        {% if profile.minimum_salary %}
+                                            <div class="small text-muted mt-1">
+                                                Minimum salary:
+                                                {{ "{:,}".format(profile.minimum_salary) }}
+                                            </div>
+                                        {% endif %}
+                                    </td>
 
-            <td>{{ profile.name }}</td>
+                                    <td>
+                                        <div style="white-space: pre-line;">
+                                            {{ profile.keywords }}
+                                        </div>
+                                    </td>
 
-            <td>{{ profile.keywords }}</td>
+                                    <td>
+                                        <div style="white-space: pre-line;">
+                                            {{ profile.locations }}
+                                        </div>
+                                    </td>
 
-            <td>{{ profile.locations }}</td>
+                                    <td>
+                                        {% if profile.employment_types %}
+                                            <div style="white-space: pre-line;">
+                                                {{ profile.employment_types }}
+                                            </div>
+                                        {% else %}
+                                            <span class="text-muted">
+                                                Any
+                                            </span>
+                                        {% endif %}
 
-            <td>
+                                        {% if profile.remote_only %}
+                                            <div class="small mt-1">
+                                                Remote only
+                                            </div>
+                                        {% endif %}
 
-                {% if profile.active %}
-                    Active
-                {% else %}
-                    Disabled
-                {% endif %}
+                                        {% if profile.visa_required %}
+                                            <div class="small mt-1">
+                                                Visa sponsorship required
+                                            </div>
+                                        {% endif %}
+                                    </td>
 
-            </td>
+                                    <td>
+                                        {% if profile.active %}
+                                            <span class="badge bg-success">
+                                                Active
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">
+                                                Paused
+                                            </span>
+                                        {% endif %}
+                                    </td>
 
-        </tr>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-2">
 
-    {% endfor %}
+                                            <a
+                                                href="{{ url_for(
+                                                    'edit_search_profile',
+                                                    profile_id=profile.id
+                                                ) }}"
+                                                class="btn btn-primary btn-sm"
+                                            >
+                                                Edit
+                                            </a>
 
-    </tbody>
+                                            <form
+                                                method="POST"
+                                                action="{{ url_for(
+                                                    'toggle_search_profile',
+                                                    profile_id=profile.id
+                                                ) }}"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="csrf_token"
+                                                    value="{{ csrf_token() }}"
+                                                >
 
-</table>
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-warning btn-sm"
+                                                >
+                                                    {% if profile.active %}
+                                                        Pause
+                                                    {% else %}
+                                                        Activate
+                                                    {% endif %}
+                                                </button>
+                                            </form>
 
-{% else %}
+                                            <form
+                                                method="POST"
+                                                action="{{ url_for(
+                                                    'delete_search_profile',
+                                                    profile_id=profile.id
+                                                ) }}"
+                                                onsubmit="return confirm(
+                                                    'Delete this search profile permanently?'
+                                                );"
+                                            >
+                                                <input
+                                                    type="hidden"
+                                                    name="csrf_token"
+                                                    value="{{ csrf_token() }}"
+                                                >
 
-<p>No search profiles have been created.</p>
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-danger btn-sm"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </form>
 
-{% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+
+                    </table>
+                </div>
+
+            {% else %}
+
+                <div class="card">
+                    <div class="card-body">
+                        <h5>No Search Profiles Yet</h5>
+
+                        <p class="mb-3">
+                            Create a profile to define the roles, locations,
+                            employment types, salary preferences, and visa
+                            requirements you want the system to search for.
+                        </p>
+
+                        <a
+                            href="{{ url_for('new_search_profile') }}"
+                            class="btn btn-primary"
+                        >
+                            Create Your First Search Profile
+                        </a>
+                    </div>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </div>
+
+    <aside class="work-panel">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>How It Works</h5>
+
+                <p class="mb-2">
+                    Active profiles will be used by the background scheduler
+                    when job-source integrations are enabled.
+                </p>
+
+                <p class="mb-0">
+                    Paused profiles remain saved but will not be searched.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>Search Tips</h5>
+
+                <p class="mb-2">
+                    Enter one keyword or location per line for cleaner matching.
+                </p>
+
+                <p class="mb-0">
+                    Use separate profiles for substantially different targets,
+                    such as internships, Tokyo roles, and remote security jobs.
+                </p>
+            </div>
+        </div>
+
+    </aside>
+
+</div>
 
 {% endblock %}

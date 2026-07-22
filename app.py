@@ -1813,6 +1813,91 @@ def new_search_profile():
     )
 
 
+@app.route("/search-profiles/<int:profile_id>/edit", methods=["GET", "POST"])
+@login_required
+def edit_search_profile(profile_id):
+    profile = JobSearchProfile.query.filter_by(
+        id=profile_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    form = JobSearchProfileForm(obj=profile)
+
+    if form.validate_on_submit():
+        profile.name = form.name.data
+        profile.keywords = form.keywords.data
+        profile.locations = form.locations.data
+        profile.employment_types = form.employment_types.data
+        profile.remote_only = form.remote_only.data
+        profile.visa_required = form.visa_required.data
+        profile.minimum_salary = form.minimum_salary.data
+        profile.active = form.active.data
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            f"Updated search profile '{profile.name}'"
+        )
+
+        flash("Search profile updated successfully.", "success")
+        return redirect(url_for("search_profiles"))
+
+    return render_template(
+        "search_profile_form.html",
+        form=form,
+        title="Edit Search Profile"
+    )
+
+
+@app.route("/search-profiles/<int:profile_id>/delete", methods=["POST"])
+@login_required
+def delete_search_profile(profile_id):
+    profile = JobSearchProfile.query.filter_by(
+        id=profile_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    profile_name = profile.name
+
+    db.session.delete(profile)
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        f"Deleted search profile '{profile_name}'"
+    )
+
+    flash("Search profile deleted.", "success")
+    return redirect(url_for("search_profiles"))
+
+
+@app.route("/search-profiles/<int:profile_id>/toggle", methods=["POST"])
+@login_required
+def toggle_search_profile(profile_id):
+    profile = JobSearchProfile.query.filter_by(
+        id=profile_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    profile.active = not profile.active
+    db.session.commit()
+
+    status = "activated" if profile.active else "paused"
+
+    log_action(
+        current_user.id,
+        f"{status.title()} search profile '{profile.name}'"
+    )
+
+    flash(
+        f"Search profile {status}.",
+        "success"
+    )
+
+    return redirect(url_for("search_profiles"))
+
+
 @app.route("/job-match", methods=["GET", "POST"])
 @login_required
 def job_match():
