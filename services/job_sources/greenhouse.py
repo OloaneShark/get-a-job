@@ -9,6 +9,8 @@ from services.job_sources.base import BaseJobSource
 
 class GreenhouseJobSource(BaseJobSource):
     source_name = "Greenhouse"
+    source_type = "greenhouse"
+    requires_company_config = True
     base_url = "https://boards-api.greenhouse.io/v1/boards"
 
     def fetch_company_jobs(self, board_token):
@@ -149,7 +151,15 @@ class GreenhouseJobSource(BaseJobSource):
 
         return normalized_jobs
 
-    def search(self, profile, board_token, company_name):
+    def search(self, profile, source_config=None):
+        if source_config is None:
+            raise ValueError(
+                "Greenhouse requires a company source configuration."
+            )
+
+        board_token = source_config.source_identifier
+        company_name = source_config.company_name
+
         jobs = self.search_company(
             board_token=board_token,
             company_name=company_name
@@ -157,10 +167,7 @@ class GreenhouseJobSource(BaseJobSource):
 
         keywords = self.parse_values(profile.keywords)
         locations = self.parse_values(profile.locations)
-        
-        #
-        #Temp debug info spot
-        #
+
         print(
             f"GREENHOUSE FILTER DEBUG | "
             f"Profile: {profile.name} | "
@@ -168,10 +175,7 @@ class GreenhouseJobSource(BaseJobSource):
             f"Keywords: {keywords} | "
             f"Locations: {locations}"
         )
-        #
-        #
-        #
-        
+
         matching_jobs = []
 
         for job in jobs:

@@ -10,12 +10,11 @@ from models import (
     JobSourceCompany,
     db
 )
-from services.job_sources.greenhouse import GreenhouseJobSource
+from services.job_sources.registry import create_source
 from services.job_sources.utils import build_job_fingerprint
 
 
 scheduler = BackgroundScheduler(timezone="UTC")
-greenhouse_source = GreenhouseJobSource()
 
 
 def parse_profile_values(value):
@@ -76,6 +75,14 @@ def save_discovered_jobs(profile, jobs):
             posting_url=posting_url,
             apply_url=job.get("apply_url") or posting_url,
             job_description=job.get("job_description"),
+            recruiter_name=job.get("recruiter_name"),
+            recruiter_email=job.get("recruiter_email"),
+            recruiter_contact_url=job.get(
+                "recruiter_contact_url"
+            ),
+            recruiter_contact_source=job.get(
+                "recruiter_contact_source"
+            ),
             fingerprint=fingerprint
         )
 
@@ -85,52 +92,121 @@ def save_discovered_jobs(profile, jobs):
     return saved_count
 
 
-def search_greenhouse_for_profile(profile):
-    matched_jobs = []
-    source_errors = []
-
-    companies = JobSourceCompany.query.filter_by(
-        source_type="greenhouse",
-        is_active=True
-    ).all()
-
-    print(
-        f"GREENHOUSE SOURCE: checking "
-        f"{len(companies)} configured companies."
+def get_active_source_configs():
+    return (
+        JobSourceCompany.query
+        .filter_by(is_active=True)
+        .order_by(
+            JobSourceCompany.source_type.asc(),
+            JobSourceCompany.company_name.asc()
+        )
+        .all()
     )
 
-    for company in companies:
+
+def run_configured_source(
+    profile,
+    source_config
+):
+    source_type = (
+        source_config.source_type
+        or ""
+    ).strip().lower()
+
+    source = create_source(source_type)
+
+    print(
+        f"JOB SOURCE: checking "
+        f"{source_config.company_name} "
+        f"through {source.source_name}."
+    )
+
+    jobs = source.search(
+        profile=profile,
+        source_config=source_config
+    )
+
+    source_config.last_checked_at = datetime.now(
+        timezone.utc
+    )
+    source_config.last_check_status = "Completed"
+    source_config.last_check_error = None
+
+    return jobs
+
+
+def process_search_profile(
+    profile,
+    source_configs
+):
+    all_matching_jobs = []
+    source_errors = []
+
+    keywords = parse_profile_values(profile.keywords)
+    locations = parse_profile_values(profile.locations)
+    employment_types = parse_profile_values(
+        profile.employment_types
+    )
+
+    if any(
+        employment_type.lower() in {"all", "any"}
+        for employment_type in employment_types
+    ):
+        employment_types = []
+
+    print(
+        f"SEARCH PROFILE: {profile.name} | "
+        f"Keywords: {keywords} | "
+        f"Locations: {locations} | "
+        f"Employment Types: "
+        f"{employment_types or ['All']}"
+    )
+
+    for source_config in source_configs:
         try:
-            company_jobs = greenhouse_source.search(
-                profile=profile,
-                board_token=company.source_identifier,
-                company_name=company.company_name
+            source_jobs = run_configured_source(
+                profile,
+                source_config
             )
 
-            matched_jobs.extend(company_jobs)
+            all_matching_jobs.extend(source_jobs)
 
-            company.last_checked_at = datetime.now(timezone.utc)
-            company.last_check_status = "Completed"
-            company.last_check_error = None
+            print(
+                f"{source_config.source_type.upper()} "
+                f"RESULTS FOR {profile.name}: "
+                f"{len(source_jobs)} matched."
+            )
 
         except Exception as error:
+            source_config.last_checked_at = datetime.now(
+                timezone.utc
+            )
+            source_config.last_check_status = "Failed"
+            source_config.last_check_error = str(error)
+
             error_message = (
-                f"{company.company_name}: {error}"
+                f"{source_config.company_name} "
+                f"({source_config.source_type}): "
+                f"{error}"
             )
 
             source_errors.append(error_message)
 
-            company.last_checked_at = datetime.now(timezone.utc)
-            company.last_check_status = "Failed"
-            company.last_check_error = str(error)
-
             print(
-                f"GREENHOUSE SOURCE ERROR: "
-                f"{company.company_name}:",
-                repr(error)
+                "JOB SOURCE ERROR:",
+                error_message
             )
 
-    return matched_jobs, source_errors
+    saved_count = save_discovered_jobs(
+        profile,
+        all_matching_jobs
+    )
+
+    return (
+        len(all_matching_jobs),
+        saved_count,
+        source_errors
+    )
 
 
 def process_active_search_profiles(app):
@@ -142,9 +218,12 @@ def process_active_search_profiles(app):
             ).all()
         ]
 
+        source_configs = get_active_source_configs()
+
         print(
             f"JOB SEARCH SCHEDULER: "
-            f"found {len(profile_ids)} active profiles."
+            f"found {len(profile_ids)} active profiles "
+            f"and {len(source_configs)} active sources."
         )
 
         for profile_id in profile_ids:
@@ -157,67 +236,24 @@ def process_active_search_profiles(app):
                 continue
 
             try:
-                keywords = parse_profile_values(
-                    profile.keywords
-                )
-
-                locations = parse_profile_values(
-                    profile.locations
-                )
-
-                employment_types = parse_profile_values(
-                    profile.employment_types
-                )
-
-                if any(
-                    employment_type.lower() in {"all", "any"}
-                    for employment_type in employment_types
-                ):
-                    employment_types = []
-
-                print(
-                    f"SEARCH PROFILE: {profile.name} | "
-                    f"Keywords: {keywords} | "
-                    f"Locations: {locations} | "
-                    f"Employment Types: "
-                    f"{employment_types or ['All']}"
-                )
-
-                greenhouse_jobs, source_errors = (
-                    search_greenhouse_for_profile(profile)
-                )
-
-                saved_count = save_discovered_jobs(
+                (
+                    matched_count,
+                    saved_count,
+                    source_errors
+                ) = process_search_profile(
                     profile,
-                    greenhouse_jobs
+                    source_configs
                 )
-
-                print(
-                    f"GREENHOUSE RESULTS FOR "
-                    f"{profile.name}: "
-                    f"{len(greenhouse_jobs)} matched, "
-                    f"{saved_count} newly saved."
-                )
-
-                for job in greenhouse_jobs[:10]:
-                    print(
-                        f"- {job['company_name']} | "
-                        f"{job['position_title']} | "
-                        f"{job['location']} | "
-                        f"{job['posting_url']}"
-                    )
 
                 profile.last_searched_at = datetime.now(
                     timezone.utc
                 )
-
                 profile.last_result_count = saved_count
 
                 if source_errors:
                     profile.last_search_status = (
                         "Completed With Errors"
                     )
-
                     profile.last_search_error = "\n".join(
                         source_errors
                     )
@@ -226,6 +262,12 @@ def process_active_search_profiles(app):
                     profile.last_search_error = None
 
                 db.session.commit()
+
+                print(
+                    f"SEARCH COMPLETE: {profile.name} | "
+                    f"{matched_count} matched | "
+                    f"{saved_count} newly saved."
+                )
 
             except Exception as error:
                 db.session.rollback()
@@ -239,7 +281,6 @@ def process_active_search_profiles(app):
                     profile.last_searched_at = datetime.now(
                         timezone.utc
                     )
-
                     profile.last_result_count = 0
                     profile.last_search_status = "Failed"
                     profile.last_search_error = str(error)
@@ -269,4 +310,4 @@ def start_scheduler(app):
     )
 
     scheduler.start()
-
+    
