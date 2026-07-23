@@ -20,7 +20,8 @@ from models import (
     db,
     User,
     JobApplication,
-    AuditLog, Resume,
+    AuditLog,
+    Resume,
     InterviewPrep,
     ApplicationHistory,
     SavedJobDescription,
@@ -30,7 +31,8 @@ from models import (
     AccountSecurityEvent,
     DiscoveredJob,
     ApplicationPackage,
-    JobSearchProfile
+    JobSearchProfile,
+    JobSourceCompany
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -51,7 +53,8 @@ from forms import (
     AICoverLetterForm,
     AIInterviewCoachForm,
     JobUrlImportForm,
-    JobSearchProfileForm
+    JobSearchProfileForm,
+    JobSourceCompanyForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -76,6 +79,7 @@ from services.account_security_service import (
     record_security_event
 )
 from services.scheduler_service import start_scheduler
+from services.job_sources.source_utils import extract_greenhouse_board_token
 
 
 load_dotenv()
@@ -1996,6 +2000,86 @@ def job_match():
         missing_keywords=missing_keywords,
         priority_gaps=priority_gaps,
         suggestions=suggestions
+    )
+
+
+@app.route("/admin/job-sources")
+@login_required
+def job_sources():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    sources = JobSourceCompany.query.order_by(
+        JobSourceCompany.company_name.asc()
+    ).all()
+
+    return render_template(
+        "job_sources.html",
+        sources=sources
+    )
+
+
+@app.route("/admin/job-sources/new", methods=["GET", "POST"])
+@login_required
+def new_job_source():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    form = JobSourceCompanyForm()
+
+    if form.validate_on_submit():
+        try:
+            source_identifier = form.source_identifier.data.strip()
+
+            if form.source_type.data == "greenhouse":
+                source_identifier = extract_greenhouse_board_token(
+                    source_identifier
+                )
+
+            existing_source = JobSourceCompany.query.filter_by(
+                source_type=form.source_type.data,
+                source_identifier=source_identifier
+            ).first()
+
+            if existing_source:
+                flash("That job source is already configured.", "warning")
+                return render_template(
+                    "job_source_form.html",
+                    form=form
+                )
+
+            source = JobSourceCompany(
+                company_name=form.company_name.data.strip(),
+                source_type=form.source_type.data,
+                source_identifier=source_identifier,
+                careers_url=(
+                    form.careers_url.data.strip()
+                    if form.careers_url.data
+                    else None
+                ),
+                is_active=form.is_active.data
+            )
+
+            db.session.add(source)
+            db.session.commit()
+
+            flash("Job source added successfully.", "success")
+            return redirect(url_for("search_profiles"))
+
+        except ValueError as error:
+            db.session.rollback()
+            flash(str(error), "warning")
+
+        except Exception as error:
+            db.session.rollback()
+            print("JOB SOURCE CREATION ERROR:", repr(error))
+            flash("The job source could not be saved.", "danger")
+
+    return render_template(
+        "job_source_form.html",
+        form=form
     )
 
 

@@ -4,8 +4,12 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from models import DiscoveredJob, JobSearchProfile, db
-from services.job_sources.company_registry import GREENHOUSE_COMPANIES
+from models import (
+    DiscoveredJob,
+    JobSearchProfile,
+    JobSourceCompany,
+    db
+)
 from services.job_sources.greenhouse import GreenhouseJobSource
 from services.job_sources.utils import build_job_fingerprint
 
@@ -85,29 +89,44 @@ def search_greenhouse_for_profile(profile):
     matched_jobs = []
     source_errors = []
 
-    for company in GREENHOUSE_COMPANIES:
-        company_name = company.get("company_name")
-        board_token = company.get("board_token")
+    companies = JobSourceCompany.query.filter_by(
+        source_type="greenhouse",
+        is_active=True
+    ).all()
 
+    print(
+        f"GREENHOUSE SOURCE: checking "
+        f"{len(companies)} configured companies."
+    )
+
+    for company in companies:
         try:
             company_jobs = greenhouse_source.search(
                 profile=profile,
-                board_token=board_token,
-                company_name=company_name
+                board_token=company.source_identifier,
+                company_name=company.company_name
             )
 
             matched_jobs.extend(company_jobs)
 
+            company.last_checked_at = datetime.now(timezone.utc)
+            company.last_check_status = "Completed"
+            company.last_check_error = None
+
         except Exception as error:
             error_message = (
-                f"{company_name}: {error}"
+                f"{company.company_name}: {error}"
             )
 
             source_errors.append(error_message)
 
+            company.last_checked_at = datetime.now(timezone.utc)
+            company.last_check_status = "Failed"
+            company.last_check_error = str(error)
+
             print(
                 f"GREENHOUSE SOURCE ERROR: "
-                f"{company_name}:",
+                f"{company.company_name}:",
                 repr(error)
             )
 
@@ -250,4 +269,4 @@ def start_scheduler(app):
     )
 
     scheduler.start()
-    
+

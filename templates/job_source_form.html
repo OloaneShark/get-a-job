@@ -1,0 +1,56 @@
+
+{% extends "base.html" %}
+
+{% block title %}Add Job Source{% endblock %}
+
+{% block content %}
+
+<div class="form-page">
+
+    <h2>Add Job Source</h2>
+
+    <p class="helper-text mb-4">
+        Add a supported company careers board for scheduled job discovery.
+    </p>
+
+    <form method="POST">
+        {{ form.hidden_tag() }}
+
+        <div class="mb-3">
+            {{ form.company_name.label(class="form-label") }}
+            {{ form.company_name(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.source_type.label(class="form-label") }}
+            {{ form.source_type(class="form-control") }}
+        </div>
+
+        <div class="mb-3">
+            {{ form.source_identifier.label(class="form-label") }}
+            {{ form.source_identifier(
+                class="form-control",
+                placeholder="https://job-boards.greenhouse.io/company"
+            ) }}
+
+            <small class="helper-text">
+                Paste the full Greenhouse board URL or enter its board token.
+            </small>
+        </div>
+
+        <div class="mb-3">
+            {{ form.careers_url.label(class="form-label") }}
+            {{ form.careers_url(class="form-control") }}
+        </div>
+
+        <div class="form-check mb-4">
+            {{ form.is_active(class="form-check-input") }}
+            {{ form.is_active.label(class="form-check-label") }}
+        </div>
+
+        {{ form.submit(class="btn btn-primary") }}
+    </form>
+
+</div>
+
+{% endblock %}

@@ -266,6 +266,10 @@ class DiscoveredJob(db.Model):
     visa_sponsorship = db.Column(db.String(20), default="Unknown")
     posting_url = db.Column(db.String(1000), nullable=False)
     apply_url = db.Column(db.String(1000))
+    recruiter_name = db.Column(db.String(150), nullable=True)
+    recruiter_email = db.Column(db.String(255), nullable=True)
+    recruiter_contact_url = db.Column(db.String(1000), nullable=True)
+    recruiter_contact_source = db.Column(db.String(100), nullable=True)
     job_description = db.Column(db.Text)
     fingerprint = db.Column(db.String(64), nullable=False, index=True)
     discovered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -360,5 +364,29 @@ class JobSearchProfile(db.Model):
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
+    
+    
+class JobSourceCompany(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    company_name = db.Column(db.String(150), nullable=False)
+    source_type = db.Column(db.String(50), nullable=False)
+    source_identifier = db.Column(db.String(255), nullable=False)
+    careers_url = db.Column(db.String(1000), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    last_checked_at = db.Column(db.DateTime, nullable=True)
+    last_check_status = db.Column(db.String(30), default="Never Checked", nullable=False)
+    last_check_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "source_type",
+            "source_identifier",
+            name="uq_job_source_identifier"
+        ),
+    )
+
+    def __repr__(self):
+        return f"<JobSourceCompany {self.company_name}>"
     
     

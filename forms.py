@@ -269,3 +269,19 @@ class JobSearchProfileForm(FlaskForm):
     submit = SubmitField("Save Search Profile")
     
     
+class JobSourceCompanyForm(FlaskForm):
+    company_name = StringField("Company Name", validators=[DataRequired()])
+    source_type = SelectField(
+        "Source",
+        choices=[("greenhouse", "Greenhouse")],
+        validators=[DataRequired()]
+    )
+    source_identifier = StringField(
+        "Careers URL or Board Token",
+        validators=[DataRequired()]
+    )
+    careers_url = StringField("Company Careers URL")
+    is_active = BooleanField("Active", default=True)
+    submit = SubmitField("Save Job Source")
+    
+    
