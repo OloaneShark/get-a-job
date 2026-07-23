@@ -1,0 +1,158 @@
+
+{% extends "base.html" %}
+
+{% block title %}Discovered Jobs{% endblock %}
+
+{% block content %}
+
+<div class="work-layout">
+
+    <div class="work-main">
+        <div class="form-page">
+
+            <div class="mb-4">
+                <h2>Discovered Jobs</h2>
+
+                <p class="helper-text mb-0">
+                    Jobs found automatically from your active search profiles.
+                </p>
+            </div>
+
+            {% if jobs %}
+
+                <div class="d-grid gap-3">
+
+                    {% for job in jobs %}
+
+                        <div class="card">
+                            <div class="card-body">
+
+                                <div
+                                    class="d-flex justify-content-between
+                                           align-items-start gap-3"
+                                >
+                                    <div>
+                                        <h4 class="mb-1">
+                                            {{ job.position_title }}
+                                        </h4>
+
+                                        <h6 class="mb-3">
+                                            {{ job.company_name }}
+                                        </h6>
+                                    </div>
+
+                                    <span class="badge bg-info">
+                                        {{ job.source }}
+                                    </span>
+                                </div>
+
+                                <div class="mb-3">
+
+                                    {% if job.location %}
+                                        <span class="me-3">
+                                            {{ job.location }}
+                                        </span>
+                                    {% endif %}
+
+                                    {% if job.employment_type %}
+                                        <span class="me-3">
+                                            {{ job.employment_type }}
+                                        </span>
+                                    {% endif %}
+
+                                    {% if job.salary %}
+                                        <span>
+                                            {{ job.salary }}
+                                        </span>
+                                    {% endif %}
+
+                                </div>
+
+                                {% if job.search_profile %}
+                                    <p class="helper-text mb-3">
+                                        Found by:
+                                        {{ job.search_profile.name }}
+                                    </p>
+                                {% endif %}
+
+                                <div class="d-flex flex-wrap gap-2">
+
+                                    <a
+                                        href="{{ job.posting_url }}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="btn btn-primary btn-sm"
+                                    >
+                                        View Job
+                                    </a>
+
+                                    <a
+                                        href="{{ job.apply_url or job.posting_url }}"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="btn btn-success btn-sm"
+                                    >
+                                        Apply
+                                    </a>
+
+                                    {% if job.recruiter_email %}
+                                        <a
+                                            href="mailto:{{ job.recruiter_email }}"
+                                            class="btn btn-warning btn-sm"
+                                        >
+                                            Recruiting Contact
+                                        </a>
+                                    {% endif %}
+
+                                </div>
+
+                                <div class="small text-muted mt-3">
+                                    Discovered:
+                                    {{ job.discovered_at.strftime(
+                                        "%Y-%m-%d %H:%M"
+                                    ) }}
+                                </div>
+
+                            </div>
+                        </div>
+
+                    {% endfor %}
+
+                </div>
+
+            {% else %}
+
+                <div class="card">
+                    <div class="card-body">
+                        <h5>No Discovered Jobs Yet</h5>
+
+                        <p class="mb-0">
+                            Active search profiles will place matching
+                            job postings here after scheduled searches run.
+                        </p>
+                    </div>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </div>
+
+    <aside class="work-panel">
+
+        <div class="card">
+            <div class="card-body">
+                <h5>Automated Discovery</h5>
+
+                <p class="mb-0">
+                    Long URLs remain stored securely. Use the clean
+                    View Job and Apply buttons to open each posting.
+                </p>
+            </div>
+        </div>
+
+    </aside>
+
+</div>
+
+{% endblock %}

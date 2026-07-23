@@ -1902,6 +1902,22 @@ def toggle_search_profile(profile_id):
     return redirect(url_for("search_profiles"))
 
 
+@app.route("/discovered-jobs")
+@login_required
+def discovered_jobs():
+    jobs = (
+        DiscoveredJob.query
+        .filter_by(user_id=current_user.id)
+        .order_by(DiscoveredJob.discovered_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "discovered_jobs.html",
+        jobs=jobs
+    )
+
+
 @app.route("/job-match", methods=["GET", "POST"])
 @login_required
 def job_match():
@@ -2066,7 +2082,7 @@ def new_job_source():
             db.session.commit()
 
             flash("Job source added successfully.", "success")
-            return redirect(url_for("search_profiles"))
+            return redirect(url_for("job_sources"))
 
         except ValueError as error:
             db.session.rollback()

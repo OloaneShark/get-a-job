@@ -15,7 +15,10 @@ class GreenhouseJobSource(BaseJobSource):
         if not board_token or not board_token.strip():
             raise ValueError("A Greenhouse board token is required.")
 
-        url = f"{self.base_url}/{board_token.strip()}/jobs"
+        url = (
+            f"{self.base_url}/"
+            f"{board_token.strip()}/jobs"
+        )
 
         try:
             response = requests.get(
@@ -26,26 +29,26 @@ class GreenhouseJobSource(BaseJobSource):
 
             response.raise_for_status()
 
-        except requests.Timeout as e:
+        except requests.Timeout as error:
             raise RuntimeError(
-                f"Greenhouse request timed out for board "
-                f"'{board_token}'."
-            ) from e
+                f"Greenhouse request timed out for "
+                f"board '{board_token}'."
+            ) from error
 
-        except requests.RequestException as e:
+        except requests.RequestException as error:
             raise RuntimeError(
-                f"Greenhouse request failed for board "
-                f"'{board_token}': {e}"
-            ) from e
+                f"Greenhouse request failed for "
+                f"board '{board_token}': {error}"
+            ) from error
 
         try:
             payload = response.json()
 
-        except ValueError as e:
+        except ValueError as error:
             raise RuntimeError(
-                f"Greenhouse returned invalid JSON for board "
-                f"'{board_token}'."
-            ) from e
+                f"Greenhouse returned invalid JSON for "
+                f"board '{board_token}'."
+            ) from error
 
         return payload.get("jobs", [])
 
@@ -133,7 +136,6 @@ class GreenhouseJobSource(BaseJobSource):
             raise ValueError("A company name is required.")
 
         jobs = self.fetch_company_jobs(board_token)
-
         normalized_jobs = []
 
         for job in jobs:
@@ -142,10 +144,8 @@ class GreenhouseJobSource(BaseJobSource):
                 company_name.strip()
             )
 
-            if not normalized_job["posting_url"]:
-                continue
-
-            normalized_jobs.append(normalized_job)
+            if normalized_job["posting_url"]:
+                normalized_jobs.append(normalized_job)
 
         return normalized_jobs
 
@@ -155,31 +155,27 @@ class GreenhouseJobSource(BaseJobSource):
             company_name=company_name
         )
 
-        keywords = self.parse_values(
-            profile.keywords
+        keywords = self.parse_values(profile.keywords)
+        locations = self.parse_values(profile.locations)
+        
+        #
+        #Temp debug info spot
+        #
+        print(
+            f"GREENHOUSE FILTER DEBUG | "
+            f"Profile: {profile.name} | "
+            f"Remote only: {profile.remote_only} | "
+            f"Keywords: {keywords} | "
+            f"Locations: {locations}"
         )
-
-        locations = self.parse_values(
-            profile.locations
-        )
-
-        employment_types = self.parse_values(
-            profile.employment_types
-        )
-
-        if any(
-            employment_type.lower() in {"all", "any"}
-            for employment_type in employment_types
-        ):
-            employment_types = []
-
+        #
+        #
+        #
+        
         matching_jobs = []
 
         for job in jobs:
-            if not self.matches_keywords(
-                job,
-                keywords
-            ):
+            if not self.matches_keywords(job, keywords):
                 continue
 
             if not self.matches_locations(
@@ -199,7 +195,7 @@ class GreenhouseJobSource(BaseJobSource):
             return []
 
         return [
-            item.strip()
+            item.strip().lower()
             for item in re.split(r"[\n,]+", value)
             if item.strip()
         ]
@@ -209,37 +205,49 @@ class GreenhouseJobSource(BaseJobSource):
         if not keywords:
             return True
 
+        title = job.get("position_title") or ""
+        description = job.get("job_description") or ""
+        departments = " ".join(job.get("departments") or [])
+
         searchable_text = " ".join([
-            job.get("position_title") or "",
-            job.get("job_description") or "",
-            " ".join(job.get("departments") or [])
+            title,
+            description,
+            departments
         ]).lower()
 
-        return any(
-            keyword.lower() in searchable_text
-            for keyword in keywords
-        )
+        for keyword in keywords:
+            normalized_keyword = keyword.strip().lower()
+
+            if not normalized_keyword:
+                continue
+
+            pattern = (
+                r"(?<!\w)"
+                + re.escape(normalized_keyword)
+                + r"(?!\w)"
+            )
+
+            if re.search(pattern, searchable_text):
+                return True
+
+        return False
 
     @staticmethod
-    def matches_locations(
-        job,
-        locations,
-        remote_only=False
-    ):
+    def matches_locations(job, locations, remote_only=False):
         job_location = (
             job.get("location")
             or ""
-        ).lower()
+        ).strip().lower()
 
-        if remote_only:
-            return "remote" in job_location
+        if remote_only and "remote" not in job_location:
+            return False
 
         if not locations:
             return True
 
         return any(
-            location.lower() in job_location
-            or job_location in location.lower()
+            location.strip().lower() in job_location
             for location in locations
+            if location.strip()
         )
         
