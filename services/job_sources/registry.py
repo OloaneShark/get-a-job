@@ -1,9 +1,10 @@
 
 from services.job_sources.greenhouse import GreenhouseJobSource
-
+from services.job_sources.lever import LeverJobSource
 
 SOURCE_REGISTRY = {
     "greenhouse": GreenhouseJobSource,
+    "lever": LeverJobSource,
 }
 
 

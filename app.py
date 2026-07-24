@@ -79,7 +79,10 @@ from services.account_security_service import (
     record_security_event
 )
 from services.scheduler_service import start_scheduler
-from services.job_sources.source_utils import extract_greenhouse_board_token
+from services.job_sources.source_utils import (
+    extract_greenhouse_board_token,
+    extract_lever_company_slug
+)
 
 
 load_dotenv()
@@ -2051,6 +2054,11 @@ def new_job_source():
 
             if form.source_type.data == "greenhouse":
                 source_identifier = extract_greenhouse_board_token(
+                    source_identifier
+                )
+
+            elif form.source_type.data == "lever":
+                source_identifier = extract_lever_company_slug(
                     source_identifier
                 )
 

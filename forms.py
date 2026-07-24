@@ -273,7 +273,10 @@ class JobSourceCompanyForm(FlaskForm):
     company_name = StringField("Company Name", validators=[DataRequired()])
     source_type = SelectField(
         "Source",
-        choices=[("greenhouse", "Greenhouse")],
+        choices=[
+            ("greenhouse", "Greenhouse"),
+            ("lever", "Lever")
+        ],
         validators=[DataRequired()]
     )
     source_identifier = StringField(
