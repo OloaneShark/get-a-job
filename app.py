@@ -88,6 +88,7 @@ from services.job_sources.source_utils import (
 )
 from services.job_sources.discovery.source_discovery import (detect_source_type)
 from services.job_sources.discovery.validation_service import (validate_source_candidate)
+from services.job_sources.discovery.candidate_service import (ingest_source_urls)
 
 load_dotenv()
 
@@ -459,68 +460,22 @@ def job_source_candidates():
             if line.strip()
         ]
 
-        added_count = 0
-        skipped_count = 0
-        failed_count = 0
-
-        for url in urls:
-            try:
-                source_type, source_identifier = (
-                    detect_source_type(url)
-                )
-
-                existing_source = JobSourceCompany.query.filter_by(
-                    source_type=source_type,
-                    source_identifier=source_identifier
-                ).first()
-
-                if existing_source:
-                    skipped_count += 1
-                    continue
-
-                candidate = JobSourceCandidate.query.filter_by(
-                    source_type=source_type,
-                    source_identifier=source_identifier
-                ).first()
-
-                if candidate is None:
-                    candidate = JobSourceCandidate(
-                        company_name=source_identifier,
-                        source_type=source_type,
-                        source_identifier=source_identifier,
-                        discovered_url=url,
-                        discovery_method="admin_bulk_import",
-                        validation_status="pending"
-                    )
-
-                    db.session.add(candidate)
-                    db.session.flush()
-
-                    added_count += 1
-                else:
-                    skipped_count += 1
-
-                validate_source_candidate(candidate)
-
-            except Exception as error:
-                failed_count += 1
-                print(
-                    f"SOURCE DISCOVERY FAILED | "
-                    f"URL: {url} | Error: {error}"
-                )
-
-        db.session.commit()
+        results = ingest_source_urls(
+            urls=urls,
+            discovery_method="admin_bulk_import",
+            auto_validate=True
+        )
 
         flash(
-            f"Discovery complete: {added_count} added, "
-            f"{skipped_count} skipped, "
-            f"{failed_count} failed.",
+            f"Discovery complete: "
+            f"{results['created']} added, "
+            f"{results['already_active']} already active, "
+            f"{results['already_candidate']} already queued, "
+            f"{results['failed']} failed.",
             "success"
         )
 
-        return redirect(
-            url_for("job_source_candidates")
-        )
+        return redirect(url_for("job_source_candidates"))
 
     candidates = (
         JobSourceCandidate.query
