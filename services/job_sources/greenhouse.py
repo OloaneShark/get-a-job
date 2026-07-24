@@ -1,10 +1,10 @@
 
-import html
 import re
-
-import requests
-
 from services.job_sources.base import BaseJobSource
+from services.job_sources.http_client import (
+    clean_html_text,
+    fetch_json
+)
 
 
 class GreenhouseJobSource(BaseJobSource):
@@ -15,78 +15,34 @@ class GreenhouseJobSource(BaseJobSource):
 
     def fetch_company_jobs(self, board_token):
         if not board_token or not board_token.strip():
-            raise ValueError("A Greenhouse board token is required.")
-
-        url = (
-            f"{self.base_url}/"
-            f"{board_token.strip()}/jobs"
-        )
-
-        try:
-            response = requests.get(
-                url,
-                params={"content": "true"},
-                timeout=20
+            raise ValueError(
+                "A Greenhouse board token is required."
             )
 
-            response.raise_for_status()
+        board_token = board_token.strip()
+        url = f"{self.base_url}/{board_token}/jobs"
 
-        except requests.Timeout as error:
+        payload = fetch_json(
+            url,
+            params={"content": "true"}
+        )
+
+        if not isinstance(payload, dict):
             raise RuntimeError(
-                f"Greenhouse request timed out for "
+                f"Greenhouse returned an unexpected response for "
                 f"board '{board_token}'."
-            ) from error
+            )
 
-        except requests.RequestException as error:
+        jobs = payload.get("jobs", [])
+
+        if not isinstance(jobs, list):
             raise RuntimeError(
-                f"Greenhouse request failed for "
-                f"board '{board_token}': {error}"
-            ) from error
-
-        try:
-            payload = response.json()
-
-        except ValueError as error:
-            raise RuntimeError(
-                f"Greenhouse returned invalid JSON for "
+                f"Greenhouse returned invalid jobs data for "
                 f"board '{board_token}'."
-            ) from error
+            )
 
-        return payload.get("jobs", [])
+        return jobs
 
-    def clean_description(self, content):
-        if not content:
-            return None
-
-        decoded = html.unescape(content)
-
-        decoded = re.sub(
-            r"<\s*br\s*/?\s*>",
-            "\n",
-            decoded,
-            flags=re.IGNORECASE
-        )
-
-        decoded = re.sub(
-            r"</\s*(p|div|li|h[1-6])\s*>",
-            "\n",
-            decoded,
-            flags=re.IGNORECASE
-        )
-
-        decoded = re.sub(
-            r"<[^>]+>",
-            "",
-            decoded
-        )
-
-        decoded = re.sub(
-            r"\n{3,}",
-            "\n\n",
-            decoded
-        )
-
-        return decoded.strip() or None
 
     def normalize_job(self, job, company_name):
         location_data = job.get("location") or {}
@@ -125,9 +81,7 @@ class GreenhouseJobSource(BaseJobSource):
             "visa_sponsorship": "Unknown",
             "posting_url": posting_url,
             "apply_url": posting_url,
-            "job_description": self.clean_description(
-                job.get("content")
-            ),
+            "job_description": clean_html_text(job.get("content")),
             "departments": department_names,
             "offices": office_names,
             "updated_at": job.get("updated_at")

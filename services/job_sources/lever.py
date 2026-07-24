@@ -1,10 +1,10 @@
 
-import html
 import re
-
-import requests
-
 from services.job_sources.base import BaseJobSource
+from services.job_sources.http_client import (
+    clean_html_text,
+    fetch_json
+)
 
 
 class LeverJobSource(BaseJobSource):
@@ -21,37 +21,13 @@ class LeverJobSource(BaseJobSource):
                 "A Lever company slug is required."
             )
 
-        url = f"{self.base_url}/{company_slug.strip()}"
+        company_slug = company_slug.strip()
+        url = f"{self.base_url}/{company_slug}"
 
-        try:
-            response = requests.get(
-                url,
-                params={"mode": "json"},
-                timeout=20
-            )
-
-            response.raise_for_status()
-
-        except requests.Timeout as error:
-            raise RuntimeError(
-                f"Lever request timed out for "
-                f"company '{company_slug}'."
-            ) from error
-
-        except requests.RequestException as error:
-            raise RuntimeError(
-                f"Lever request failed for "
-                f"company '{company_slug}': {error}"
-            ) from error
-
-        try:
-            payload = response.json()
-
-        except ValueError as error:
-            raise RuntimeError(
-                f"Lever returned invalid JSON for "
-                f"company '{company_slug}'."
-            ) from error
+        payload = fetch_json(
+            url,
+            params={"mode": "json"}
+        )
 
         if not isinstance(payload, list):
             raise RuntimeError(
@@ -60,42 +36,6 @@ class LeverJobSource(BaseJobSource):
             )
 
         return payload
-
-
-    @staticmethod
-    def clean_description(value):
-        if not value:
-            return None
-
-        decoded = html.unescape(value)
-
-        decoded = re.sub(
-            r"<\s*br\s*/?\s*>",
-            "\n",
-            decoded,
-            flags=re.IGNORECASE
-        )
-
-        decoded = re.sub(
-            r"</\s*(p|div|li|h[1-6])\s*>",
-            "\n",
-            decoded,
-            flags=re.IGNORECASE
-        )
-
-        decoded = re.sub(
-            r"<[^>]+>",
-            "",
-            decoded
-        )
-
-        decoded = re.sub(
-            r"\n{3,}",
-            "\n\n",
-            decoded
-        )
-
-        return decoded.strip() or None
 
 
     def normalize_job(self, job, company_name):
@@ -135,9 +75,7 @@ class LeverJobSource(BaseJobSource):
             "visa_sponsorship": "Unknown",
             "posting_url": posting_url,
             "apply_url": apply_url,
-            "job_description": self.clean_description(
-                description
-            ),
+            "job_description": clean_html_text(description),
             "departments": [
                 value
                 for value in [department, team]
