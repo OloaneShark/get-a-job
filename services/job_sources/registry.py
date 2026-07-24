@@ -1,10 +1,12 @@
 
 from services.job_sources.greenhouse import GreenhouseJobSource
 from services.job_sources.lever import LeverJobSource
+from services.job_sources.ashby import AshbyJobSource
 
 SOURCE_REGISTRY = {
     "greenhouse": GreenhouseJobSource,
     "lever": LeverJobSource,
+    "ashby": AshbyJobSource,
 }
 
 

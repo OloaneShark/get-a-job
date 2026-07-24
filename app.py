@@ -32,7 +32,8 @@ from models import (
     DiscoveredJob,
     ApplicationPackage,
     JobSearchProfile,
-    JobSourceCompany
+    JobSourceCompany,
+    JobSourceCandidate
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -80,6 +81,7 @@ from services.account_security_service import (
 )
 from services.scheduler_service import start_scheduler
 from services.job_sources.source_utils import (
+    extract_ashby_job_board_name,
     extract_greenhouse_board_token,
     extract_lever_company_slug
 )
@@ -286,6 +288,215 @@ def dashboard():
         "dashboard.html",
         filtered_applications=filtered_applications
     )
+
+
+@app.route("/admin")
+@login_required
+def admin_dashboard():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    active_sources = JobSourceCompany.query.filter_by(is_active=True).count()
+    disabled_sources = JobSourceCompany.query.filter_by(is_active=False).count()
+
+    pending_candidates = JobSourceCandidate.query.filter_by(
+        validation_status="pending"
+    ).count()
+
+    valid_candidates = JobSourceCandidate.query.filter_by(
+        validation_status="valid"
+    ).count()
+
+    invalid_candidates = JobSourceCandidate.query.filter_by(
+        validation_status="invalid"
+    ).count()
+
+    approved_candidates = JobSourceCandidate.query.filter_by(
+        validation_status="approved"
+    ).count()
+
+    failed_sources = JobSourceCompany.query.filter_by(
+        last_check_status="Failed"
+    ).count()
+
+    discovered_jobs_count = DiscoveredJob.query.count()
+
+    recent_candidates = (
+        JobSourceCandidate.query
+        .order_by(JobSourceCandidate.discovered_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    recent_sources = (
+        JobSourceCompany.query
+        .order_by(JobSourceCompany.created_at.desc())
+        .limit(10)
+        .all()
+    )
+
+    return render_template(
+        "admin_dashboard.html",
+        active_sources=active_sources,
+        disabled_sources=disabled_sources,
+        pending_candidates=pending_candidates,
+        valid_candidates=valid_candidates,
+        invalid_candidates=invalid_candidates,
+        approved_candidates=approved_candidates,
+        failed_sources=failed_sources,
+        discovered_jobs_count=discovered_jobs_count,
+        recent_candidates=recent_candidates,
+        recent_sources=recent_sources
+    )
+
+
+@app.route("/admin/job-sources")
+@login_required
+def job_sources():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    sources = JobSourceCompany.query.order_by(
+        JobSourceCompany.company_name.asc()
+    ).all()
+
+    return render_template(
+        "job_sources.html",
+        sources=sources
+    )
+
+
+@app.route("/admin/job-sources/new", methods=["GET", "POST"])
+@login_required
+def new_job_source():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    form = JobSourceCompanyForm()
+
+    if form.validate_on_submit():
+        try:
+            source_identifier = form.source_identifier.data.strip()
+
+            if form.source_type.data == "greenhouse":
+                source_identifier = extract_greenhouse_board_token(
+                    source_identifier
+                )
+
+            elif form.source_type.data == "lever":
+                source_identifier = extract_lever_company_slug(
+                    source_identifier
+                )
+                
+            elif form.source_type.data == "ashby":
+                source_identifier = extract_ashby_job_board_name(
+                    source_identifier
+                )
+
+            existing_source = JobSourceCompany.query.filter_by(
+                source_type=form.source_type.data,
+                source_identifier=source_identifier
+            ).first()
+
+            if existing_source:
+                flash("That job source is already configured.", "warning")
+                return render_template(
+                    "job_source_form.html",
+                    form=form
+                )
+
+            source = JobSourceCompany(
+                company_name=form.company_name.data.strip(),
+                source_type=form.source_type.data,
+                source_identifier=source_identifier,
+                careers_url=(
+                    form.careers_url.data.strip()
+                    if form.careers_url.data
+                    else None
+                ),
+                is_active=form.is_active.data
+            )
+
+            db.session.add(source)
+            db.session.commit()
+
+            flash("Job source added successfully.", "success")
+            return redirect(url_for("job_sources"))
+
+        except ValueError as error:
+            db.session.rollback()
+            flash(str(error), "warning")
+
+        except Exception as error:
+            db.session.rollback()
+            print("JOB SOURCE CREATION ERROR:", repr(error))
+            flash("The job source could not be saved.", "danger")
+
+    return render_template(
+        "job_source_form.html",
+        form=form
+    )
+
+
+@app.route("/admin/job-source-candidates")
+@login_required
+def job_source_candidates():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    candidates = (
+        JobSourceCandidate.query
+        .order_by(JobSourceCandidate.discovered_at.desc())
+        .all()
+    )
+
+    return render_template(
+        "job_source_candidates.html",
+        candidates=candidates
+    )
+
+
+@app.route("/admin/job-source-candidates/<int:candidate_id>/approve", methods=["POST"])
+@login_required
+def approve_job_source_candidate(candidate_id):
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    candidate = JobSourceCandidate.query.get_or_404(candidate_id)
+
+    if candidate.validation_status != "valid":
+        flash("Only validated sources can be approved.", "warning")
+        return redirect(url_for("job_source_candidates"))
+
+    existing = JobSourceCompany.query.filter_by(
+        source_type=candidate.source_type,
+        source_identifier=candidate.source_identifier
+    ).first()
+
+    if not existing:
+        source = JobSourceCompany(
+            company_name=(
+                candidate.company_name
+                or candidate.source_identifier
+            ),
+            source_type=candidate.source_type,
+            source_identifier=candidate.source_identifier,
+            careers_url=candidate.discovered_url,
+            is_active=True
+        )
+
+        db.session.add(source)
+
+    candidate.validation_status = "approved"
+    db.session.commit()
+
+    flash("Job source approved.", "success")
+    return redirect(url_for("job_source_candidates"))
 
 
 @app.route("/applications/new", methods=["GET", "POST"])
@@ -2019,91 +2230,6 @@ def job_match():
         missing_keywords=missing_keywords,
         priority_gaps=priority_gaps,
         suggestions=suggestions
-    )
-
-
-@app.route("/admin/job-sources")
-@login_required
-def job_sources():
-    if not current_user.is_admin:
-        flash("Administrator access is required.", "danger")
-        return redirect(url_for("dashboard"))
-
-    sources = JobSourceCompany.query.order_by(
-        JobSourceCompany.company_name.asc()
-    ).all()
-
-    return render_template(
-        "job_sources.html",
-        sources=sources
-    )
-
-
-@app.route("/admin/job-sources/new", methods=["GET", "POST"])
-@login_required
-def new_job_source():
-    if not current_user.is_admin:
-        flash("Administrator access is required.", "danger")
-        return redirect(url_for("dashboard"))
-
-    form = JobSourceCompanyForm()
-
-    if form.validate_on_submit():
-        try:
-            source_identifier = form.source_identifier.data.strip()
-
-            if form.source_type.data == "greenhouse":
-                source_identifier = extract_greenhouse_board_token(
-                    source_identifier
-                )
-
-            elif form.source_type.data == "lever":
-                source_identifier = extract_lever_company_slug(
-                    source_identifier
-                )
-
-            existing_source = JobSourceCompany.query.filter_by(
-                source_type=form.source_type.data,
-                source_identifier=source_identifier
-            ).first()
-
-            if existing_source:
-                flash("That job source is already configured.", "warning")
-                return render_template(
-                    "job_source_form.html",
-                    form=form
-                )
-
-            source = JobSourceCompany(
-                company_name=form.company_name.data.strip(),
-                source_type=form.source_type.data,
-                source_identifier=source_identifier,
-                careers_url=(
-                    form.careers_url.data.strip()
-                    if form.careers_url.data
-                    else None
-                ),
-                is_active=form.is_active.data
-            )
-
-            db.session.add(source)
-            db.session.commit()
-
-            flash("Job source added successfully.", "success")
-            return redirect(url_for("job_sources"))
-
-        except ValueError as error:
-            db.session.rollback()
-            flash(str(error), "warning")
-
-        except Exception as error:
-            db.session.rollback()
-            print("JOB SOURCE CREATION ERROR:", repr(error))
-            flash("The job source could not be saved.", "danger")
-
-    return render_template(
-        "job_source_form.html",
-        form=form
     )
 
 
