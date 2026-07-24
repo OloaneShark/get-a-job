@@ -14,9 +14,21 @@ jobs:
       - name: Deploy on EC2
         run: |
           cd /home/ubuntu/get-a-job
-          git fetch origin
+
+          git fetch origin main
           git reset --hard origin/main
-          docker compose down
-          docker compose up --build -d
+
+          if ! COMPOSE_BAKE=false docker compose build --pull; then
+              echo "Docker build failed. Clearing corrupted build cache and retrying."
+
+              docker builder prune -a -f
+              COMPOSE_BAKE=false docker compose build --no-cache --pull
+          fi
+
+          docker compose up -d --remove-orphans
+
+          docker compose ps
+          docker compose logs web --tail 100
+
           docker image prune -f
-            
+          
