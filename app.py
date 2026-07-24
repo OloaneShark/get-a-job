@@ -581,7 +581,7 @@ def approve_job_source_candidate(candidate_id):
         source_type=candidate.source_type,
         source_identifier=candidate.source_identifier,
         careers_url=candidate.discovered_url,
-        active=True
+        is_active=True
     )
 
     db.session.add(source)
@@ -633,7 +633,7 @@ def approve_all_valid_job_sources():
             source_type=candidate.source_type,
             source_identifier=candidate.source_identifier,
             careers_url=candidate.discovered_url,
-            active=True
+            is_active=True
         )
 
         db.session.add(source)
