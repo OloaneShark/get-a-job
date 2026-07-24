@@ -291,3 +291,21 @@ class JobSourceCompanyForm(FlaskForm):
     submit = SubmitField("Save Job Source")
     
     
+class JobSourceDiscoveryForm(FlaskForm):
+    source_urls = TextAreaField(
+        "Company job-board URLs",
+        validators=[DataRequired()],
+        render_kw={
+            "rows": 10,
+            "placeholder": (
+                "Paste one URL per line:\n"
+                "https://jobs.lever.co/mujininc\n"
+                "https://boards.greenhouse.io/remotecom\n"
+                "https://jobs.ashbyhq.com/example"
+            )
+        }
+    )
+
+    submit = SubmitField("Discover Sources")
+    
+    

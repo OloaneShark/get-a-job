@@ -55,7 +55,8 @@ from forms import (
     AIInterviewCoachForm,
     JobUrlImportForm,
     JobSearchProfileForm,
-    JobSourceCompanyForm
+    JobSourceCompanyForm,
+    JobSourceDiscoveryForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -85,7 +86,8 @@ from services.job_sources.source_utils import (
     extract_greenhouse_board_token,
     extract_lever_company_slug
 )
-
+from services.job_sources.discovery.source_discovery import (detect_source_type)
+from services.job_sources.discovery.validation_service import (validate_source_candidate)
 
 load_dotenv()
 
@@ -441,12 +443,84 @@ def new_job_source():
     )
 
 
-@app.route("/admin/job-source-candidates")
+@app.route("/admin/job-source-candidates", methods=["GET", "POST"])
 @login_required
 def job_source_candidates():
     if not current_user.is_admin:
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
+
+    form = JobSourceDiscoveryForm()
+
+    if form.validate_on_submit():
+        urls = [
+            line.strip()
+            for line in form.source_urls.data.splitlines()
+            if line.strip()
+        ]
+
+        added_count = 0
+        skipped_count = 0
+        failed_count = 0
+
+        for url in urls:
+            try:
+                source_type, source_identifier = (
+                    detect_source_type(url)
+                )
+
+                existing_source = JobSourceCompany.query.filter_by(
+                    source_type=source_type,
+                    source_identifier=source_identifier
+                ).first()
+
+                if existing_source:
+                    skipped_count += 1
+                    continue
+
+                candidate = JobSourceCandidate.query.filter_by(
+                    source_type=source_type,
+                    source_identifier=source_identifier
+                ).first()
+
+                if candidate is None:
+                    candidate = JobSourceCandidate(
+                        company_name=source_identifier,
+                        source_type=source_type,
+                        source_identifier=source_identifier,
+                        discovered_url=url,
+                        discovery_method="admin_bulk_import",
+                        validation_status="pending"
+                    )
+
+                    db.session.add(candidate)
+                    db.session.flush()
+
+                    added_count += 1
+                else:
+                    skipped_count += 1
+
+                validate_source_candidate(candidate)
+
+            except Exception as error:
+                failed_count += 1
+                print(
+                    f"SOURCE DISCOVERY FAILED | "
+                    f"URL: {url} | Error: {error}"
+                )
+
+        db.session.commit()
+
+        flash(
+            f"Discovery complete: {added_count} added, "
+            f"{skipped_count} skipped, "
+            f"{failed_count} failed.",
+            "success"
+        )
+
+        return redirect(
+            url_for("job_source_candidates")
+        )
 
     candidates = (
         JobSourceCandidate.query
@@ -456,6 +530,7 @@ def job_source_candidates():
 
     return render_template(
         "job_source_candidates.html",
+        form=form,
         candidates=candidates
     )
 
@@ -467,18 +542,89 @@ def approve_job_source_candidate(candidate_id):
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
-    candidate = JobSourceCandidate.query.get_or_404(candidate_id)
+    candidate = JobSourceCandidate.query.get_or_404(
+        candidate_id
+    )
 
     if candidate.validation_status != "valid":
-        flash("Only validated sources can be approved.", "warning")
-        return redirect(url_for("job_source_candidates"))
+        flash(
+            "Only validated sources can be approved.",
+            "warning"
+        )
+        return redirect(
+            url_for("job_source_candidates")
+        )
 
-    existing = JobSourceCompany.query.filter_by(
+    existing_source = JobSourceCompany.query.filter_by(
         source_type=candidate.source_type,
         source_identifier=candidate.source_identifier
     ).first()
 
-    if not existing:
+    if existing_source:
+        candidate.validation_status = "approved"
+        db.session.commit()
+
+        flash(
+            "That source already exists and was marked approved.",
+            "info"
+        )
+
+        return redirect(
+            url_for("job_source_candidates")
+        )
+
+    source = JobSourceCompany(
+        company_name=(
+            candidate.company_name
+            or candidate.source_identifier
+        ),
+        source_type=candidate.source_type,
+        source_identifier=candidate.source_identifier,
+        careers_url=candidate.discovered_url,
+        active=True
+    )
+
+    db.session.add(source)
+
+    candidate.validation_status = "approved"
+
+    db.session.commit()
+
+    flash(
+        f"{source.company_name} was approved and activated.",
+        "success"
+    )
+
+    return redirect(
+        url_for("job_source_candidates")
+    )
+
+
+@app.route("/admin/job-source-candidates/approve-all-valid", methods=["POST"])
+@login_required
+def approve_all_valid_job_sources():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    candidates = JobSourceCandidate.query.filter_by(
+        validation_status="valid"
+    ).all()
+
+    approved_count = 0
+    skipped_count = 0
+
+    for candidate in candidates:
+        existing_source = JobSourceCompany.query.filter_by(
+            source_type=candidate.source_type,
+            source_identifier=candidate.source_identifier
+        ).first()
+
+        if existing_source:
+            candidate.validation_status = "approved"
+            skipped_count += 1
+            continue
+
         source = JobSourceCompany(
             company_name=(
                 candidate.company_name
@@ -487,16 +633,82 @@ def approve_job_source_candidate(candidate_id):
             source_type=candidate.source_type,
             source_identifier=candidate.source_identifier,
             careers_url=candidate.discovered_url,
-            is_active=True
+            active=True
         )
 
         db.session.add(source)
 
-    candidate.validation_status = "approved"
+        candidate.validation_status = "approved"
+        approved_count += 1
+
     db.session.commit()
 
-    flash("Job source approved.", "success")
-    return redirect(url_for("job_source_candidates"))
+    flash(
+        f"{approved_count} sources approved. "
+        f"{skipped_count} already existed.",
+        "success"
+    )
+
+    return redirect(
+        url_for("job_source_candidates")
+    )
+
+
+@app.route("/admin/job-source-candidates/<int:candidate_id>/validate", methods=["POST"])
+@login_required
+def validate_job_source_candidate(candidate_id):
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    candidate = JobSourceCandidate.query.get_or_404(
+        candidate_id
+    )
+
+    valid, job_count = validate_source_candidate(
+        candidate
+    )
+
+    db.session.commit()
+
+    if valid:
+        flash(
+            f"Source validated successfully. "
+            f"{job_count} current jobs found.",
+            "success"
+        )
+    else:
+        flash(
+            f"Validation failed: "
+            f"{candidate.validation_error}",
+            "danger"
+        )
+
+    return redirect(
+        url_for("job_source_candidates")
+    )
+
+
+@app.route("/admin/job-source-candidates/<int:candidate_id>/reject", methods=["POST"])
+@login_required
+def reject_job_source_candidate(candidate_id):
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    candidate = JobSourceCandidate.query.get_or_404(
+        candidate_id
+    )
+
+    candidate.validation_status = "rejected"
+
+    db.session.commit()
+
+    flash("Source candidate rejected.", "info")
+
+    return redirect(
+        url_for("job_source_candidates")
+    )
 
 
 @app.route("/applications/new", methods=["GET", "POST"])
