@@ -12,7 +12,7 @@
             <h2>Job Source Discovery Queue</h2>
 
             <p class="helper-text mb-0">
-                Import, validate, and approve public ATS job boards.
+                Discover, import, validate, and approve public ATS job boards.
             </p>
         </div>
 
@@ -27,18 +27,48 @@
     <div class="card mb-4">
         <div class="card-body">
 
-            <h4 class="mb-3">Bulk Import Job Boards</h4>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h4 class="mb-1">Bulk Import Job Boards</h4>
+
+                    <p class="helper-text mb-0">
+                        Paste one Greenhouse, Lever, or Ashby board URL per line.
+                    </p>
+                </div>
+
+                <form
+                    method="POST"
+                    action="{{ url_for('run_job_source_discovery') }}"
+                >
+                    <input
+                        type="hidden"
+                        name="csrf_token"
+                        value="{{ csrf_token() }}"
+                    >
+
+                    <button
+                        type="submit"
+                        class="btn btn-primary"
+                    >
+                        Run Automatic Discovery
+                    </button>
+                </form>
+            </div>
 
             <form method="POST">
                 {{ form.hidden_tag() }}
 
                 <div class="mb-3">
-                    {{ form.source_urls.label(
-                        class="form-label"
-                    ) }}
+                    {{ form.source_urls.label(class="form-label") }}
 
                     {{ form.source_urls(
-                        class="form-control"
+                        class="form-control",
+                        placeholder=(
+                            "Paste one URL per line:\n"
+                            "https://jobs.lever.co/mujininc\n"
+                            "https://job-boards.greenhouse.io/remotecom\n"
+                            "https://jobs.ashbyhq.com/Ashby"
+                        )
                     ) }}
 
                     {% for error in form.source_urls.errors %}
@@ -48,22 +78,24 @@
                     {% endfor %}
                 </div>
 
-                {{ form.submit(
-                    class="btn btn-primary"
-                ) }}
+                {{ form.submit(class="btn btn-outline-primary") }}
             </form>
 
         </div>
     </div>
 
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">Discovered Candidates</h4>
+        <div>
+            <h4 class="mb-1">Discovered Candidates</h4>
+
+            <p class="helper-text mb-0">
+                Valid candidates can be approved and immediately added to the active job-source registry.
+            </p>
+        </div>
 
         <form
             method="POST"
-            action="{{ url_for(
-                'approve_all_valid_job_sources'
-            ) }}"
+            action="{{ url_for('approve_all_valid_job_sources') }}"
         >
             <input
                 type="hidden"
@@ -94,7 +126,8 @@
                                 <th>Source</th>
                                 <th>Identifier</th>
                                 <th>Status</th>
-                                <th>Error</th>
+                                <th>Discovery Method</th>
+                                <th>Validation Error</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -105,8 +138,7 @@
 
                                 <tr>
                                     <td>
-                                        {{ candidate.company_name
-                                            or candidate.source_identifier }}
+                                        {{ candidate.company_name or candidate.source_identifier }}
                                     </td>
 
                                     <td>
@@ -120,7 +152,35 @@
                                     </td>
 
                                     <td>
-                                        {{ candidate.validation_status|title }}
+                                        {% if candidate.validation_status == "valid" %}
+                                            <span class="badge bg-success">
+                                                Valid
+                                            </span>
+
+                                        {% elif candidate.validation_status == "approved" %}
+                                            <span class="badge bg-primary">
+                                                Approved
+                                            </span>
+
+                                        {% elif candidate.validation_status == "invalid" %}
+                                            <span class="badge bg-danger">
+                                                Invalid
+                                            </span>
+
+                                        {% elif candidate.validation_status == "rejected" %}
+                                            <span class="badge bg-secondary">
+                                                Rejected
+                                            </span>
+
+                                        {% else %}
+                                            <span class="badge bg-warning text-dark">
+                                                Pending
+                                            </span>
+                                        {% endif %}
+                                    </td>
+
+                                    <td>
+                                        {{ candidate.discovery_method or "Unknown" }}
                                     </td>
 
                                     <td>
@@ -136,26 +196,30 @@
                                     <td>
                                         <div class="d-flex flex-wrap gap-2">
 
-                                            <form
-                                                method="POST"
-                                                action="{{ url_for(
-                                                    'validate_job_source_candidate',
-                                                    candidate_id=candidate.id
-                                                ) }}"
-                                            >
-                                                <input
-                                                    type="hidden"
-                                                    name="csrf_token"
-                                                    value="{{ csrf_token() }}"
-                                                >
+                                            {% if candidate.validation_status != "approved" %}
 
-                                                <button
-                                                    type="submit"
-                                                    class="btn btn-sm btn-outline-primary"
+                                                <form
+                                                    method="POST"
+                                                    action="{{ url_for(
+                                                        'validate_job_source_candidate',
+                                                        candidate_id=candidate.id
+                                                    ) }}"
                                                 >
-                                                    Validate
-                                                </button>
-                                            </form>
+                                                    <input
+                                                        type="hidden"
+                                                        name="csrf_token"
+                                                        value="{{ csrf_token() }}"
+                                                    >
+
+                                                    <button
+                                                        type="submit"
+                                                        class="btn btn-sm btn-outline-primary"
+                                                    >
+                                                        Validate
+                                                    </button>
+                                                </form>
+
+                                            {% endif %}
 
                                             {% if candidate.validation_status == "valid" %}
 
@@ -205,6 +269,17 @@
                                                     </button>
                                                 </form>
 
+                                            {% endif %}
+
+                                            {% if candidate.discovered_url %}
+                                                <a
+                                                    href="{{ candidate.discovered_url }}"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    class="btn btn-sm btn-outline-secondary"
+                                                >
+                                                    Open Board
+                                                </a>
                                             {% endif %}
 
                                         </div>

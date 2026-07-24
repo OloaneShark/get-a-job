@@ -89,6 +89,7 @@ from services.job_sources.source_utils import (
 from services.job_sources.discovery.source_discovery import (detect_source_type)
 from services.job_sources.discovery.validation_service import (validate_source_candidate)
 from services.job_sources.discovery.candidate_service import (ingest_source_urls)
+from services.job_sources.discovery.common_crawl_discovery import (run_common_crawl_discovery)
 
 load_dotenv()
 
@@ -660,6 +661,54 @@ def reject_job_source_candidate(candidate_id):
     db.session.commit()
 
     flash("Source candidate rejected.", "info")
+
+    return redirect(
+        url_for("job_source_candidates")
+    )
+
+
+@app.route("/admin/job-source-candidates/run-discovery", methods=["POST"])
+@login_required
+def run_job_source_discovery():
+    if not current_user.is_admin:
+        flash(
+            "Administrator access is required.",
+            "danger"
+        )
+        return redirect(url_for("dashboard"))
+
+    try:
+        results = run_common_crawl_discovery(
+            limit_per_source=20
+        )
+
+        source_counts = results["by_source"]
+
+        flash(
+            f"Automatic discovery complete. "
+            f"{results['found']} unique boards found: "
+            f"{source_counts.get('lever', 0)} Lever, "
+            f"{source_counts.get('greenhouse', 0)} Greenhouse, "
+            f"{source_counts.get('ashby', 0)} Ashby. "
+            f"{results['created']} candidates added, "
+            f"{results['already_active']} already active, "
+            f"{results['already_candidate']} already queued, "
+            f"{results['failed']} failed.",
+            "success"
+        )
+
+    except Exception as error:
+        db.session.rollback()
+
+        print(
+            f"AUTOMATIC DISCOVERY FAILED | "
+            f"Error: {error}"
+        )
+
+        flash(
+            f"Automatic discovery failed: {error}",
+            "danger"
+        )
 
     return redirect(
         url_for("job_source_candidates")
