@@ -17,6 +17,13 @@ from services.job_sources.utils import build_job_fingerprint
 scheduler = BackgroundScheduler(timezone="UTC")
 
 
+# These sources expose one global job feed and do not require
+# individual company configurations in JobSourceCompany.
+GLOBAL_SOURCE_TYPES = [
+    "remote_ok"
+]
+
+
 def parse_profile_values(value):
     if not value:
         return []
@@ -104,10 +111,7 @@ def get_active_source_configs():
     )
 
 
-def run_configured_source(
-    profile,
-    source_config
-):
+def run_configured_source(profile, source_config):
     source_type = (
         source_config.source_type
         or ""
@@ -135,10 +139,23 @@ def run_configured_source(
     return jobs
 
 
-def process_search_profile(
-    profile,
-    source_configs
-):
+def run_global_source(profile, source_type):
+    source = create_source(source_type)
+
+    print(
+        f"JOB SOURCE: checking global source "
+        f"{source.source_name}."
+    )
+
+    jobs = source.search(
+        profile=profile,
+        source_config=None
+    )
+
+    return source, jobs
+
+
+def process_search_profile(profile, source_configs):
     all_matching_jobs = []
     source_errors = []
 
@@ -162,6 +179,8 @@ def process_search_profile(
         f"{employment_types or ['All']}"
     )
 
+    # Run company-configured ATS sources such as:
+    # Greenhouse, Lever, and Ashby.
     for source_config in source_configs:
         try:
             source_jobs = run_configured_source(
@@ -197,6 +216,36 @@ def process_search_profile(
                 error_message
             )
 
+    # Run global feeds such as Remote OK.
+    # These do not require JobSourceCompany records.
+    for source_type in GLOBAL_SOURCE_TYPES:
+        try:
+            source, source_jobs = run_global_source(
+                profile,
+                source_type
+            )
+
+            all_matching_jobs.extend(source_jobs)
+
+            print(
+                f"{source.source_name.upper()} "
+                f"RESULTS FOR {profile.name}: "
+                f"{len(source_jobs)} matched."
+            )
+
+        except Exception as error:
+            error_message = (
+                f"Global source {source_type}: "
+                f"{error}"
+            )
+
+            source_errors.append(error_message)
+
+            print(
+                "GLOBAL JOB SOURCE ERROR:",
+                error_message
+            )
+
     saved_count = save_discovered_jobs(
         profile,
         all_matching_jobs
@@ -220,10 +269,19 @@ def process_active_search_profiles(app):
 
         source_configs = get_active_source_configs()
 
+        configured_source_count = len(source_configs)
+        global_source_count = len(GLOBAL_SOURCE_TYPES)
+        total_source_count = (
+            configured_source_count
+            + global_source_count
+        )
+
         print(
             f"JOB SEARCH SCHEDULER: "
-            f"found {len(profile_ids)} active profiles "
-            f"and {len(source_configs)} active sources."
+            f"found {len(profile_ids)} active profiles, "
+            f"{configured_source_count} configured sources, "
+            f"{global_source_count} global sources, "
+            f"and {total_source_count} total sources."
         )
 
         for profile_id in profile_ids:
@@ -248,6 +306,9 @@ def process_active_search_profiles(app):
                 profile.last_searched_at = datetime.now(
                     timezone.utc
                 )
+
+                # This remains the number of newly saved jobs,
+                # matching the current behavior of your app.
                 profile.last_result_count = saved_count
 
                 if source_errors:
