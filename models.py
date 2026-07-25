@@ -273,26 +273,13 @@ class DiscoveredJob(db.Model):
     job_description = db.Column(db.Text)
     fingerprint = db.Column(db.String(64), nullable=False, index=True)
     discovered_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-
-    user_id = db.Column(
-        db.Integer,
-        db.ForeignKey("user.id"),
-        nullable=False
-    )
-
-    search_profile_id = db.Column(
-        db.Integer,
-        db.ForeignKey("job_search_profile.id"),
-        nullable=True
-    )
-
-    __table_args__ = (
-        db.UniqueConstraint(
-            "user_id",
-            "fingerprint",
-            name="uq_user_discovered_job"
-        ),
-    )
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    search_profile_id = db.Column(db.Integer, db.ForeignKey("job_search_profile.id"), nullable=True)
+    __table_args__ = (db.UniqueConstraint( "user_id", "fingerprint", name="uq_user_discovered_job"),)
+    is_saved = db.Column(db.Boolean, nullable=False, default=False)
+    is_ignored = db.Column(db.Boolean, nullable=False, default=False)
+    saved_at = db.Column(db.DateTime, nullable=True)
+    ignored_at = db.Column(db.DateTime, nullable=True)
     
     
 class ApplicationPackage(db.Model):

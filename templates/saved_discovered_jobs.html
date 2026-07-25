@@ -1,0 +1,156 @@
+
+{% extends "base.html" %}
+
+{% block title %}Saved Jobs{% endblock %}
+
+{% block content %}
+
+<div class="form-page">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>Saved Jobs</h2>
+            <p class="helper-text mb-0">
+                Jobs saved for later review or application.
+            </p>
+        </div>
+
+        <a
+            href="{{ url_for('discovered_jobs') }}"
+            class="btn btn-secondary"
+        >
+            Back to Discovered Jobs
+        </a>
+    </div>
+
+    {% if jobs %}
+
+        <div class="row g-4">
+            {% for job in jobs %}
+
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+
+                            <div class="d-flex justify-content-between gap-3">
+                                <div>
+                                    <h4 class="mb-1">
+                                        {{ job.position_title }}
+                                    </h4>
+
+                                    <p class="mb-1">
+                                        <strong>{{ job.company_name }}</strong>
+                                    </p>
+
+                                    <p class="helper-text mb-2">
+                                        {{ job.location or "Location not listed" }}
+                                        ·
+                                        {{ job.source }}
+                                    </p>
+                                </div>
+
+                                {% if job.salary %}
+                                    <div>
+                                        <span class="badge bg-success">
+                                            {{ job.salary }}
+                                        </span>
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            {% if job.job_description %}
+                                <p class="mt-3">
+                                    {{ job.job_description[:500] }}
+                                    {% if job.job_description|length > 500 %}
+                                        ...
+                                    {% endif %}
+                                </p>
+                            {% endif %}
+
+                            <div class="d-flex flex-wrap gap-2 mt-3">
+
+                                <a
+                                    href="{{ job.posting_url }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn btn-primary"
+                                >
+                                    View Job
+                                </a>
+
+                                <a
+                                    href="{{ job.apply_url or job.posting_url }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn btn-success"
+                                >
+                                    Apply
+                                </a>
+
+                                <form
+                                    method="POST"
+                                    action="{{ url_for(
+                                        'unsave_discovered_job',
+                                        job_id=job.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="btn btn-outline-warning"
+                                    >
+                                        Unsave
+                                    </button>
+                                </form>
+
+                                <form
+                                    method="POST"
+                                    action="{{ url_for(
+                                        'ignore_discovered_job',
+                                        job_id=job.id
+                                    ) }}"
+                                    onsubmit="return confirm('Ignore this job and remove it from your results?');"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="btn btn-outline-danger"
+                                    >
+                                        Ignore
+                                    </button>
+                                </form>
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            {% endfor %}
+        </div>
+
+    {% else %}
+
+        <div class="card">
+            <div class="card-body">
+                <p class="helper-text mb-0">
+                    You have not saved any jobs yet.
+                </p>
+            </div>
+        </div>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}

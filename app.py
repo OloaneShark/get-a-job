@@ -8,6 +8,7 @@ import os
 import bcrypt
 import json
 import csv
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from io import StringIO
 from werkzeug.utils import secure_filename
@@ -2395,14 +2396,152 @@ def toggle_search_profile(profile_id):
 def discovered_jobs():
     jobs = (
         DiscoveredJob.query
-        .filter_by(user_id=current_user.id)
-        .order_by(DiscoveredJob.discovered_at.desc())
+        .filter_by(
+            user_id=current_user.id,
+            is_ignored=False
+        )
+        .order_by(
+            DiscoveredJob.discovered_at.desc()
+        )
         .all()
     )
 
     return render_template(
         "discovered_jobs.html",
         jobs=jobs
+    )
+
+
+@app.route("/discovered-jobs/saved")
+@login_required
+def saved_discovered_jobs():
+    jobs = (
+        DiscoveredJob.query
+        .filter_by(
+            user_id=current_user.id,
+            is_saved=True,
+            is_ignored=False
+        )
+        .order_by(
+            DiscoveredJob.saved_at.desc()
+        )
+        .all()
+    )
+
+    return render_template(
+        "saved_discovered_jobs.html",
+        jobs=jobs
+    )
+
+
+@app.route("/discovered-jobs/ignored")
+@login_required
+def ignored_discovered_jobs():
+    jobs = (
+        DiscoveredJob.query
+        .filter_by(
+            user_id=current_user.id,
+            is_ignored=True
+        )
+        .order_by(
+            DiscoveredJob.ignored_at.desc()
+        )
+        .all()
+    )
+
+    return render_template(
+        "ignored_discovered_jobs.html",
+        jobs=jobs
+    )
+
+
+@app.route("/discovered-jobs/<int:job_id>/save", methods=["POST"])
+@login_required
+def save_discovered_job(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    job.is_saved = True
+    job.is_ignored = False
+    job.saved_at = datetime.now(timezone.utc)
+    job.ignored_at = None
+
+    db.session.commit()
+
+    flash(
+        f"{job.position_title} was saved for later.",
+        "success"
+    )
+
+    return redirect(
+        request.referrer or url_for("discovered_jobs")
+    )
+
+
+@app.route("/discovered-jobs/<int:job_id>/unsave", methods=["POST"])
+@login_required
+def unsave_discovered_job(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    job.is_saved = False
+    job.saved_at = None
+
+    db.session.commit()
+
+    flash("Job removed from saved jobs.", "info")
+
+    return redirect(
+        request.referrer or url_for("discovered_jobs")
+    )
+
+
+@app.route("/discovered-jobs/<int:job_id>/ignore", methods=["POST"])
+@login_required
+def ignore_discovered_job(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    job.is_ignored = True
+    job.is_saved = False
+    job.ignored_at = datetime.now(timezone.utc)
+    job.saved_at = None
+
+    db.session.commit()
+
+    flash(
+        f"{job.position_title} was removed from your results.",
+        "info"
+    )
+
+    return redirect(
+        request.referrer or url_for("discovered_jobs")
+    )
+
+
+@app.route("/discovered-jobs/<int:job_id>/restore", methods=["POST"])
+@login_required
+def restore_discovered_job(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id
+    ).first_or_404()
+
+    job.is_ignored = False
+    job.ignored_at = None
+
+    db.session.commit()
+
+    flash("Job restored to your discovered jobs.", "success")
+
+    return redirect(
+        request.referrer or url_for("ignored_discovered_jobs")
     )
 
 

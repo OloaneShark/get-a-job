@@ -81,7 +81,7 @@
                                         href="{{ job.posting_url }}"
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        class="btn btn-primary btn-sm"
+                                        class="btn btn-primary"
                                     >
                                         View Job
                                     </a>
@@ -90,19 +90,76 @@
                                         href="{{ job.apply_url or job.posting_url }}"
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        class="btn btn-success btn-sm"
+                                        class="btn btn-success"
                                     >
                                         Apply
                                     </a>
 
-                                    {% if job.recruiter_email %}
-                                        <a
-                                            href="mailto:{{ job.recruiter_email }}"
-                                            class="btn btn-warning btn-sm"
+                                    {% if job.is_saved %}
+                                        <form
+                                            method="POST"
+                                            action="{{ url_for(
+                                                'unsave_discovered_job',
+                                                job_id=job.id
+                                            ) }}"
                                         >
-                                            Recruiting Contact
-                                        </a>
+                                            <input
+                                                type="hidden"
+                                                name="csrf_token"
+                                                value="{{ csrf_token() }}"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="btn btn-outline-warning"
+                                            >
+                                                Unsave
+                                            </button>
+                                        </form>
+                                    {% else %}
+                                        <form
+                                            method="POST"
+                                            action="{{ url_for(
+                                                'save_discovered_job',
+                                                job_id=job.id
+                                            ) }}"
+                                        >
+                                            <input
+                                                type="hidden"
+                                                name="csrf_token"
+                                                value="{{ csrf_token() }}"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="btn btn-warning"
+                                            >
+                                                Save
+                                            </button>
+                                        </form>
                                     {% endif %}
+
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for(
+                                            'ignore_discovered_job',
+                                            job_id=job.id
+                                        ) }}"
+                                        onsubmit="return confirm('Ignore this job and remove it from your results?');"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-outline-danger"
+                                        >
+                                            Ignore
+                                        </button>
+                                    </form>
 
                                 </div>
 

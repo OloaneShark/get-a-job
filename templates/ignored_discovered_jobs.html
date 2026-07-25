@@ -1,0 +1,104 @@
+
+{% extends "base.html" %}
+
+{% block title %}Ignored Jobs{% endblock %}
+
+{% block content %}
+
+<div class="form-page">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2>Ignored Jobs</h2>
+            <p class="helper-text mb-0">
+                Jobs hidden from your main discovered-jobs list.
+            </p>
+        </div>
+
+        <a
+            href="{{ url_for('discovered_jobs') }}"
+            class="btn btn-secondary"
+        >
+            Back to Discovered Jobs
+        </a>
+    </div>
+
+    {% if jobs %}
+
+        <div class="row g-4">
+            {% for job in jobs %}
+
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+
+                            <h4 class="mb-1">
+                                {{ job.position_title }}
+                            </h4>
+
+                            <p class="mb-1">
+                                <strong>{{ job.company_name }}</strong>
+                            </p>
+
+                            <p class="helper-text mb-3">
+                                {{ job.location or "Location not listed" }}
+                                ·
+                                {{ job.source }}
+                            </p>
+
+                            <div class="d-flex flex-wrap gap-2">
+
+                                <a
+                                    href="{{ job.posting_url }}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="btn btn-outline-primary"
+                                >
+                                    View Job
+                                </a>
+
+                                <form
+                                    method="POST"
+                                    action="{{ url_for(
+                                        'restore_discovered_job',
+                                        job_id=job.id
+                                    ) }}"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <button
+                                        type="submit"
+                                        class="btn btn-success"
+                                    >
+                                        Restore
+                                    </button>
+                                </form>
+
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+            {% endfor %}
+        </div>
+
+    {% else %}
+
+        <div class="card">
+            <div class="card-body">
+                <p class="helper-text mb-0">
+                    You have not ignored any jobs.
+                </p>
+            </div>
+        </div>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}
