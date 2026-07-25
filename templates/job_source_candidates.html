@@ -93,23 +93,65 @@
             </p>
         </div>
 
-        <form
-            method="POST"
-            action="{{ url_for('approve_all_valid_job_sources') }}"
-        >
-            <input
-                type="hidden"
-                name="csrf_token"
-                value="{{ csrf_token() }}"
-            >
+        <div class="d-flex gap-2">
 
-            <button
-                type="submit"
-                class="btn btn-success"
+            <form
+                method="POST"
+                action="{{ url_for('cleanup_invalid_job_source_candidates') }}"
+                onsubmit="return confirm('Delete every invalid and rejected candidate?');"
             >
-                Approve All Valid
-            </button>
-        </form>
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <button
+                    type="submit"
+                    class="btn btn-outline-danger"
+                >
+                    Clear Invalid
+                </button>
+            </form>
+
+            <form
+                method="POST"
+                action="{{ url_for('cleanup_approved_job_source_candidates') }}"
+                onsubmit="return confirm('Remove every approved candidate from this queue?');"
+            >
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <button
+                    type="submit"
+                    class="btn btn-outline-secondary"
+                >
+                    Clear Approved
+                </button>
+            </form>
+
+            <form
+                method="POST"
+                action="{{ url_for('approve_all_valid_job_sources') }}"
+            >
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+
+                <button
+                    type="submit"
+                    class="btn btn-success"
+                >
+                    Approve All Valid
+                </button>
+            </form>
+
+        </div>
     </div>
 
     <div class="card">

@@ -1,7 +1,8 @@
 
 import json
+import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from services.job_sources.discovery.candidate_service import (
     ingest_source_urls
@@ -19,11 +20,43 @@ DISCOVERY_PATTERNS = {
     "ashby": "jobs.ashbyhq.com/*"
 }
 
+RESERVED_IDENTIFIERS = {
+    "",
+    ".well-known",
+    "404",
+    "about",
+    "admin",
+    "api",
+    "apply",
+    "assets",
+    "careers",
+    "css",
+    "favicon.ico",
+    "favicon.png",
+    "feed",
+    "health",
+    "images",
+    "img",
+    "index.html",
+    "jobs",
+    "js",
+    "login",
+    "manifest.json",
+    "privacy",
+    "robots.txt",
+    "search",
+    "sitemap",
+    "sitemap.xml",
+    "static",
+    "terms"
+}
 
-def fetch_common_crawl_urls(
-    pattern,
-    limit=250
-):
+IDENTIFIER_PATTERN = re.compile(
+    r"^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}$"
+)
+
+
+def fetch_common_crawl_urls(pattern, limit=250):
     response = fetch_response(
         COMMON_CRAWL_INDEX,
         params={
@@ -56,20 +89,66 @@ def fetch_common_crawl_urls(
     return discovered_urls
 
 
+def is_plausible_identifier(identifier):
+    if not identifier:
+        return False
+
+    identifier = unquote(identifier).strip()
+    lowered = identifier.lower()
+
+    if lowered in RESERVED_IDENTIFIERS:
+        return False
+
+    if not IDENTIFIER_PATTERN.fullmatch(identifier):
+        return False
+
+    # Reject filename-like paths that Common Crawl may capture.
+    if lowered.endswith((
+        ".css",
+        ".gif",
+        ".html",
+        ".ico",
+        ".jpeg",
+        ".jpg",
+        ".js",
+        ".json",
+        ".pdf",
+        ".png",
+        ".svg",
+        ".txt",
+        ".webp",
+        ".xml"
+    )):
+        return False
+
+    # Reject extremely short identifiers such as "0x" and "0g".
+    if len(identifier) < 3:
+        return False
+
+    # Reject identifiers made only from numbers.
+    if identifier.isdigit():
+        return False
+
+    return True
+
+
 def normalize_board_url(url):
     parsed = urlparse(url)
     hostname = (parsed.hostname or "").lower()
 
     path_parts = [
-        part
+        unquote(part).strip()
         for part in parsed.path.split("/")
-        if part
+        if part.strip()
     ]
 
     if not path_parts:
         return None
 
     board_identifier = path_parts[0]
+
+    if not is_plausible_identifier(board_identifier):
+        return None
 
     if hostname in {
         "jobs.lever.co",
@@ -95,11 +174,20 @@ def normalize_board_url(url):
     return None
 
 
-def run_common_crawl_discovery(
-    limit_per_source=250
-):
+def run_common_crawl_discovery(limit_per_source=20):
     all_board_urls = set()
-    source_counts = {}
+
+    source_counts = {
+        "lever": 0,
+        "greenhouse": 0,
+        "ashby": 0
+    }
+
+    rejected_counts = {
+        "lever": 0,
+        "greenhouse": 0,
+        "ashby": 0
+    }
 
     for source_type, pattern in DISCOVERY_PATTERNS.items():
         print(
@@ -112,32 +200,39 @@ def run_common_crawl_discovery(
             limit=limit_per_source
         )
 
-        normalized_urls = {
-            normalized
-            for raw_url in raw_urls
-            if (
-                normalized := normalize_board_url(raw_url)
-            )
-        }
+        normalized_urls = set()
 
-        source_counts[source_type] = len(
-            normalized_urls
-        )
+        for raw_url in raw_urls:
+            normalized_url = normalize_board_url(raw_url)
 
+            if normalized_url:
+                normalized_urls.add(normalized_url)
+            else:
+                rejected_counts[source_type] += 1
+
+        source_counts[source_type] = len(normalized_urls)
         all_board_urls.update(normalized_urls)
 
-        # Avoid hammering the shared Common Crawl API.
+        print(
+            f"AUTOMATIC DISCOVERY FILTER | "
+            f"Source: {source_type} | "
+            f"Accepted: {len(normalized_urls)} | "
+            f"Rejected: {rejected_counts[source_type]}"
+        )
+
         time.sleep(2)
 
     ingestion_results = ingest_source_urls(
         urls=sorted(all_board_urls),
         discovery_method="common_crawl",
-        auto_validate=True
+        auto_validate=True,
+        keep_invalid=True
     )
 
     return {
         "found": len(all_board_urls),
         "by_source": source_counts,
+        "rejected_by_source": rejected_counts,
         **ingestion_results
     }
     

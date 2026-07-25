@@ -1,6 +1,8 @@
 
 from models import JobSourceCandidate, JobSourceCompany, db
-from services.job_sources.discovery.source_discovery import detect_source_type
+from services.job_sources.discovery.source_discovery import (
+    detect_source_type
+)
 from services.job_sources.discovery.validation_service import (
     validate_source_candidate
 )
@@ -9,14 +11,17 @@ from services.job_sources.discovery.validation_service import (
 def ingest_source_url(
     url,
     discovery_method="automatic_discovery",
-    auto_validate=True
+    auto_validate=True,
+    keep_invalid=False
 ):
     cleaned_url = (url or "").strip()
 
     if not cleaned_url:
-        return None, "empty"
+        return None, "failed"
 
-    source_type, source_identifier = detect_source_type(cleaned_url)
+    source_type, source_identifier = detect_source_type(
+        cleaned_url
+    )
 
     existing_source = JobSourceCompany.query.filter_by(
         source_type=source_type,
@@ -47,7 +52,11 @@ def ingest_source_url(
     db.session.flush()
 
     if auto_validate:
-        validate_source_candidate(candidate)
+        valid, _ = validate_source_candidate(candidate)
+
+        if not valid and not keep_invalid:
+            db.session.delete(candidate)
+            return None, "invalid_rejected"
 
     return candidate, "created"
 
@@ -55,12 +64,14 @@ def ingest_source_url(
 def ingest_source_urls(
     urls,
     discovery_method="automatic_discovery",
-    auto_validate=True
+    auto_validate=True,
+    keep_invalid=False
 ):
     results = {
         "created": 0,
         "already_active": 0,
         "already_candidate": 0,
+        "invalid_rejected": 0,
         "failed": 0
     }
 
@@ -69,11 +80,14 @@ def ingest_source_urls(
             _, status = ingest_source_url(
                 url=url,
                 discovery_method=discovery_method,
-                auto_validate=auto_validate
+                auto_validate=auto_validate,
+                keep_invalid=keep_invalid
             )
 
             if status in results:
                 results[status] += 1
+            else:
+                results["failed"] += 1
 
         except Exception as error:
             results["failed"] += 1

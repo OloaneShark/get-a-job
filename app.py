@@ -464,7 +464,8 @@ def job_source_candidates():
         results = ingest_source_urls(
             urls=urls,
             discovery_method="admin_bulk_import",
-            auto_validate=True
+            auto_validate=True,
+            keep_invalid=True
         )
 
         flash(
@@ -686,11 +687,9 @@ def run_job_source_discovery():
 
         flash(
             f"Automatic discovery complete. "
-            f"{results['found']} unique boards found: "
-            f"{source_counts.get('lever', 0)} Lever, "
-            f"{source_counts.get('greenhouse', 0)} Greenhouse, "
-            f"{source_counts.get('ashby', 0)} Ashby. "
-            f"{results['created']} candidates added, "
+            f"{results['found']} plausible boards found. "
+            f"{results['created']} valid candidates added, "
+            f"{results['invalid_rejected']} invalid boards discarded, "
             f"{results['already_active']} already active, "
             f"{results['already_candidate']} already queued, "
             f"{results['failed']} failed.",
@@ -713,6 +712,65 @@ def run_job_source_discovery():
     return redirect(
         url_for("job_source_candidates")
     )
+
+
+@app.route("/admin/job-source-candidates/cleanup-invalid", methods=["POST"])
+@login_required
+def cleanup_invalid_job_source_candidates():
+    if not current_user.is_admin:
+        flash(
+            "Administrator access is required.",
+            "danger"
+        )
+        return redirect(url_for("dashboard"))
+
+    invalid_candidates = JobSourceCandidate.query.filter(
+        JobSourceCandidate.validation_status.in_([
+            "invalid",
+            "rejected"
+        ])
+    ).all()
+
+    deleted_count = len(invalid_candidates)
+
+    for candidate in invalid_candidates:
+        db.session.delete(candidate)
+
+    db.session.commit()
+
+    flash(
+        f"{deleted_count} invalid or rejected "
+        f"source candidates deleted.",
+        "success"
+    )
+
+    return redirect(url_for("job_source_candidates"))
+
+
+@app.route("/admin/job-source-candidates/cleanup-approved", methods=["POST"])
+@login_required
+def cleanup_approved_job_source_candidates():
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    approved_candidates = JobSourceCandidate.query.filter_by(
+        validation_status="approved"
+    ).all()
+
+    deleted_count = len(approved_candidates)
+
+    for candidate in approved_candidates:
+        db.session.delete(candidate)
+
+    db.session.commit()
+
+    flash(
+        f"{deleted_count} approved candidates removed from the queue.",
+        "success"
+    )
+
+    return redirect(url_for("job_source_candidates"))
 
 
 @app.route("/applications/new", methods=["GET", "POST"])
