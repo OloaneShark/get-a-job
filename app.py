@@ -2324,7 +2324,12 @@ def new_search_profile():
             remote_only=form.remote_only.data,
             visa_required=form.visa_required.data,
             minimum_salary=form.minimum_salary.data,
-            active=form.active.data
+            active=form.active.data,
+            experience_levels=",".join(
+                form.experience_levels.data or []
+            ),
+            remote_scope=form.remote_scope.data,
+            visa_preference=form.visa_preference.data
         )
 
         db.session.add(profile)
@@ -2359,13 +2364,51 @@ def edit_search_profile(profile_id):
 
     form = JobSearchProfileForm(obj=profile)
 
+    if request.method == "GET":
+        form.experience_levels.data = [
+            value.strip()
+            for value in (
+                profile.experience_levels or ""
+            ).split(",")
+            if value.strip()
+        ]
+
+        form.remote_scope.data = (
+            profile.remote_scope
+            or "any"
+        )
+
+        form.visa_preference.data = (
+            profile.visa_preference
+            or "any"
+        )
+
     if form.validate_on_submit():
         profile.name = form.name.data
         profile.keywords = form.keywords.data
         profile.locations = form.locations.data
         profile.employment_types = form.employment_types.data
-        profile.remote_only = form.remote_only.data
-        profile.visa_required = form.visa_required.data
+
+        profile.experience_levels = ",".join(
+            form.experience_levels.data or []
+        )
+
+        profile.remote_scope = form.remote_scope.data
+        profile.visa_preference = form.visa_preference.data
+
+        # Keep the old fields synchronized temporarily.
+        profile.remote_only = (
+            form.remote_scope.data
+            in {
+                "worldwide",
+                "selected_locations"
+            }
+        )
+
+        profile.visa_required = (
+            form.visa_preference.data == "yes"
+        )
+
         profile.minimum_salary = form.minimum_salary.data
         profile.active = form.active.data
 
@@ -2376,8 +2419,14 @@ def edit_search_profile(profile_id):
             f"Updated search profile '{profile.name}'"
         )
 
-        flash("Search profile updated successfully.", "success")
-        return redirect(url_for("search_profiles"))
+        flash(
+            "Search profile updated successfully.",
+            "success"
+        )
+
+        return redirect(
+            url_for("search_profiles")
+        )
 
     return render_template(
         "search_profile_form.html",

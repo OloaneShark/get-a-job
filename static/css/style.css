@@ -1740,3 +1740,50 @@ body.theme-light .quick-action-link.complete {
     color:#17d9ff;
 }
 
+.experience-level-option {
+    position: relative;
+    cursor: pointer;
+}
+
+.experience-level-checkbox {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.experience-level-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 92px;
+    padding: 0.65rem 1rem;
+    border: 1px solid #00d9ff;
+    border-radius: 10px;
+    background: transparent;
+    color: #ffffff;
+    font-weight: 700;
+    transition:
+        background 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        transform 0.2s ease;
+}
+
+.experience-level-option:hover
+.experience-level-button {
+    transform: translateY(-1px);
+    box-shadow: 0 0 12px rgba(0, 217, 255, 0.35);
+}
+
+.experience-level-checkbox:checked
++ .experience-level-button {
+    background: linear-gradient(
+        135deg,
+        #00e5ff,
+        #4d7cff
+    );
+    border-color: transparent;
+    color: #ffffff;
+    box-shadow: 0 0 16px rgba(0, 217, 255, 0.45);
+}
+

@@ -13,7 +13,9 @@ from wtforms import (
     EmailField,
     FloatField,
     HiddenField,
-    RadioField
+    RadioField,
+    SelectMultipleField,
+    widgets
 )
 from wtforms.validators import (
     DataRequired,
@@ -23,6 +25,11 @@ from wtforms.validators import (
     URL,
     Optional
 )
+
+
+class MultiCheckboxField(SelectMultipleField):
+    widget = widgets.ListWidget(prefix_label=False)
+    option_widget = widgets.CheckboxInput()
 
 
 class RegistrationForm(FlaskForm):
@@ -250,23 +257,79 @@ class JobUrlImportForm(FlaskForm):
 
 
 class JobSearchProfileForm(FlaskForm):
-    name = StringField("Profile Name", validators=[DataRequired()])
+    name = StringField(
+        "Profile Name",
+        validators=[DataRequired()]
+    )
 
-    keywords = TextAreaField("Keywords", validators=[DataRequired()])
+    keywords = TextAreaField(
+        "Keywords",
+        validators=[DataRequired()]
+    )
 
-    locations = TextAreaField("Locations", validators=[DataRequired()])
+    experience_levels = MultiCheckboxField(
+        "Experience Levels",
+        choices=[
+            ("intern", "Intern"),
+            ("entry", "Entry Level"),
+            ("junior", "Junior"),
+            ("mid", "Mid-Level"),
+            ("senior", "Senior"),
+            ("staff", "Staff"),
+            ("principal", "Principal"),
+            ("lead", "Lead"),
+            ("manager", "Manager"),
+        ]
+    )
 
-    employment_types = StringField("Employment Types")
+    locations = TextAreaField(
+        "Locations",
+        validators=[DataRequired()]
+    )
 
-    minimum_salary = IntegerField("Minimum Salary")
+    remote_scope = SelectField(
+        "Remote Preference",
+        choices=[
+            ("any", "Any work arrangement"),
+            ("worldwide", "Remote worldwide"),
+            (
+                "selected_locations",
+                "Remote in selected locations only",
+            ),
+        ],
+        default="any",
+        validators=[DataRequired()]
+    )
 
-    remote_only = BooleanField("Remote Only")
+    employment_types = StringField(
+        "Employment Types"
+    )
 
-    visa_required = BooleanField("Visa Sponsorship Required")
+    visa_preference = SelectField(
+        "Visa Sponsorship",
+        choices=[
+            ("any", "Any"),
+            ("yes", "Yes"),
+            ("no", "No"),
+            ("unknown", "Unknown"),
+        ],
+        default="any",
+        validators=[DataRequired()]
+    )
 
-    active = BooleanField("Active", default=True)
+    minimum_salary = IntegerField(
+        "Minimum Salary",
+        validators=[Optional()]
+    )
 
-    submit = SubmitField("Save Search Profile")
+    active = BooleanField(
+        "Active",
+        default=True
+    )
+
+    submit = SubmitField(
+        "Save Search Profile"
+    )
     
     
 class JobSourceCompanyForm(FlaskForm):

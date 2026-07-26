@@ -342,12 +342,10 @@ class JobSearchProfile(db.Model):
     last_result_count = db.Column(db.Integer, default=0, nullable=False)
     last_search_status = db.Column(db.String(30), default="Never Run", nullable=False)
     last_search_error = db.Column(db.Text, nullable=True)
-
-    discovered_jobs = db.relationship(
-        "DiscoveredJob",
-        backref="search_profile",
-        lazy=True
-    )
+    discovered_jobs = db.relationship("DiscoveredJob", backref="search_profile", lazy=True)
+    experience_levels = db.Column(db.Text, nullable=True)
+    visa_preference = db.Column(db.String(20), nullable=False, default="any")
+    remote_scope = db.Column(db.String(30), nullable=False, default="any")
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
