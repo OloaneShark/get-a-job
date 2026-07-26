@@ -482,7 +482,15 @@ def job_source_candidates():
 
     candidates = (
         JobSourceCandidate.query
-        .order_by(JobSourceCandidate.discovered_at.desc())
+        .filter(
+            JobSourceCandidate.validation_status.notin_([
+                "approved",
+                "dismissed"
+            ])
+        )
+        .order_by(
+            JobSourceCandidate.discovered_at.desc()
+        )
         .all()
     )
 
@@ -658,11 +666,18 @@ def reject_job_source_candidate(candidate_id):
         candidate_id
     )
 
-    candidate.validation_status = "rejected"
+    candidate.validation_status = "dismissed"
+    candidate.validation_error = (
+        candidate.validation_error
+        or "Rejected by administrator."
+    )
 
     db.session.commit()
 
-    flash("Source candidate rejected.", "info")
+    flash(
+        "Source rejected and blocked from future discovery.",
+        "info"
+    )
 
     return redirect(
         url_for("job_source_candidates")
@@ -685,15 +700,36 @@ def run_job_source_discovery():
         )
 
         source_counts = results["by_source"]
+        source_failures = results.get(
+            "source_failures",
+            {}
+        )
+
+        failed_source_text = ""
+
+        if source_failures:
+            failed_source_text = (
+                " Sources temporarily unavailable: "
+                + ", ".join(
+                    source_type.title()
+                    for source_type in source_failures
+                )
+                + "."
+            )
 
         flash(
             f"Automatic discovery complete. "
-            f"{results['found']} plausible boards found. "
+            f"{results['found']} plausible boards found: "
+            f"{source_counts.get('lever', 0)} Lever, "
+            f"{source_counts.get('greenhouse', 0)} Greenhouse, "
+            f"{source_counts.get('ashby', 0)} Ashby. "
             f"{results['created']} valid candidates added, "
             f"{results['invalid_rejected']} invalid boards discarded, "
             f"{results['already_active']} already active, "
-            f"{results['already_candidate']} already queued, "
-            f"{results['failed']} failed.",
+            f"{results['already_blocked']} previously rejected, "
+            f"{results['already_candidate']} already awaiting review, "
+            f"{results['failed']} failed."
+            f"{failed_source_text}",
             "success"
         )
 
@@ -719,33 +755,36 @@ def run_job_source_discovery():
 @login_required
 def cleanup_invalid_job_source_candidates():
     if not current_user.is_admin:
-        flash(
-            "Administrator access is required.",
-            "danger"
-        )
+        flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
-    invalid_candidates = JobSourceCandidate.query.filter(
-        JobSourceCandidate.validation_status.in_([
-            "invalid",
-            "rejected"
-        ])
-    ).all()
+    invalid_candidates = (
+        JobSourceCandidate.query
+        .filter(
+            JobSourceCandidate.validation_status.in_([
+                "invalid",
+                "rejected"
+            ])
+        )
+        .all()
+    )
 
-    deleted_count = len(invalid_candidates)
+    dismissed_count = len(invalid_candidates)
 
     for candidate in invalid_candidates:
-        db.session.delete(candidate)
+        candidate.validation_status = "dismissed"
 
     db.session.commit()
 
     flash(
-        f"{deleted_count} invalid or rejected "
-        f"source candidates deleted.",
+        f"{dismissed_count} invalid candidates cleared "
+        f"and blocked from future discovery.",
         "success"
     )
 
-    return redirect(url_for("job_source_candidates"))
+    return redirect(
+        url_for("job_source_candidates")
+    )
 
 
 @app.route("/admin/job-source-candidates/cleanup-approved", methods=["POST"])

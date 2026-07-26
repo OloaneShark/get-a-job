@@ -37,6 +37,12 @@ def ingest_source_url(
     ).first()
 
     if candidate:
+        if candidate.validation_status == "dismissed":
+            return candidate, "already_blocked"
+
+        if candidate.validation_status == "approved":
+            return candidate, "already_approved"
+
         return candidate, "already_candidate"
 
     candidate = JobSourceCandidate(
@@ -55,8 +61,8 @@ def ingest_source_url(
         valid, _ = validate_source_candidate(candidate)
 
         if not valid and not keep_invalid:
-            db.session.delete(candidate)
-            return None, "invalid_rejected"
+            candidate.validation_status = "dismissed"
+            return candidate, "invalid_rejected"
 
     return candidate, "created"
 
@@ -71,6 +77,8 @@ def ingest_source_urls(
         "created": 0,
         "already_active": 0,
         "already_candidate": 0,
+        "already_blocked": 0,
+        "already_approved": 0,
         "invalid_rejected": 0,
         "failed": 0
     }

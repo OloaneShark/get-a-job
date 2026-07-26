@@ -55,38 +55,83 @@ IDENTIFIER_PATTERN = re.compile(
     r"^[a-zA-Z0-9][a-zA-Z0-9._-]{1,99}$"
 )
 
+DISCOVERY_PAGE_STATE = {
+    "lever": 0,
+    "greenhouse": 0,
+    "ashby": 0
+}
 
-def fetch_common_crawl_urls(pattern, limit=250):
-    response = fetch_response(
-        COMMON_CRAWL_INDEX,
-        params={
-            "url": pattern,
-            "output": "json",
-            "filter": "status:200",
-            "collapse": "urlkey",
-            "limit": limit
-        }
-    )
 
-    discovered_urls = []
 
-    for line in response.text.splitlines():
-        line = line.strip()
+def fetch_common_crawl_urls(
+    pattern,
+    limit=20,
+    page=0,
+    max_attempts=3
+):
+    last_error = None
 
-        if not line:
-            continue
-
+    for attempt in range(1, max_attempts + 1):
         try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+            response = fetch_response(
+                COMMON_CRAWL_INDEX,
+                params={
+                    "url": pattern,
+                    "output": "json",
+                    "filter": "status:200",
+                    "collapse": "urlkey",
+                    "limit": limit,
+                    "page": page
+                },
+                timeout=60
+            )
 
-        url = record.get("url")
+            discovered_urls = []
 
-        if url:
-            discovered_urls.append(url)
+            for line in response.text.splitlines():
+                line = line.strip()
 
-    return discovered_urls
+                if not line:
+                    continue
+
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                url = record.get("url")
+
+                if url:
+                    discovered_urls.append(url)
+
+            return discovered_urls
+
+        except Exception as error:
+            last_error = error
+
+            print(
+                f"COMMON CRAWL REQUEST FAILED | "
+                f"Pattern: {pattern} | "
+                f"Page: {page} | "
+                f"Attempt: {attempt}/{max_attempts} | "
+                f"Error: {error}"
+            )
+
+            if attempt < max_attempts:
+                wait_seconds = attempt * 10
+
+                print(
+                    f"COMMON CRAWL RETRY | "
+                    f"Waiting {wait_seconds} seconds."
+                )
+
+                time.sleep(wait_seconds)
+
+    raise RuntimeError(
+        f"Common Crawl failed after {max_attempts} attempts "
+        f"for pattern {pattern} on page {page}: "
+        f"{last_error}"
+    )
 
 
 def is_plausible_identifier(identifier):
@@ -189,16 +234,37 @@ def run_common_crawl_discovery(limit_per_source=20):
         "ashby": 0
     }
 
+    source_failures = {}
+
     for source_type, pattern in DISCOVERY_PATTERNS.items():
+        current_page = DISCOVERY_PAGE_STATE[source_type]
+
         print(
             f"AUTOMATIC DISCOVERY: searching "
-            f"Common Crawl for {source_type}."
+            f"Common Crawl for {source_type} "
+            f"on page {current_page}."
         )
 
-        raw_urls = fetch_common_crawl_urls(
-            pattern=pattern,
-            limit=limit_per_source
-        )
+        try:
+            raw_urls = fetch_common_crawl_urls(
+                pattern=pattern,
+                limit=limit_per_source,
+                page=current_page
+            )
+
+            DISCOVERY_PAGE_STATE[source_type] += 1
+
+        except Exception as error:
+            source_failures[source_type] = str(error)
+
+            print(
+                f"AUTOMATIC DISCOVERY SOURCE FAILED | "
+                f"Source: {source_type} | "
+                f"Page: {current_page} | "
+                f"Error: {error}"
+            )
+
+            continue
 
         normalized_urls = set()
 
@@ -220,19 +286,20 @@ def run_common_crawl_discovery(limit_per_source=20):
             f"Rejected: {rejected_counts[source_type]}"
         )
 
-        time.sleep(2)
+        time.sleep(5)
 
     ingestion_results = ingest_source_urls(
         urls=sorted(all_board_urls),
         discovery_method="common_crawl",
         auto_validate=True,
-        keep_invalid=True
+        keep_invalid=False
     )
 
     return {
         "found": len(all_board_urls),
         "by_source": source_counts,
         "rejected_by_source": rejected_counts,
+        "source_failures": source_failures,
         **ingestion_results
     }
     
