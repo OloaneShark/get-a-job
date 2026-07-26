@@ -1,10 +1,11 @@
 
-import re
-
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
     clean_html_text,
     fetch_json,
+)
+from services.job_sources.job_match_service import (
+    job_matches_profile,
 )
 
 
@@ -14,6 +15,65 @@ class RemoteOKJobSource(BaseJobSource):
     requires_company_config = False
 
     feed_url = "https://remoteok.com/api"
+    
+    @staticmethod
+    def is_plausible_job(job):
+        title = (
+            job.get("position_title")
+            or ""
+        ).strip()
+
+        company = (
+            job.get("company_name")
+            or ""
+        ).strip()
+
+        posting_url = (
+            job.get("posting_url")
+            or ""
+        ).strip()
+
+        if not title or not company or not posting_url:
+            return False
+
+        rejected_titles = {
+            "join our team",
+            "join us",
+            "come and join us",
+            "apply for employment",
+            "job title",
+            "sample job",
+            "heading",
+            "life",
+            "no",
+        }
+
+        if title.lower() in rejected_titles:
+            return False
+
+        if len(title) < 4:
+            return False
+
+        suspicious_phrases = {
+            "how do i",
+            "how keep your",
+            "the mino earrings",
+            "the introspect",
+            "i want all the money",
+            "job hunting indecision",
+            "we don't currently have",
+            "https ",
+        }
+
+        lowered_title = title.lower()
+
+        if any(
+            phrase in lowered_title
+            for phrase in suspicious_phrases
+        ):
+            return False
+
+        return True
 
     def fetch_jobs(self):
         payload = fetch_json(self.feed_url)
@@ -29,7 +89,7 @@ class RemoteOKJobSource(BaseJobSource):
             if not isinstance(item, dict):
                 continue
 
-            # Remote OK commonly places feed metadata first.
+            # Remote OK commonly places metadata first.
             if not item.get("id"):
                 continue
 
@@ -55,7 +115,10 @@ class RemoteOKJobSource(BaseJobSource):
         if not isinstance(tags, list):
             tags = []
 
-        location = raw_job.get("location") or "Remote"
+        location = (
+            raw_job.get("location")
+            or "Remote"
+        )
 
         salary_min = raw_job.get("salary_min")
         salary_max = raw_job.get("salary_max")
@@ -86,7 +149,11 @@ class RemoteOKJobSource(BaseJobSource):
             "location": location,
             "employment_type": "Full-time",
             "salary": salary,
-            "visa_sponsorship": "Unknown",
+
+            # Remote OK normally does not provide
+            # dependable sponsorship information.
+            "visa_sponsorship": "unknown",
+
             "posting_url": posting_url,
             "apply_url": posting_url,
             "job_description": description,
@@ -106,258 +173,43 @@ class RemoteOKJobSource(BaseJobSource):
 
     def search(self, profile, source_config=None):
         raw_jobs = self.fetch_jobs()
-
-        keywords = self.parse_values(
-            profile.keywords
-        )
-
-        locations = self.parse_values(
-            profile.locations
-        )
+        matching_jobs = []
 
         print(
-            f"REMOTE OK FILTER DEBUG | "
+            f"REMOTE OK SEARCH | "
             f"Profile: {profile.name} | "
-            f"Remote only: {profile.remote_only} | "
-            f"Keywords: {keywords} | "
-            f"Locations: {locations}"
+            f"Fetched: {len(raw_jobs)} | "
+            f"Experience: "
+            f"{profile.experience_levels or 'any'} | "
+            f"Remote scope: "
+            f"{profile.remote_scope or 'any'} | "
+            f"Visa: "
+            f"{profile.visa_preference or 'any'}"
         )
-
-        matching_jobs = []
 
         for raw_job in raw_jobs:
             job = self.normalize_job(raw_job)
 
-            if not job["posting_url"]:
+            if not self.is_plausible_job(job):
+                print(
+                    f"REMOTE OK INVALID RECORD | "
+                    f"Title: {job.get('position_title')} | "
+                    f"Company: {job.get('company_name')}"
+                )
                 continue
 
-            if not self.matches_keywords(
+            if not job_matches_profile(
                 job,
-                keywords
-            ):
-                continue
-
-            if not self.matches_experience_level(
-                job,
-                keywords
-            ):
-                continue
-
-            if not self.matches_location_preferences(
-                job,
-                locations
+                profile
             ):
                 continue
 
             matching_jobs.append(job)
 
+        print(
+            f"REMOTE OK SEARCH COMPLETE | "
+            f"Profile: {profile.name} | "
+            f"Matched: {len(matching_jobs)}"
+        )
+
         return matching_jobs
-
-    @staticmethod
-    def parse_values(value):
-        if not value:
-            return []
-
-        return [
-            item.strip().lower()
-            for item in re.split(r"[\n,]+", value)
-            if item.strip()
-        ]
-
-    @staticmethod
-    def matches_keywords(job, keywords):
-        if not keywords:
-            return True
-
-        title = (
-            job.get("position_title")
-            or ""
-        ).strip().lower()
-
-        description = (
-            job.get("job_description")
-            or ""
-        ).lower()
-
-        tags = " ".join(
-            job.get("departments")
-            or []
-        ).lower()
-
-        excluded_title_terms = {
-            "account executive",
-            "account manager",
-            "business development",
-            "customer success",
-            "marketing",
-            "sales",
-            "sales development",
-            "recruiter",
-            "recruiting",
-            "human resources",
-            "hr manager",
-            "product manager",
-            "project manager"
-        }
-
-        if any(
-            excluded_term in title
-            for excluded_term in excluded_title_terms
-        ):
-            return False
-
-        for keyword in keywords:
-            keyword = keyword.strip().lower()
-
-            if not keyword:
-                continue
-
-            pattern = (
-                r"(?<!\w)"
-                + re.escape(keyword)
-                + r"(?!\w)"
-            )
-
-            # A direct title match is strong enough by itself.
-            if re.search(pattern, title):
-                return True
-
-        # Only use the description and tags as supporting evidence.
-        supporting_matches = 0
-
-        for keyword in keywords:
-            keyword = keyword.strip().lower()
-
-            if not keyword:
-                continue
-
-            pattern = (
-                r"(?<!\w)"
-                + re.escape(keyword)
-                + r"(?!\w)"
-            )
-
-            if re.search(pattern, description):
-                supporting_matches += 1
-
-            if re.search(pattern, tags):
-                supporting_matches += 1
-
-        technical_title_terms = {
-            "developer",
-            "engineer",
-            "programmer",
-            "software",
-            "frontend",
-            "front end",
-            "backend",
-            "back end",
-            "fullstack",
-            "full stack",
-            "devops",
-            "security",
-            "cloud",
-            "data",
-            "qa",
-            "quality assurance",
-            "site reliability",
-            "sre"
-        }
-
-        has_technical_title = any(
-            term in title
-            for term in technical_title_terms
-        )
-
-        return (
-            has_technical_title
-            and supporting_matches >= 1
-        )
-
-    @staticmethod
-    def matches_location_preferences(
-        job,
-        locations,
-    ):
-        if not locations:
-            return True
-
-        job_location = (
-            job.get("location")
-            or ""
-        ).strip().lower()
-
-        if not job_location:
-            return True
-
-        if job_location == "remote":
-            return True
-
-        searchable_location = (
-            f"remote {job_location}"
-        )
-
-        return any(
-            location in searchable_location
-            for location in locations
-        )
-        
-    @staticmethod
-    def matches_experience_level(job, keywords):
-        title = (
-            job.get("position_title")
-            or ""
-        ).strip().lower()
-
-        description = (
-            job.get("job_description")
-            or ""
-        ).lower()
-
-        requested_internship = any(
-            keyword in {
-                "intern",
-                "internship"
-            }
-            for keyword in keywords
-        )
-
-        if not requested_internship:
-            return True
-
-        senior_terms = {
-            "senior",
-            "sr.",
-            "sr ",
-            "lead",
-            "principal",
-            "staff",
-            "manager",
-            "director",
-            "head of",
-            "vice president",
-            "vp "
-        }
-
-        if any(
-            term in title
-            for term in senior_terms
-        ):
-            return False
-
-        internship_terms = {
-            "intern",
-            "internship",
-            "student",
-            "graduate",
-            "entry level",
-            "entry-level",
-            "junior"
-        }
-
-        combined_text = f"{title} {description}"
-
-        return any(
-            term in combined_text
-            for term in internship_terms
-        )

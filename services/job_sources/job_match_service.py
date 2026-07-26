@@ -157,6 +157,35 @@ GENERIC_KEYWORDS = {
 }
 
 
+LOCATION_ALIASES = {
+    "united states": {
+        "united states",
+        "united states of america",
+        "usa",
+        "u.s.a.",
+        "us",
+        "u.s.",
+    },
+    "canada": {
+        "canada",
+        "canadian",
+    },
+    "japan": {
+        "japan",
+        "japanese",
+        "tokyo",
+    },
+}
+
+
+WORLDWIDE_REMOTE_TERMS = {
+    "worldwide",
+    "anywhere",
+    "global",
+    "remote worldwide",
+}
+
+
 def parse_profile_values(value):
     if not value:
         return []
@@ -174,6 +203,26 @@ def normalize_text(value):
         " ",
         str(value or "").strip().lower()
     )
+
+
+def expand_location_aliases(locations):
+    expanded = set()
+
+    for location in locations:
+        normalized_location = normalize_text(
+            location
+        )
+
+        expanded.add(normalized_location)
+
+        for canonical_location, aliases in (
+            LOCATION_ALIASES.items()
+        ):
+            if normalized_location in aliases:
+                expanded.add(canonical_location)
+                expanded.update(aliases)
+
+    return expanded
 
 
 def contains_phrase(text, phrase):
@@ -238,17 +287,15 @@ def matches_role_title(job, profile):
         if keyword not in GENERIC_KEYWORDS
     ]
 
-    # First, honor direct user keyword matches in the title.
-    if any(
+    if not keywords:
+        return any(
+            technical_term in title
+            for technical_term in TECHNICAL_TITLE_TERMS
+        )
+
+    return any(
         contains_phrase(title, keyword)
         for keyword in keywords
-    ):
-        return True
-
-    # Then allow known technical-role titles.
-    return any(
-        technical_term in title
-        for technical_term in TECHNICAL_TITLE_TERMS
     )
 
 
@@ -299,19 +346,23 @@ def job_is_remote(job):
 
 
 def matches_location(job, profile):
-    locations = parse_profile_values(
+    requested_locations = parse_profile_values(
         profile.locations
     )
 
-    locations = [
+    requested_locations = [
         location
-        for location in locations
+        for location in requested_locations
         if location not in {
             "any",
             "all",
-            "anywhere"
+            "anywhere",
         }
     ]
+
+    requested_locations = expand_location_aliases(
+        requested_locations
+    )
 
     remote_scope = normalize_text(
         getattr(
@@ -323,6 +374,10 @@ def matches_location(job, profile):
 
     is_remote = job_is_remote(job)
 
+    job_location = normalize_text(
+        job.get("location")
+    )
+
     if remote_scope == "worldwide":
         return is_remote
 
@@ -330,34 +385,34 @@ def matches_location(job, profile):
         if not is_remote:
             return False
 
-        if not locations:
+        if not requested_locations:
             return False
-
-        job_location = normalize_text(
-            job.get("location")
-        )
 
         if not job_location:
-            return False
+            return True
+
+        if any(
+            contains_phrase(job_location, term)
+            for term in WORLDWIDE_REMOTE_TERMS
+        ):
+            return True
 
         return any(
-            location in job_location
-            for location in locations
+            requested_location in job_location
+            for requested_location
+            in requested_locations
         )
 
-    if not locations:
+    if not requested_locations:
         return True
-
-    job_location = normalize_text(
-        job.get("location")
-    )
 
     if not job_location:
         return False
 
     return any(
-        location in job_location
-        for location in locations
+        requested_location in job_location
+        for requested_location
+        in requested_locations
     )
 
 
