@@ -19,6 +19,9 @@ from services.job_sources.http_client import (
 from services.job_sources.job_match_service import (
     job_matches_profile,
 )
+from services.job_sources.we_work_remotely_crawler import (
+    crawl_recent_wwr_jobs,
+)
 
 
 class WeWorkRemotelyJobSource(BaseJobSource):
@@ -254,6 +257,37 @@ class WeWorkRemotelyJobSource(BaseJobSource):
 
         return fields
 
+    @staticmethod
+    def deduplicate_jobs(jobs):
+        deduplicated = {}
+
+        for job in jobs:
+            posting_url = str(
+                job.get("posting_url")
+                or ""
+            ).strip().rstrip("/")
+
+            external_id = str(
+                job.get("external_id")
+                or ""
+            ).strip()
+
+            deduplication_key = (
+                posting_url
+                or external_id
+            )
+
+            if not deduplication_key:
+                continue
+
+            deduplicated[
+                deduplication_key
+            ] = job
+
+        return list(
+            deduplicated.values()
+        )
+
     def fetch_jobs(self):
         response = fetch_response(
             self.feed_url,
@@ -437,7 +471,7 @@ class WeWorkRemotelyJobSource(BaseJobSource):
     ):
         raw_jobs = self.fetch_jobs()
 
-        normalized_jobs = []
+        rss_jobs = []
         old_count = 0
         invalid_count = 0
 
@@ -473,13 +507,35 @@ class WeWorkRemotelyJobSource(BaseJobSource):
 
                 continue
 
-            normalized_jobs.append(job)
+            rss_jobs.append(job)
+
+        rss_urls = {
+            str(
+                job.get("posting_url")
+                or ""
+            ).strip().rstrip("/")
+            for job in rss_jobs
+            if job.get("posting_url")
+        }
+
+        crawled_jobs = crawl_recent_wwr_jobs(
+            profile=profile,
+            excluded_urls=rss_urls,
+            max_age_days=30,
+            max_job_pages=20,
+        )
+
+        all_jobs = self.deduplicate_jobs(
+            rss_jobs + crawled_jobs
+        )
 
         print(
             f"WWR SEARCH | "
             f"Profile: {profile.name} | "
             f"Feed: {len(raw_jobs)} | "
-            f"Recent: {len(normalized_jobs)} | "
+            f"Recent RSS: {len(rss_jobs)} | "
+            f"Crawled: {len(crawled_jobs)} | "
+            f"Combined: {len(all_jobs)} | "
             f"Older than "
             f"{self.max_job_age_days} days: "
             f"{old_count} | "
@@ -488,10 +544,15 @@ class WeWorkRemotelyJobSource(BaseJobSource):
 
         matching_jobs = []
 
-        for job in normalized_jobs:
+        for job in all_jobs:
+            if not self.is_plausible_job(
+                job
+            ):
+                continue
+
             if not job_matches_profile(
                 job,
-                profile
+                profile,
             ):
                 continue
 
@@ -500,7 +561,8 @@ class WeWorkRemotelyJobSource(BaseJobSource):
         print(
             f"WWR SEARCH COMPLETE | "
             f"Profile: {profile.name} | "
-            f"Matched: {len(matching_jobs)}"
+            f"Matched: "
+            f"{len(matching_jobs)}"
         )
 
         return matching_jobs
