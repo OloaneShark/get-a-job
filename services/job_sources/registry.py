@@ -3,12 +3,14 @@ from services.job_sources.greenhouse import GreenhouseJobSource
 from services.job_sources.lever import LeverJobSource
 from services.job_sources.ashby import AshbyJobSource
 from services.job_sources.remote_ok import RemoteOKJobSource
+from services.job_sources.we_work_remotely import WeWorkRemotelyJobSource
 
 SOURCE_REGISTRY = {
     "greenhouse": GreenhouseJobSource,
     "lever": LeverJobSource,
     "ashby": AshbyJobSource,
-    "remote_ok": RemoteOKJobSource
+    "remote_ok": RemoteOKJobSource,
+    "we_work_remotely": WeWorkRemotelyJobSource,
 }
 
 

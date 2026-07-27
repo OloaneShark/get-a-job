@@ -111,6 +111,63 @@ EXPERIENCE_TERMS = {
 }
 
 
+EXPERIENCE_YEAR_PATTERNS = [
+    re.compile(
+        r"\b"
+        r"(?:minimum(?:\s+of)?|at\s+least|over|more\s+than)?"
+        r"\s*"
+        r"(\d{1,2})"
+        r"\s*(?:\+|plus)?"
+        r"\s*(?:years?|yrs?)"
+        r"\s+(?:of\s+)?"
+        r"(?:professional\s+|relevant\s+|commercial\s+|"
+        r"industry\s+|hands[-\s]?on\s+)?"
+        r"experience\b",
+        re.IGNORECASE,
+    ),
+
+    re.compile(
+        r"\b"
+        r"(?:professional\s+|relevant\s+|commercial\s+|"
+        r"industry\s+|hands[-\s]?on\s+)?"
+        r"experience"
+        r"(?:\s+of|\s*:)?"
+        r"\s*"
+        r"(\d{1,2})"
+        r"\s*(?:\+|plus)?"
+        r"\s*(?:years?|yrs?)\b",
+        re.IGNORECASE,
+    ),
+
+    re.compile(
+        r"\b"
+        r"(?:minimum(?:\s+of)?|at\s+least|over|more\s+than)?"
+        r"\s*"
+        r"(\d{1,2})"
+        r"\s*(?:\+|plus)?"
+        r"\s*(?:years?|yrs?)"
+        r"\s+(?:of\s+)?"
+        r"(?:building|developing|engineering|programming|"
+        r"working|designing|implementing|maintaining|"
+        r"creating|writing)"
+        r"\b",
+        re.IGNORECASE,
+    ),
+
+    re.compile(
+        r"\b"
+        r"(\d{1,2})"
+        r"\s*(?:-|–|—|to)"
+        r"\s*\d{1,2}"
+        r"\s*(?:years?|yrs?)"
+        r"(?:\s+of)?"
+        r"(?:\s+\w+){0,5}?"
+        r"\s+experience\b",
+        re.IGNORECASE,
+    ),
+]
+
+
 VISA_POSITIVE_TERMS = {
     "visa sponsorship available",
     "visa sponsorship provided",
@@ -396,6 +453,59 @@ def get_requested_experience_levels(profile):
     return set(parse_profile_values(value))
 
 
+def extract_required_experience_years(job):
+    searchable_text = normalize_text(
+        " ".join([
+            job.get("position_title") or "",
+            job.get("job_description") or "",
+        ])
+    )
+
+    if not searchable_text:
+        return None
+
+    detected_years = []
+
+    for pattern in EXPERIENCE_YEAR_PATTERNS:
+        for match in pattern.finditer(
+            searchable_text
+        ):
+            try:
+                years = int(
+                    match.group(1)
+                )
+            except (
+                TypeError,
+                ValueError,
+                IndexError,
+            ):
+                continue
+
+            if 0 <= years <= 20:
+                detected_years.append(years)
+
+    if not detected_years:
+        return None
+
+    return max(detected_years)
+
+
+def classify_experience_years(years):
+    if years is None:
+        return None
+
+    if years <= 0:
+        return "entry"
+
+    if years <= 2:
+        return "junior"
+
+    if years <= 4:
+        return "mid"
+
+    return "senior"
+
+
 def classify_job_experience(job):
     title = normalize_text(
         job.get("position_title")
@@ -410,8 +520,25 @@ def classify_job_experience(job):
         ):
             detected_levels.add(level)
 
+    required_years = (
+        extract_required_experience_years(
+            job
+        )
+    )
+
+    years_level = classify_experience_years(
+        required_years
+    )
+
+    if years_level:
+        detected_levels.add(
+            years_level
+        )
+
     if not detected_levels:
-        detected_levels.add("unspecified")
+        detected_levels.add(
+            "unspecified"
+        )
 
     return detected_levels
 
@@ -451,14 +578,31 @@ def matches_role_title(job, profile):
 
 
 def matches_experience_level(job, profile):
-    requested_levels = get_requested_experience_levels(
-        profile
+    requested_levels = (
+        get_requested_experience_levels(
+            profile
+        )
     )
 
     if not requested_levels:
         return True
 
-    detected_levels = classify_job_experience(job)
+    required_years = (
+        extract_required_experience_years(
+            job
+        )
+    )
+
+    years_level = classify_experience_years(
+        required_years
+    )
+
+    if years_level:
+        return years_level in requested_levels
+
+    detected_levels = classify_job_experience(
+        job
+    )
 
     if "unspecified" in detected_levels:
         # An unlabelled role may still be acceptable for
@@ -762,6 +906,18 @@ def matches_visa_requirement(job, profile):
 
 
 def job_matches_profile(job, profile):
+    required_experience_years = (
+        extract_required_experience_years(
+            job
+        )
+    )
+
+    detected_experience_levels = (
+        classify_job_experience(
+            job
+        )
+    )
+    
     checks = {
         "role": matches_role_title(
             job,
@@ -798,6 +954,10 @@ def job_matches_profile(job, profile):
             f"JOB FILTER REJECTED | "
             f"Title: {job.get('position_title')} | "
             f"Company: {job.get('company_name')} | "
+            f"Experience years: "
+            f"{required_experience_years} | "
+            f"Experience levels: "
+            f"{sorted(detected_experience_levels)} | "
             f"Failed: {failed_checks}"
         )
 

@@ -17,10 +17,13 @@ from services.job_sources.utils import build_job_fingerprint
 scheduler = BackgroundScheduler(timezone="UTC")
 
 
-# These sources expose one global job feed and do not require
-# individual company configurations in JobSourceCompany.
+#These sources expose one global job feed and do not require
+#individual company configurations in JobSourceCompany.
+#ALSO I HATE WORKING WITH ASHBY AND GREENHOUSE AND LEVER SO MUCH
+#WHY CANT IT JUST BE MORE SIMPLE LIKE THIS
 GLOBAL_SOURCE_TYPES = [
-    "remote_ok"
+    "remote_ok",
+    "we_work_remotely",
 ]
 
 
