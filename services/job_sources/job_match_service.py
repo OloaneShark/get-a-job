@@ -178,6 +178,116 @@ LOCATION_ALIASES = {
 }
 
 
+US_STATE_NAMES = {
+    "alabama",
+    "alaska",
+    "arizona",
+    "arkansas",
+    "california",
+    "colorado",
+    "connecticut",
+    "delaware",
+    "florida",
+    "georgia",
+    "hawaii",
+    "idaho",
+    "illinois",
+    "indiana",
+    "iowa",
+    "kansas",
+    "kentucky",
+    "louisiana",
+    "maine",
+    "maryland",
+    "massachusetts",
+    "michigan",
+    "minnesota",
+    "mississippi",
+    "missouri",
+    "montana",
+    "nebraska",
+    "nevada",
+    "new hampshire",
+    "new jersey",
+    "new mexico",
+    "new york",
+    "north carolina",
+    "north dakota",
+    "ohio",
+    "oklahoma",
+    "oregon",
+    "pennsylvania",
+    "rhode island",
+    "south carolina",
+    "south dakota",
+    "tennessee",
+    "texas",
+    "utah",
+    "vermont",
+    "virginia",
+    "washington",
+    "west virginia",
+    "wisconsin",
+    "wyoming",
+    "district of columbia",
+}
+
+
+US_STATE_ABBREVIATIONS = {
+    "al",
+    "ak",
+    "az",
+    "ar",
+    "ca",
+    "co",
+    "ct",
+    "de",
+    "fl",
+    "ga",
+    "hi",
+    "id",
+    "il",
+    "in",
+    "ia",
+    "ks",
+    "ky",
+    "la",
+    "me",
+    "md",
+    "ma",
+    "mi",
+    "mn",
+    "ms",
+    "mo",
+    "mt",
+    "ne",
+    "nv",
+    "nh",
+    "nj",
+    "nm",
+    "ny",
+    "nc",
+    "nd",
+    "oh",
+    "ok",
+    "or",
+    "pa",
+    "ri",
+    "sc",
+    "sd",
+    "tn",
+    "tx",
+    "ut",
+    "vt",
+    "va",
+    "wa",
+    "wv",
+    "wi",
+    "wy",
+    "dc",
+}
+
+
 WORLDWIDE_REMOTE_TERMS = {
     "worldwide",
     "anywhere",
@@ -233,6 +343,47 @@ def contains_phrase(text, phrase):
     )
 
     return bool(re.search(pattern, text))
+
+
+def location_is_united_states(location):
+    location = normalize_text(location)
+
+    if not location:
+        return False
+
+    direct_us_terms = {
+        "united states",
+        "united states of america",
+        "usa",
+        "u.s.a.",
+        "u.s.",
+    }
+
+    if any(
+        contains_phrase(location, term)
+        for term in direct_us_terms
+    ):
+        return True
+
+    if any(
+        contains_phrase(location, state)
+        for state in US_STATE_NAMES
+    ):
+        return True
+
+    abbreviation_matches = re.findall(
+        r"(?:^|[\s,()/\-])"
+        r"([a-z]{2})"
+        r"(?=$|[\s,()/\-])",
+        location
+    )
+
+    return any(
+        abbreviation
+        in US_STATE_ABBREVIATIONS
+        for abbreviation
+        in abbreviation_matches
+    )
 
 
 def get_requested_experience_levels(profile):
@@ -360,10 +511,6 @@ def matches_location(job, profile):
         }
     ]
 
-    requested_locations = expand_location_aliases(
-        requested_locations
-    )
-
     remote_scope = normalize_text(
         getattr(
             profile,
@@ -388,19 +535,60 @@ def matches_location(job, profile):
         if not requested_locations:
             return False
 
+        # Explicit worldwide remote jobs are available
+        # from the selected location.
         if not job_location:
             return True
 
-        if any(
-            contains_phrase(job_location, term)
-            for term in WORLDWIDE_REMOTE_TERMS
+        has_worldwide_term = any(
+            contains_phrase(
+                job_location,
+                worldwide_term
+            )
+            for worldwide_term
+            in WORLDWIDE_REMOTE_TERMS
+        )
+
+        if (
+            has_worldwide_term
+            and not has_specific_location(
+                job_location
+            )
         ):
             return True
 
-        return any(
-            requested_location in job_location
+        requesting_united_states = any(
+            requested_location in {
+                "united states",
+                "united states of america",
+                "usa",
+                "u.s.a.",
+                "us",
+                "u.s.",
+            }
             for requested_location
             in requested_locations
+        )
+
+        if (
+            requesting_united_states
+            and location_is_united_states(
+                job_location
+            )
+        ):
+            return True
+
+        expanded_locations = expand_location_aliases(
+            requested_locations
+        )
+
+        return any(
+            contains_phrase(
+                job_location,
+                requested_location
+            )
+            for requested_location
+            in expanded_locations
         )
 
     if not requested_locations:
@@ -409,10 +597,38 @@ def matches_location(job, profile):
     if not job_location:
         return False
 
-    return any(
-        requested_location in job_location
+    requesting_united_states = any(
+        requested_location in {
+            "united states",
+            "united states of america",
+            "usa",
+            "u.s.a.",
+            "us",
+            "u.s.",
+        }
         for requested_location
         in requested_locations
+    )
+
+    if (
+        requesting_united_states
+        and location_is_united_states(
+            job_location
+        )
+    ):
+        return True
+
+    expanded_locations = expand_location_aliases(
+        requested_locations
+    )
+
+    return any(
+        contains_phrase(
+            job_location,
+            requested_location
+        )
+        for requested_location
+        in expanded_locations
     )
 
 
@@ -588,3 +804,32 @@ def job_matches_profile(job, profile):
     return matched
 
 
+def has_specific_location(location):
+    location = normalize_text(location)
+
+    if not location:
+        return False
+
+    generic_remote_values = {
+        "remote",
+        "anywhere",
+        "worldwide",
+        "global",
+        "remote worldwide",
+    }
+
+    location_parts = [
+        part.strip()
+        for part in re.split(
+            r"[|;/]",
+            location
+        )
+        if part.strip()
+    ]
+
+    return any(
+        part not in generic_remote_values
+        for part in location_parts
+    )
+    
+    

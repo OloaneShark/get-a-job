@@ -7,6 +7,9 @@ from services.job_sources.http_client import (
 from services.job_sources.job_match_service import (
     job_matches_profile,
 )
+from services.job_sources.remote_ok_crawler import (
+    crawl_recent_remote_ok_jobs,
+)
 
 
 class RemoteOKJobSource(BaseJobSource):
@@ -15,6 +18,35 @@ class RemoteOKJobSource(BaseJobSource):
     requires_company_config = False
 
     feed_url = "https://remoteok.com/api"
+    
+    @staticmethod
+    def deduplicate_jobs(jobs):
+        deduplicated = {}
+
+        for job in jobs:
+            external_id = str(
+                job.get("external_id")
+                or ""
+            ).strip()
+
+            posting_url = (
+                job.get("posting_url")
+                or ""
+            ).strip()
+
+            deduplication_key = (
+                external_id
+                or posting_url
+            )
+
+            if not deduplication_key:
+                continue
+
+            deduplicated[
+                deduplication_key
+            ] = job
+
+        return list(deduplicated.values())
     
     @staticmethod
     def is_plausible_job(job):
@@ -173,12 +205,31 @@ class RemoteOKJobSource(BaseJobSource):
 
     def search(self, profile, source_config=None):
         raw_jobs = self.fetch_jobs()
+
+        api_jobs = [
+            self.normalize_job(raw_job)
+            for raw_job in raw_jobs
+        ]
+
+        #Setting job pages it goes through as max 20 for now
+        crawled_jobs = crawl_recent_remote_ok_jobs(
+            profile=profile,
+            max_age_days=30,
+            max_job_pages=20,
+        )
+
+        all_jobs = self.deduplicate_jobs(
+            api_jobs + crawled_jobs
+        )
+
         matching_jobs = []
 
         print(
             f"REMOTE OK SEARCH | "
             f"Profile: {profile.name} | "
-            f"Fetched: {len(raw_jobs)} | "
+            f"API: {len(api_jobs)} | "
+            f"Crawled: {len(crawled_jobs)} | "
+            f"Combined: {len(all_jobs)} | "
             f"Experience: "
             f"{profile.experience_levels or 'any'} | "
             f"Remote scope: "
@@ -187,14 +238,14 @@ class RemoteOKJobSource(BaseJobSource):
             f"{profile.visa_preference or 'any'}"
         )
 
-        for raw_job in raw_jobs:
-            job = self.normalize_job(raw_job)
-
+        for job in all_jobs:
             if not self.is_plausible_job(job):
                 print(
                     f"REMOTE OK INVALID RECORD | "
-                    f"Title: {job.get('position_title')} | "
-                    f"Company: {job.get('company_name')}"
+                    f"Title: "
+                    f"{job.get('position_title')} | "
+                    f"Company: "
+                    f"{job.get('company_name')}"
                 )
                 continue
 

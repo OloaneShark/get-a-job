@@ -362,12 +362,13 @@ def start_scheduler(app):
     scheduler.add_job(
         process_active_search_profiles,
         "interval",
-        minutes=1,
+        minutes=15,
         args=[app],
         id="process_active_search_profiles",
         replace_existing=True,
         max_instances=1,
-        coalesce=True
+        coalesce=True,
+        next_run_time=datetime.now(timezone.utc)
     )
 
     scheduler.start()
