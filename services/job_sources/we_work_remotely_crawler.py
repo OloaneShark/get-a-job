@@ -40,7 +40,6 @@ ENTRY_LEVEL_URL_TERMS = {
     "entry": 10,
     "graduate": 8,
     "new-grad": 8,
-    "new-grad": 8,
     "associate": 4,
 }
 
@@ -80,11 +79,195 @@ class LinkCollector(HTMLParser):
             self.links.append(href)
 
 
+class VisibleTextCollector(HTMLParser):
+    ignored_tags = {
+        "script",
+        "style",
+        "svg",
+        "noscript",
+    }
+
+    block_tags = {
+        "article",
+        "aside",
+        "br",
+        "div",
+        "footer",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "section",
+        "ul",
+    }
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.ignored_depth = 0
+
+    def handle_starttag(
+        self,
+        tag,
+        attributes,
+    ):
+        normalized_tag = tag.lower()
+
+        if normalized_tag in self.ignored_tags:
+            self.ignored_depth += 1
+            return
+
+        if (
+            self.ignored_depth == 0
+            and normalized_tag in self.block_tags
+        ):
+            self.parts.append("\n")
+
+    def handle_endtag(
+        self,
+        tag,
+    ):
+        normalized_tag = tag.lower()
+
+        if normalized_tag in self.ignored_tags:
+            if self.ignored_depth > 0:
+                self.ignored_depth -= 1
+
+            return
+
+        if (
+            self.ignored_depth == 0
+            and normalized_tag in self.block_tags
+        ):
+            self.parts.append("\n")
+
+    def handle_data(
+        self,
+        data,
+    ):
+        if self.ignored_depth > 0:
+            return
+
+        value = str(
+            data or ""
+        ).strip()
+
+        if value:
+            self.parts.append(value)
+
+    def get_text(self):
+        text = " ".join(
+            self.parts
+        )
+
+        text = re.sub(
+            r"[ \t]+",
+            " ",
+            text,
+        )
+
+        text = re.sub(
+            r" *\n *",
+            "\n",
+            text,
+        )
+
+        text = re.sub(
+            r"\n{3,}",
+            "\n\n",
+            text,
+        )
+
+        return text.strip()
+
+
 def normalize_text(value):
     return re.sub(
         r"\s+",
         " ",
         str(value or "").strip().lower(),
+    )
+
+
+def extract_visible_text(html):
+    parser = VisibleTextCollector()
+
+    try:
+        parser.feed(
+            html
+        )
+    except Exception:
+        return clean_html_text(
+            html
+        ) or ""
+
+    return parser.get_text()
+
+
+def extract_page_title(html):
+    match = re.search(
+        r"<title[^>]*>(.*?)</title>",
+        html,
+        flags=(
+            re.IGNORECASE
+            | re.DOTALL
+        ),
+    )
+
+    if not match:
+        return None
+
+    return clean_html_text(
+        match.group(1)
+    )
+
+
+def split_wwr_page_title(
+    page_title,
+):
+    text = clean_html_text(
+        page_title
+    ) or ""
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    ).strip()
+
+    text = re.sub(
+        r"^remote\s+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if " at " not in text:
+        return (
+            "Unknown Company",
+            text or "Untitled Position",
+        )
+
+    position_title, company_name = (
+        text.rsplit(
+            " at ",
+            1,
+        )
+    )
+
+    return (
+        company_name.strip()
+        or "Unknown Company",
+        position_title.strip()
+        or "Untitled Position",
     )
 
 
@@ -450,6 +633,278 @@ def parse_datetime(value):
     )
 
 
+def extract_relative_posted_date(
+    visible_text,
+):
+    text = normalize_text(
+        visible_text
+    )
+
+    now = datetime.now(
+        timezone.utc
+    )
+
+    if re.search(
+        r"\bposted\s+today\b",
+        text,
+    ):
+        return now
+
+    if re.search(
+        r"\bposted\s+yesterday\b",
+        text,
+    ):
+        return now - timedelta(
+            days=1
+        )
+
+    match = re.search(
+        r"\bposted\s+"
+        r"(\d{1,3})\s+"
+        r"days?\s+ago\b",
+        text,
+    )
+
+    if match:
+        return now - timedelta(
+            days=int(
+                match.group(1)
+            )
+        )
+
+    match = re.search(
+        r"\bposted\s+"
+        r"(\d{1,3})\s+"
+        r"hours?\s+ago\b",
+        text,
+    )
+
+    if match:
+        return now - timedelta(
+            hours=int(
+                match.group(1)
+            )
+        )
+
+    return None
+
+
+def extract_fallback_employment_type(
+    visible_text,
+):
+    text = normalize_text(
+        visible_text
+    )
+
+    patterns = [
+        (
+            r"\bjob\s+type\s+full[-\s]?time\b",
+            "Full-time",
+        ),
+        (
+            r"\bjob\s+type\s+part[-\s]?time\b",
+            "Part-time",
+        ),
+        (
+            r"\bjob\s+type\s+contract\b",
+            "Contract",
+        ),
+        (
+            r"\bjob\s+type\s+temporary\b",
+            "Temporary",
+        ),
+        (
+            r"\bjob\s+type\s+internship\b",
+            "Internship",
+        ),
+    ]
+
+    for pattern, employment_type in patterns:
+        if re.search(
+            pattern,
+            text,
+        ):
+            return employment_type
+
+    return "Full-time"
+
+
+def extract_fallback_location(
+    visible_text,
+):
+    text = normalize_text(
+        visible_text
+    )
+
+    worldwide_terms = {
+        "anywhere in the world",
+        "worldwide",
+        "remote worldwide",
+        "global remote",
+    }
+
+    if any(
+        term in text
+        for term in worldwide_terms
+    ):
+        return "Worldwide"
+
+    region_match = re.search(
+        r"\bregion\s+"
+        r"([a-z][a-z0-9 ,/&().\-]{2,80})"
+        r"(?=\s+(?:apply now|"
+        r"auto-apply|"
+        r"related jobs|"
+        r"about the job|"
+        r"job type|"
+        r"salary|"
+        r"category)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if region_match:
+        region = clean_html_text(
+            region_match.group(1)
+        )
+
+        if region:
+            return region
+
+    return "Remote"
+
+
+def extract_fallback_salary(
+    visible_text,
+):
+    text = re.sub(
+        r"\s+",
+        " ",
+        visible_text or "",
+    )
+
+    salary_match = re.search(
+        r"\bSalary\s+"
+        r"(.{1,100}?)"
+        r"(?=\s+(?:Category|"
+        r"Region|"
+        r"Apply now|"
+        r"Related Jobs)|$)",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    if not salary_match:
+        return None
+
+    salary = clean_html_text(
+        salary_match.group(1)
+    )
+
+    if not salary:
+        return None
+
+    rejected_values = {
+        "not specified",
+        "unspecified",
+        "competitive",
+    }
+
+    if salary.lower() in rejected_values:
+        return None
+
+    return salary
+
+
+def extract_fallback_description(
+    visible_text,
+    position_title,
+):
+    text = visible_text or ""
+
+    if not text:
+        return None
+
+    title_pattern = re.escape(
+        position_title
+    )
+
+    title_matches = list(
+        re.finditer(
+            title_pattern,
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+    # WWR commonly prints the title once in navigation
+    # and then again immediately before the real description.
+    if len(title_matches) >= 2:
+        description_start = (
+            title_matches[1].end()
+        )
+    elif title_matches:
+        description_start = (
+            title_matches[0].end()
+        )
+    else:
+        description_start = 0
+
+    ending_patterns = [
+        r"\nAbout the job\b",
+        r"\nRelated Jobs\b",
+        r"\nAbout the company\b",
+        r"\nView company\b",
+    ]
+
+    description_end = len(text)
+
+    remaining_text = text[
+        description_start:
+    ]
+
+    for ending_pattern in ending_patterns:
+        ending_match = re.search(
+            ending_pattern,
+            remaining_text,
+            flags=re.IGNORECASE,
+        )
+
+        if ending_match:
+            candidate_end = (
+                description_start
+                + ending_match.start()
+            )
+
+            description_end = min(
+                description_end,
+                candidate_end,
+            )
+
+    description = text[
+        description_start:
+        description_end
+    ]
+
+    description = re.sub(
+        r"^\s*Remote Opportunity\s*",
+        "",
+        description,
+        flags=re.IGNORECASE,
+    )
+
+    description = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        description,
+    ).strip()
+
+    if len(description) < 100:
+        return None
+
+    return description
+
+
 def is_recent_datetime(
     value,
     max_age_days,
@@ -725,6 +1180,114 @@ def create_external_id(url):
     return path.split("/")[-1]
 
 
+def normalize_wwr_html_fallback(
+    html,
+    url,
+    max_age_days,
+):
+    page_title = extract_page_title(
+        html
+    )
+
+    company_name, position_title = (
+        split_wwr_page_title(
+            page_title
+        )
+    )
+
+    visible_text = extract_visible_text(
+        html
+    )
+
+    published_at = (
+        extract_relative_posted_date(
+            visible_text
+        )
+    )
+
+    if published_at is None:
+        print(
+            f"WWR FALLBACK REJECTED | "
+            f"No usable posting date | "
+            f"Title: {position_title} | "
+            f"URL: {url}"
+        )
+        return None
+
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(
+            days=max_age_days
+        )
+    )
+
+    if published_at < cutoff:
+        print(
+            f"WWR FALLBACK TOO OLD | "
+            f"Date: {published_at} | "
+            f"Title: {position_title} | "
+            f"URL: {url}"
+        )
+        return None
+
+    description = (
+        extract_fallback_description(
+            visible_text,
+            position_title,
+        )
+    )
+
+    if not description:
+        print(
+            f"WWR FALLBACK REJECTED | "
+            f"No usable description | "
+            f"Title: {position_title} | "
+            f"URL: {url}"
+        )
+        return None
+
+    location = extract_fallback_location(
+        visible_text
+    )
+
+    employment_type = (
+        extract_fallback_employment_type(
+            visible_text
+        )
+    )
+
+    salary = extract_fallback_salary(
+        visible_text
+    )
+
+    return {
+        "source": "We Work Remotely",
+        "external_id": create_external_id(
+            url
+        ),
+        "company_name": company_name,
+        "position_title": position_title,
+        "location": location,
+        "employment_type": (
+            employment_type
+        ),
+        "salary": salary,
+        "visa_sponsorship": "unknown",
+        "posting_url": url,
+        "apply_url": url,
+        "job_description": description,
+        "departments": [],
+        "offices": [],
+        "is_remote": True,
+        "workplace_type": "Remote",
+        "published_at": published_at,
+        "recruiter_name": None,
+        "recruiter_email": None,
+        "recruiter_contact_url": None,
+        "recruiter_contact_source": None,
+    }
+
+
 def fetch_and_normalize_wwr_job(
     url,
     max_age_days=MAX_JOB_AGE_DAYS,
@@ -741,43 +1304,28 @@ def fetch_and_normalize_wwr_job(
     )
 
     if not job_posting:
-        page_title_match = re.search(
-            r"<title[^>]*>(.*?)</title>",
-            html,
-            flags=(
-                re.IGNORECASE
-                | re.DOTALL
-            ),
-        )
-
-        page_title = None
-
-        if page_title_match:
-            page_title = clean_html_text(
-                page_title_match.group(1)
-            )
-
-        has_job_content = bool(
-            re.search(
-                r"(requirements|"
-                r"qualifications|"
-                r"job description|"
-                r"apply for this position)",
-                html,
-                flags=re.IGNORECASE,
+        fallback_job = (
+            normalize_wwr_html_fallback(
+                html=html,
+                url=url,
+                max_age_days=max_age_days,
             )
         )
 
-        print(
-            f"WWR PAGE FALLBACK NEEDED | "
-            f"Title tag: {page_title} | "
-            f"Has job content: "
-            f"{has_job_content} | "
-            f"HTML length: {len(html)} | "
-            f"URL: {url}"
-        )
+        if fallback_job:
+            print(
+                f"WWR HTML FALLBACK SUCCESS | "
+                f"Title: "
+                f"{fallback_job.get('position_title')} | "
+                f"Company: "
+                f"{fallback_job.get('company_name')} | "
+                f"Location: "
+                f"{fallback_job.get('location')} | "
+                f"Salary: "
+                f"{fallback_job.get('salary') or 'unknown'}"
+            )
 
-        return None
+        return fallback_job
 
     published_value = job_posting.get(
         "datePosted"
@@ -840,10 +1388,6 @@ def fetch_and_normalize_wwr_job(
                 "employmentType"
             )
         )
-    )
-
-    published_at = parse_datetime(
-        published_value
     )
 
     return {
