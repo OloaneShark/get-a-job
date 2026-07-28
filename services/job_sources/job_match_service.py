@@ -1,4 +1,3 @@
-
 import re
 
 
@@ -605,20 +604,32 @@ def matches_experience_level(job, profile):
     )
 
     if "unspecified" in detected_levels:
-        # An unlabelled role may still be acceptable for
-        # entry, junior, or mid searches, but not internship.
-        return bool(
-            requested_levels.intersection({
-                "entry",
-                "junior",
-                "mid",
-            })
-        )
+        # The company did not say what level this job is.
+        # We only let it through when the user checked unspecified.
+        return "unspecified" in requested_levels
 
     return bool(
         requested_levels.intersection(
             detected_levels
         )
+    )
+
+
+def parse_confidence(
+    value,
+    default=0.0,
+):
+    try:
+        confidence = float(value)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return default
+
+    return max(
+        0.0,
+        min(confidence, 1.0),
     )
 
 
@@ -636,18 +647,155 @@ def job_is_remote(job):
 
     return (
         workplace_type == "remote"
-        or any(term in location for term in REMOTE_TERMS)
+        or any(
+            contains_phrase(
+                location,
+                term,
+            )
+            for term in REMOTE_TERMS
+        )
+    )
+
+
+def has_specific_location(location):
+    location = normalize_text(
+        location
+    )
+
+    if not location:
+        return False
+
+    generic_remote_values = {
+        "remote",
+        "anywhere",
+        "worldwide",
+        "global",
+        "remote worldwide",
+        "anywhere in the world",
+        "work from home",
+    }
+
+    location_parts = [
+        part.strip()
+        for part in re.split(
+            r"[|;/]",
+            location,
+        )
+        if part.strip()
+    ]
+
+    return any(
+        part not in generic_remote_values
+        for part in location_parts
+    )
+
+
+def has_uncertain_remote_location(
+    job,
+):
+    location = normalize_text(
+        job.get("location")
+    )
+
+    location_source = normalize_text(
+        job.get("location_source")
+    )
+
+    location_confidence = (
+        parse_confidence(
+            job.get(
+                "location_confidence"
+            ),
+            default=1.0,
+        )
+    )
+
+    generic_remote_values = {
+        "remote",
+        "remote position",
+        "remote role",
+        "work from home",
+    }
+
+    fallback_sources = {
+        "fallback_default",
+        "unknown",
+        "unspecified",
+    }
+
+    return (
+        location in generic_remote_values
+        and (
+            location_confidence < 0.5
+            or location_source
+            in fallback_sources
+        )
+    )
+
+
+def profile_requests_united_states(
+    requested_locations,
+):
+    united_states_terms = {
+        "united states",
+        "united states of america",
+        "usa",
+        "u.s.a.",
+        "us",
+        "u.s.",
+    }
+
+    return any(
+        normalize_text(location)
+        in united_states_terms
+        for location in requested_locations
+    )
+
+
+def matches_explicit_location(
+    job_location,
+    requested_locations,
+):
+    if not job_location:
+        return False
+
+    if (
+        profile_requests_united_states(
+            requested_locations
+        )
+        and location_is_united_states(
+            job_location
+        )
+    ):
+        return True
+
+    expanded_locations = (
+        expand_location_aliases(
+            requested_locations
+        )
+    )
+
+    return any(
+        contains_phrase(
+            job_location,
+            requested_location,
+        )
+        for requested_location
+        in expanded_locations
     )
 
 
 def matches_location(job, profile):
-    requested_locations = parse_profile_values(
-        profile.locations
+    requested_locations = (
+        parse_profile_values(
+            profile.locations
+        )
     )
 
     requested_locations = [
         location
-        for location in requested_locations
+        for location
+        in requested_locations
         if location not in {
             "any",
             "all",
@@ -659,7 +807,7 @@ def matches_location(job, profile):
         getattr(
             profile,
             "remote_scope",
-            "any"
+            "any",
         )
     )
 
@@ -669,9 +817,13 @@ def matches_location(job, profile):
         job.get("location")
     )
 
+    # They picked worldwide remote, so any actual
+    # remote job is fine for the location check.
     if remote_scope == "worldwide":
         return is_remote
 
+    # They only want remote jobs that actually allow
+    # somebody from one of their selected locations.
     if remote_scope == "selected_locations":
         if not is_remote:
             return False
@@ -679,20 +831,29 @@ def matches_location(job, profile):
         if not requested_locations:
             return False
 
-        # Explicit worldwide remote jobs are available
-        # from the selected location.
+        # Just saying remote does not mean somebody in
+        # the selected country is actually allowed to apply.
+        if has_uncertain_remote_location(
+            job
+        ):
+            return False
+
+        # If the location is missing, we are not going
+        # to pretend the person can work there.
         if not job_location:
-            return True
+            return False
 
         has_worldwide_term = any(
             contains_phrase(
                 job_location,
-                worldwide_term
+                worldwide_term,
             )
             for worldwide_term
             in WORLDWIDE_REMOTE_TERMS
         )
 
+        # Worldwide is fine unless the same location
+        # also sneaks in some specific restriction.
         if (
             has_worldwide_term
             and not has_specific_location(
@@ -701,78 +862,19 @@ def matches_location(job, profile):
         ):
             return True
 
-        requesting_united_states = any(
-            requested_location in {
-                "united states",
-                "united states of america",
-                "usa",
-                "u.s.a.",
-                "us",
-                "u.s.",
-            }
-            for requested_location
-            in requested_locations
+        return matches_explicit_location(
+            job_location,
+            requested_locations,
         )
 
-        if (
-            requesting_united_states
-            and location_is_united_states(
-                job_location
-            )
-        ):
-            return True
-
-        expanded_locations = expand_location_aliases(
-            requested_locations
-        )
-
-        return any(
-            contains_phrase(
-                job_location,
-                requested_location
-            )
-            for requested_location
-            in expanded_locations
-        )
-
+    # If they did not pick a strict location, then no
+    # requested location means there is nothing to filter.
     if not requested_locations:
         return True
 
-    if not job_location:
-        return False
-
-    requesting_united_states = any(
-        requested_location in {
-            "united states",
-            "united states of america",
-            "usa",
-            "u.s.a.",
-            "us",
-            "u.s.",
-        }
-        for requested_location
-        in requested_locations
-    )
-
-    if (
-        requesting_united_states
-        and location_is_united_states(
-            job_location
-        )
-    ):
-        return True
-
-    expanded_locations = expand_location_aliases(
-        requested_locations
-    )
-
-    return any(
-        contains_phrase(
-            job_location,
-            requested_location
-        )
-        for requested_location
-        in expanded_locations
+    return matches_explicit_location(
+        job_location,
+        requested_locations,
     )
 
 
@@ -905,7 +1007,10 @@ def matches_visa_requirement(job, profile):
     return detected_status == requested_visa_status
 
 
-def job_matches_profile(job, profile):
+def job_matches_profile(
+    job,
+    profile,
+):
     required_experience_years = (
         extract_required_experience_years(
             job
@@ -917,43 +1022,60 @@ def job_matches_profile(job, profile):
             job
         )
     )
-    
+
     checks = {
         "role": matches_role_title(
             job,
-            profile
+            profile,
         ),
-        "experience": matches_experience_level(
-            job,
-            profile
+        "experience": (
+            matches_experience_level(
+                job,
+                profile,
+            )
         ),
         "location": matches_location(
             job,
-            profile
+            profile,
         ),
-        "employment_type": matches_employment_type(
-            job,
-            profile
+        "employment_type": (
+            matches_employment_type(
+                job,
+                profile,
+            )
         ),
-        "visa": matches_visa_requirement(
-            job,
-            profile
+        "visa": (
+            matches_visa_requirement(
+                job,
+                profile,
+            )
         ),
     }
 
-    matched = all(checks.values())
+    matched = all(
+        checks.values()
+    )
 
     if not matched:
         failed_checks = [
             name
-            for name, passed in checks.items()
+            for name, passed
+            in checks.items()
             if not passed
         ]
 
         print(
             f"JOB FILTER REJECTED | "
-            f"Title: {job.get('position_title')} | "
-            f"Company: {job.get('company_name')} | "
+            f"Title: "
+            f"{job.get('position_title')} | "
+            f"Company: "
+            f"{job.get('company_name')} | "
+            f"Location: "
+            f"{job.get('location')} | "
+            f"Location source: "
+            f"{job.get('location_source')} | "
+            f"Location confidence: "
+            f"{job.get('location_confidence')} | "
             f"Experience years: "
             f"{required_experience_years} | "
             f"Experience levels: "
@@ -963,33 +1085,3 @@ def job_matches_profile(job, profile):
 
     return matched
 
-
-def has_specific_location(location):
-    location = normalize_text(location)
-
-    if not location:
-        return False
-
-    generic_remote_values = {
-        "remote",
-        "anywhere",
-        "worldwide",
-        "global",
-        "remote worldwide",
-    }
-
-    location_parts = [
-        part.strip()
-        for part in re.split(
-            r"[|;/]",
-            location
-        )
-        if part.strip()
-    ]
-
-    return any(
-        part not in generic_remote_values
-        for part in location_parts
-    )
-    
-    

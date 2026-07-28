@@ -273,12 +273,13 @@ class JobSearchProfileForm(FlaskForm):
             ("intern", "Intern"),
             ("entry", "Entry Level"),
             ("junior", "Junior"),
-            ("mid", "Mid-Level"),
+            ("mid", "Mid Level"),
             ("senior", "Senior"),
             ("staff", "Staff"),
             ("principal", "Principal"),
             ("lead", "Lead"),
             ("manager", "Manager"),
+            ("unspecified", "Unspecified"),
         ]
     )
 
