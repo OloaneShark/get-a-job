@@ -26,21 +26,30 @@ REMOTE_OK_SITEMAP_URL = (
 
 MAX_JOB_AGE_DAYS = 30
 
-# Keep the first version bounded while we verify it.
+# Keep this bounded so Remote OK does not get hammered.
 MAX_JOB_PAGES_PER_RUN = 300
 
-# Remote OK requests a one-second crawl delay.
+# Remote OK asks crawlers to wait at least one second.
 REQUEST_DELAY_SECONDS = 1.1
 
 REMOTE_OK_JOB_PATH_PREFIX = "/remote-jobs/"
+
+# We grab a newer slice first, then rank that slice by relevance.
+# This keeps some ancient perfect keyword match from wasting the run.
+MIN_RECENT_POOL_SIZE = 500
+RECENT_POOL_MULTIPLIER = 20
 
 
 def utc_now():
     return datetime.now(timezone.utc)
 
 
-def get_cutoff_datetime(max_age_days=MAX_JOB_AGE_DAYS):
-    return utc_now() - timedelta(days=max_age_days)
+def get_cutoff_datetime(
+    max_age_days=MAX_JOB_AGE_DAYS,
+):
+    return utc_now() - timedelta(
+        days=max_age_days
+    )
 
 
 def normalize_datetime(value):
@@ -55,17 +64,20 @@ def normalize_datetime(value):
         if not text:
             return None
 
-        # Handle ISO timestamps ending in Z.
+        # Python does not always like the Z ending,
+        # so turn it into a normal UTC offset first.
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
 
         try:
-            parsed_value = datetime.fromisoformat(text)
+            parsed_value = datetime.fromisoformat(
+                text
+            )
         except ValueError:
             try:
                 parsed_value = datetime.strptime(
                     text[:10],
-                    "%Y-%m-%d"
+                    "%Y-%m-%d",
                 )
             except ValueError:
                 return None
@@ -75,34 +87,18 @@ def normalize_datetime(value):
             tzinfo=timezone.utc
         )
 
-    return parsed_value.astimezone(timezone.utc)
-
-
-def normalize_slug_text(url):
-    parsed_url = urlparse(url)
-
-    slug = parsed_url.path.rstrip("/").split("/")[-1]
-
-    slug = re.sub(
-        r"-\d+$",
-        "",
-        slug
+    return parsed_value.astimezone(
+        timezone.utc
     )
-
-    slug = slug.replace("-", " ")
-
-    return re.sub(
-        r"\s+",
-        " ",
-        slug
-    ).strip().lower()
 
 
 def is_recent_datetime(
     value,
     max_age_days=MAX_JOB_AGE_DAYS,
 ):
-    parsed_value = normalize_datetime(value)
+    parsed_value = normalize_datetime(
+        value
+    )
 
     if parsed_value is None:
         return False
@@ -110,6 +106,33 @@ def is_recent_datetime(
     return parsed_value >= get_cutoff_datetime(
         max_age_days
     )
+
+
+def normalize_slug_text(url):
+    parsed_url = urlparse(url)
+
+    slug = (
+        parsed_url.path
+        .rstrip("/")
+        .split("/")[-1]
+    )
+
+    slug = re.sub(
+        r"-\d+$",
+        "",
+        slug,
+    )
+
+    slug = slug.replace(
+        "-",
+        " ",
+    )
+
+    return re.sub(
+        r"\s+",
+        " ",
+        slug,
+    ).strip().lower()
 
 
 def is_remote_ok_job_url(url):
@@ -131,21 +154,31 @@ def is_remote_ok_job_url(url):
 
     path = parsed_url.path.rstrip("/")
 
-    # A real Remote OK posting has this path and normally ends in a number id value
+    # A real Remote OK job URL uses this path and ends
+    # with the numeric Remote OK job ID.
     return bool(
-        path.startswith("/remote-jobs/")
-        and re.search(r"-\d+$", path)
+        path.startswith(
+            REMOTE_OK_JOB_PATH_PREFIX
+        )
+        and re.search(
+            r"-\d+$",
+            path,
+        )
     )
 
 
 def extract_external_id(url):
     parsed_url = urlparse(url)
 
-    slug = parsed_url.path.rstrip("/").split("/")[-1]
+    slug = (
+        parsed_url.path
+        .rstrip("/")
+        .split("/")[-1]
+    )
 
     match = re.search(
         r"-(\d+)$",
-        slug
+        slug,
     )
 
     if not match:
@@ -155,7 +188,9 @@ def extract_external_id(url):
 
 
 def extract_external_id_number(url):
-    external_id = extract_external_id(url)
+    external_id = extract_external_id(
+        url
+    )
 
     if not external_id:
         return 0
@@ -170,7 +205,10 @@ def parse_keyword_values(value):
     if not value:
         return []
 
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(
+        value,
+        (list, tuple, set),
+    ):
         raw_values = value
     else:
         raw_values = str(value).split(",")
@@ -183,12 +221,15 @@ def parse_keyword_values(value):
         if not text:
             continue
 
-        text = text.replace("-", " ")
+        text = text.replace(
+            "-",
+            " ",
+        )
 
         text = re.sub(
             r"\s+",
             " ",
-            text
+            text,
         ).strip()
 
         if text not in normalized_values:
@@ -197,13 +238,45 @@ def parse_keyword_values(value):
     return normalized_values
 
 
+def score_slug_for_profile(
+    slug_text,
+    profile_keywords,
+):
+    if not slug_text:
+        return 0
+
+    generic_keywords = {
+        "developer",
+        "engineer",
+        "software",
+        "web",
+    }
+
+    score = 0
+
+    for keyword in profile_keywords:
+        if keyword in generic_keywords:
+            continue
+
+        if keyword not in slug_text:
+            continue
+
+        # Longer phrases deserve more weight than one broad word.
+        score += max(
+            1,
+            len(keyword.split()),
+        )
+
+    return score
+
+
 def parse_sitemap_document(xml_text):
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as error:
         raise RuntimeError(
-            f"Remote OK sitemap could not be parsed: "
-            f"{error}"
+            "Remote OK sitemap could not "
+            f"be parsed: {error}"
         ) from error
 
     root_name = root.tag.split("}")[-1]
@@ -214,7 +287,8 @@ def parse_sitemap_document(xml_text):
     if root_name == "sitemapindex":
         for sitemap_element in root:
             child_name = (
-                sitemap_element.tag.split("}")[-1]
+                sitemap_element.tag
+                .split("}")[-1]
             )
 
             if child_name != "sitemap":
@@ -225,17 +299,20 @@ def parse_sitemap_document(xml_text):
 
             for child in sitemap_element:
                 field_name = (
-                    child.tag.split("}")[-1]
+                    child.tag
+                    .split("}")[-1]
                 )
 
                 if field_name == "loc":
                     location = (
-                        child.text or ""
+                        child.text
+                        or ""
                     ).strip()
 
                 elif field_name == "lastmod":
                     last_modified = (
-                        child.text or ""
+                        child.text
+                        or ""
                     ).strip()
 
             if location:
@@ -247,7 +324,8 @@ def parse_sitemap_document(xml_text):
     elif root_name == "urlset":
         for url_element in root:
             child_name = (
-                url_element.tag.split("}")[-1]
+                url_element.tag
+                .split("}")[-1]
             )
 
             if child_name != "url":
@@ -258,17 +336,20 @@ def parse_sitemap_document(xml_text):
 
             for child in url_element:
                 field_name = (
-                    child.tag.split("}")[-1]
+                    child.tag
+                    .split("}")[-1]
                 )
 
                 if field_name == "loc":
                     location = (
-                        child.text or ""
+                        child.text
+                        or ""
                     ).strip()
 
                 elif field_name == "lastmod":
                     last_modified = (
-                        child.text or ""
+                        child.text
+                        or ""
                     ).strip()
 
             if location:
@@ -286,7 +367,7 @@ def parse_sitemap_document(xml_text):
 def fetch_sitemap(url):
     response = fetch_response(
         url,
-        timeout=60
+        timeout=60,
     )
 
     return parse_sitemap_document(
@@ -315,10 +396,12 @@ def discover_recent_job_urls(
         if sitemap_url in visited_sitemaps:
             continue
 
-        visited_sitemaps.add(sitemap_url)
+        visited_sitemaps.add(
+            sitemap_url
+        )
 
         print(
-            f"REMOTE OK SITEMAP: fetching "
+            "REMOTE OK SITEMAP: fetching "
             f"{sitemap_url}"
         )
 
@@ -326,12 +409,14 @@ def discover_recent_job_urls(
             sitemap_url
         )
 
-        for child_sitemap in sitemap_data["sitemaps"]:
+        for child_sitemap in sitemap_data[
+            "sitemaps"
+        ]:
             child_url = child_sitemap["url"]
 
             if "/sitemap-jobs-" not in child_url:
                 print(
-                    f"REMOTE OK SITEMAP SKIPPED: "
+                    "REMOTE OK SITEMAP SKIPPED: "
                     f"{child_url}"
                 )
                 continue
@@ -346,27 +431,35 @@ def discover_recent_job_urls(
 
             job_url = entry["url"]
 
-            if not is_remote_ok_job_url(job_url):
+            if not is_remote_ok_job_url(
+                job_url
+            ):
                 rejected_url_entries += 1
                 continue
 
             if job_url in discovered_jobs:
                 continue
 
+            last_modified = normalize_datetime(
+                entry.get("last_modified")
+            )
+
             discovered_jobs[job_url] = {
                 "url": job_url,
-                "last_modified": normalize_datetime(
-                    entry.get("last_modified")
-                ),
+                "last_modified": last_modified,
             }
 
-        time.sleep(REQUEST_DELAY_SECONDS)
+        time.sleep(
+            REQUEST_DELAY_SECONDS
+        )
 
     print(
-        f"REMOTE OK SITEMAP SUMMARY | "
+        "REMOTE OK SITEMAP SUMMARY | "
         f"URL entries: {total_url_entries} | "
-        f"Valid job URLs: {len(discovered_jobs)} | "
-        f"Rejected URLs: {rejected_url_entries}"
+        f"Valid job URLs: "
+        f"{len(discovered_jobs)} | "
+        f"Rejected URLs: "
+        f"{rejected_url_entries}"
     )
 
     job_entries = list(
@@ -374,27 +467,18 @@ def discover_recent_job_urls(
     )
 
     print(
-        f"REMOTE OK DISCOVERY POOL | "
-        f"Eligible URLs before page verification: "
+        "REMOTE OK DISCOVERY POOL | "
+        "Eligible URLs before page verification: "
         f"{len(job_entries)}"
     )
 
     profile_keywords = parse_keyword_values(
-        getattr(profile, "keywords", None)
+        getattr(
+            profile,
+            "keywords",
+            None,
+        )
     )
-
-    generic_keywords = {
-        "developer",
-        "engineer",
-        "software",
-        "web",
-    }
-
-    priority_keywords = [
-        keyword
-        for keyword in profile_keywords
-        if keyword not in generic_keywords
-    ]
 
     for entry in job_entries:
         slug_text = normalize_slug_text(
@@ -402,45 +486,120 @@ def discover_recent_job_urls(
         )
 
         entry["slug_text"] = slug_text
-
         entry["external_id_number"] = (
             extract_external_id_number(
                 entry["url"]
             )
         )
-
-        entry["keyword_score"] = sum(
-            max(
-                1,
-                len(keyword.split())
+        entry["keyword_score"] = (
+            score_slug_for_profile(
+                slug_text,
+                profile_keywords,
             )
-            for keyword in priority_keywords
-            if keyword in slug_text
         )
 
-    job_entries.sort(
-        key=lambda entry: (
-            entry.get("keyword_score", 0),
-            entry.get("external_id_number", 0),
+        last_modified = entry.get(
+            "last_modified"
+        )
+
+        entry["last_modified_timestamp"] = (
+            last_modified.timestamp()
+            if last_modified
+            else 0
+        )
+
+        entry["sitemap_recent"] = bool(
+            last_modified
+            and is_recent_datetime(
+                last_modified,
+                max_age_days=max_age_days,
+            )
+        )
+
+    recent_pool_size = min(
+        len(job_entries),
+        max(
+            max_job_urls
+            * RECENT_POOL_MULTIPLIER,
+            MIN_RECENT_POOL_SIZE,
         ),
-        reverse=True
     )
 
-    selected_entries = job_entries[
-        :max_job_urls
+    # First get the newest-looking jobs. Remote OK IDs usually
+    # increase over time, and sitemap lastmod helps when it exists.
+    job_entries.sort(
+        key=lambda entry: (
+            entry.get(
+                "sitemap_recent",
+                False,
+            ),
+            entry.get(
+                "last_modified_timestamp",
+                0,
+            ),
+            entry.get(
+                "external_id_number",
+                0,
+            ),
+        ),
+        reverse=True,
+    )
+
+    recent_candidate_pool = job_entries[
+        :recent_pool_size
     ]
 
     print(
-        f"REMOTE OK SITEMAP SELECTION | "
+        "REMOTE OK RECENT POOL | "
+        "Candidates kept before keyword ranking: "
+        f"{len(recent_candidate_pool)} | "
+        f"Original pool: {len(job_entries)}"
+    )
+
+    # Now rank the newer pool by the user's profile.
+    recent_candidate_pool.sort(
+        key=lambda entry: (
+            entry.get(
+                "keyword_score",
+                0,
+            ),
+            entry.get(
+                "sitemap_recent",
+                False,
+            ),
+            entry.get(
+                "last_modified_timestamp",
+                0,
+            ),
+            entry.get(
+                "external_id_number",
+                0,
+            ),
+        ),
+        reverse=True,
+    )
+
+    selected_entries = (
+        recent_candidate_pool[
+            :max_job_urls
+        ]
+    )
+
+    print(
+        "REMOTE OK SITEMAP SELECTION | "
         f"Selected: {len(selected_entries)} | "
         f"Page limit: {max_job_urls}"
     )
-    
+
     for entry in selected_entries:
         print(
-            f"REMOTE OK CANDIDATE SELECTED | "
+            "REMOTE OK CANDIDATE SELECTED | "
             f"Score: "
             f"{entry.get('keyword_score', 0)} | "
+            f"Sitemap recent: "
+            f"{entry.get('sitemap_recent', False)} | "
+            f"Last modified: "
+            f"{entry.get('last_modified')} | "
             f"Job ID: "
             f"{entry.get('external_id_number', 0)} | "
             f"Slug: "
@@ -457,52 +616,89 @@ def find_job_posting_json_ld(soup):
         "script",
         attrs={
             "type": "application/ld+json"
-        }
+        },
     )
 
     for script in scripts:
-        raw_json = script.string or script.get_text()
+        raw_json = (
+            script.string
+            or script.get_text()
+        )
 
         if not raw_json:
             continue
 
         try:
-            payload = json.loads(raw_json)
+            payload = json.loads(
+                raw_json
+            )
         except json.JSONDecodeError:
             continue
 
         candidates = []
 
         if isinstance(payload, dict):
-            candidates.append(payload)
+            candidates.append(
+                payload
+            )
 
-            graph = payload.get("@graph")
+            graph = payload.get(
+                "@graph"
+            )
 
             if isinstance(graph, list):
-                candidates.extend(graph)
+                candidates.extend(
+                    graph
+                )
 
         elif isinstance(payload, list):
-            candidates.extend(payload)
+            candidates.extend(
+                payload
+            )
 
         for candidate in candidates:
-            if not isinstance(candidate, dict):
+            if not isinstance(
+                candidate,
+                dict,
+            ):
                 continue
 
-            candidate_type = candidate.get("@type")
+            candidate_type = candidate.get(
+                "@type"
+            )
 
             if candidate_type == "JobPosting":
                 return candidate
 
             if (
-                isinstance(candidate_type, list)
-                and "JobPosting" in candidate_type
+                isinstance(
+                    candidate_type,
+                    list,
+                )
+                and "JobPosting"
+                in candidate_type
             ):
                 return candidate
 
     return None
 
 
-def extract_location_text(job_posting):
+def unique_values(values):
+    results = []
+
+    for value in values:
+        if (
+            value
+            and value not in results
+        ):
+            results.append(value)
+
+    return results
+
+
+def extract_location_details(
+    job_posting,
+):
     explicit_locations = []
     applicant_locations = []
 
@@ -511,24 +707,38 @@ def extract_location_text(job_posting):
     )
 
     if isinstance(job_location, dict):
-        job_location = [job_location]
+        job_location = [
+            job_location
+        ]
 
     if isinstance(job_location, list):
         for location_item in job_location:
-            if not isinstance(location_item, dict):
+            if not isinstance(
+                location_item,
+                dict,
+            ):
                 continue
 
             address = location_item.get(
                 "address"
             )
 
-            if not isinstance(address, dict):
+            if not isinstance(
+                address,
+                dict,
+            ):
                 continue
 
             address_parts = [
-                address.get("addressLocality"),
-                address.get("addressRegion"),
-                address.get("addressCountry"),
+                address.get(
+                    "addressLocality"
+                ),
+                address.get(
+                    "addressRegion"
+                ),
+                address.get(
+                    "addressCountry"
+                ),
             ]
 
             address_text = ", ".join(
@@ -546,31 +756,33 @@ def extract_location_text(job_posting):
         "applicantLocationRequirements"
     )
 
-    if isinstance(applicant_requirements, dict):
+    if isinstance(
+        applicant_requirements,
+        dict,
+    ):
         applicant_requirements = [
             applicant_requirements
         ]
 
-    if isinstance(applicant_requirements, list):
+    if isinstance(
+        applicant_requirements,
+        list,
+    ):
         for requirement in applicant_requirements:
-            if not isinstance(requirement, dict):
+            if not isinstance(
+                requirement,
+                dict,
+            ):
                 continue
 
-            name = requirement.get("name")
+            name = requirement.get(
+                "name"
+            )
 
             if name:
                 applicant_locations.append(
                     str(name).strip()
                 )
-
-    def unique_values(values):
-        results = []
-
-        for value in values:
-            if value and value not in results:
-                results.append(value)
-
-        return results
 
     explicit_locations = unique_values(
         explicit_locations
@@ -580,25 +792,75 @@ def extract_location_text(job_posting):
         applicant_locations
     )
 
-    # A concrete job location is more authoritative than a generic applicant value like "Anywhere."
     if explicit_locations:
-        return " | ".join(
+        location = " | ".join(
             explicit_locations
         )
 
+        return {
+            "value": location,
+            "raw_value": location,
+            "source": (
+                "remote_ok_json_ld_job_location"
+            ),
+            "confidence": 0.95,
+        }
+
     if applicant_locations:
-        return " | ".join(
+        location = " | ".join(
             applicant_locations
         )
 
-    return "Remote"
+        normalized_location = (
+            location.strip().lower()
+        )
+
+        generic_applicant_values = {
+            "anywhere",
+            "anywhere in the world",
+            "worldwide",
+            "global",
+            "remote",
+        }
+
+        confidence = (
+            0.85
+            if normalized_location
+            not in generic_applicant_values
+            else 0.75
+        )
+
+        return {
+            "value": location,
+            "raw_value": location,
+            "source": (
+                "remote_ok_json_ld_applicant_location"
+            ),
+            "confidence": confidence,
+        }
+
+    return {
+        "value": "Remote",
+        "raw_value": None,
+        "source": (
+            "remote_ok_json_ld_fallback"
+        ),
+        "confidence": 0.35,
+    }
 
 
 def extract_employment_type(value):
     if isinstance(value, list):
-        value = value[0] if value else None
+        value = (
+            value[0]
+            if value
+            else None
+        )
 
-    value = str(value or "").strip().lower()
+    value = str(
+        value
+        or ""
+    ).strip().lower()
 
     mappings = {
         "full_time": "Full-time",
@@ -616,8 +878,23 @@ def extract_employment_type(value):
 
     return mappings.get(
         value,
-        value.title() if value else None
+        value.title()
+        if value
+        else None,
     )
+
+
+def format_salary_number(value):
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return str(value)
+
+    if isinstance(value, (int, float)):
+        return f"{value:,}"
+
+    return str(value).strip()
 
 
 def extract_salary(job_posting):
@@ -625,7 +902,10 @@ def extract_salary(job_posting):
         "baseSalary"
     )
 
-    if not isinstance(base_salary, dict):
+    if not isinstance(
+        base_salary,
+        dict,
+    ):
         return None
 
     currency = (
@@ -633,35 +913,54 @@ def extract_salary(job_posting):
         or "USD"
     )
 
-    salary_value = base_salary.get("value")
+    salary_value = base_salary.get(
+        "value"
+    )
 
-    if not isinstance(salary_value, dict):
+    if not isinstance(
+        salary_value,
+        dict,
+    ):
         return None
 
-    minimum = salary_value.get("minValue")
-    maximum = salary_value.get("maxValue")
-    unit_text = salary_value.get("unitText")
+    minimum = format_salary_number(
+        salary_value.get("minValue")
+    )
+
+    maximum = format_salary_number(
+        salary_value.get("maxValue")
+    )
+
+    unit_text = salary_value.get(
+        "unitText"
+    )
 
     suffix = ""
 
     if unit_text:
-        suffix = f" {str(unit_text).lower()}"
+        suffix = (
+            f" {str(unit_text).lower()}"
+        )
 
-    if minimum is not None and maximum is not None:
+    if (
+        minimum is not None
+        and maximum is not None
+    ):
         return (
-            f"{currency} {minimum:,} - "
-            f"{maximum:,}{suffix}"
+            f"{currency} {minimum} - "
+            f"{maximum}{suffix}"
         )
 
     if minimum is not None:
         return (
-            f"{currency} {minimum:,}+{suffix}"
+            f"{currency} "
+            f"{minimum}+{suffix}"
         )
 
     if maximum is not None:
         return (
             f"Up to {currency} "
-            f"{maximum:,}{suffix}"
+            f"{maximum}{suffix}"
         )
 
     return None
@@ -674,12 +973,12 @@ def fetch_and_normalize_job(
 ):
     response = fetch_response(
         url,
-        timeout=60
+        timeout=60,
     )
 
     soup = BeautifulSoup(
         response.text,
-        "html.parser"
+        "html.parser",
     )
 
     job_posting = find_job_posting_json_ld(
@@ -688,29 +987,30 @@ def fetch_and_normalize_job(
 
     if not job_posting:
         print(
-            f"REMOTE OK PAGE REJECTED | "
-            f"No JobPosting JSON-LD: {url}"
+            "REMOTE OK PAGE REJECTED | "
+            "No JobPosting JSON-LD: "
+            f"{url}"
         )
         return None
 
-    published_at = job_posting.get(
-        "datePosted"
+    published_at = normalize_datetime(
+        job_posting.get("datePosted")
     )
-    
+
     if not published_at:
         print(
-            f"REMOTE OK PAGE REJECTED | "
+            "REMOTE OK PAGE REJECTED | "
             f"No datePosted value: {url}"
         )
         return None
 
     if not is_recent_datetime(
         published_at,
-        max_age_days
+        max_age_days=max_age_days,
     ):
         print(
-            f"REMOTE OK PAGE TOO OLD | "
-            f"Date: {published_at} | "
+            "REMOTE OK PAGE TOO OLD | "
+            f"Date: {published_at.isoformat()} | "
             f"URL: {url}"
         )
         return None
@@ -723,38 +1023,67 @@ def fetch_and_normalize_job(
 
     if isinstance(
         hiring_organization,
-        dict
+        dict,
     ):
-        company_name = hiring_organization.get(
-            "name"
+        company_name = (
+            hiring_organization.get(
+                "name"
+            )
         )
 
     description = clean_html_text(
-        job_posting.get("description")
+        job_posting.get(
+            "description"
+        )
     )
 
-    title = (
+    title = str(
         job_posting.get("title")
         or ""
     ).strip()
 
     if not title:
+        print(
+            "REMOTE OK PAGE REJECTED | "
+            f"No title value: {url}"
+        )
         return None
+
+    location_details = (
+        extract_location_details(
+            job_posting
+        )
+    )
 
     return {
         "source": "Remote OK",
-        "external_id": extract_external_id(url),
+        "external_id": extract_external_id(
+            url
+        ),
         "company_name": (
             company_name
             or "Unknown Company"
         ),
         "position_title": title,
-        "location": extract_location_text(
-            job_posting
+        "location": location_details[
+            "value"
+        ],
+        "location_raw": location_details[
+            "raw_value"
+        ],
+        "location_source": location_details[
+            "source"
+        ],
+        "location_confidence": (
+            location_details[
+                "confidence"
+            ]
         ),
-        "employment_type": extract_employment_type(
-            job_posting.get(
-                "employmentType"
+        "employment_type": (
+            extract_employment_type(
+                job_posting.get(
+                    "employmentType"
+                )
             )
         ),
         "salary": extract_salary(
@@ -768,8 +1097,11 @@ def fetch_and_normalize_job(
         "offices": [],
         "is_remote": True,
         "workplace_type": "Remote",
-        "published_at": normalize_datetime(
-            published_at
+        "published_at": published_at,
+        "sitemap_last_modified": (
+            normalize_datetime(
+                sitemap_last_modified
+            )
         ),
         "recruiter_name": None,
         "recruiter_email": None,
@@ -783,30 +1115,32 @@ def crawl_recent_remote_ok_jobs(
     max_age_days=MAX_JOB_AGE_DAYS,
     max_job_pages=MAX_JOB_PAGES_PER_RUN,
 ):
-    
-    discovered_entries = discover_recent_job_urls(
-        profile=profile,
-        max_age_days=max_age_days,
-        max_job_urls=max_job_pages,
+    discovered_entries = (
+        discover_recent_job_urls(
+            profile=profile,
+            max_age_days=max_age_days,
+            max_job_urls=max_job_pages,
+        )
     )
 
     print(
-        f"REMOTE OK CRAWL: "
-        f"{len(discovered_entries)} recent "
-        f"candidate URLs discovered."
+        "REMOTE OK CRAWL: "
+        f"{len(discovered_entries)} ranked "
+        "candidate URLs selected for verification."
     )
 
     normalized_jobs = []
 
     for index, entry in enumerate(
         discovered_entries,
-        start=1
+        start=1,
     ):
         url = entry["url"]
 
         print(
-            f"REMOTE OK CRAWL PAGE "
-            f"{index}/{len(discovered_entries)}: "
+            "REMOTE OK CRAWL PAGE "
+            f"{index}/"
+            f"{len(discovered_entries)}: "
             f"{url}"
         )
 
@@ -814,29 +1148,51 @@ def crawl_recent_remote_ok_jobs(
             job = fetch_and_normalize_job(
                 url=url,
                 sitemap_last_modified=(
-                    entry.get("last_modified")
+                    entry.get(
+                        "last_modified"
+                    )
                 ),
                 max_age_days=max_age_days,
             )
 
             if job:
-                normalized_jobs.append(job)
-                
+                normalized_jobs.append(
+                    job
+                )
+
                 print(
-                    f"REMOTE OK NORMALIZED JOB | "
-                    f"Title: {job.get('position_title')} | "
-                    f"Company: {job.get('company_name')} | "
-                    f"Location: {job.get('location')} | "
-                    f"Published: {job.get('published_at')}"
+                    "REMOTE OK NORMALIZED JOB | "
+                    f"Title: "
+                    f"{job.get('position_title')} | "
+                    f"Company: "
+                    f"{job.get('company_name')} | "
+                    f"Location: "
+                    f"{job.get('location')} | "
+                    f"Location source: "
+                    f"{job.get('location_source')} | "
+                    f"Location confidence: "
+                    f"{job.get('location_confidence')} | "
+                    f"Published: "
+                    f"{job.get('published_at')}"
                 )
 
         except Exception as error:
             print(
-                f"REMOTE OK CRAWL ERROR | "
+                "REMOTE OK CRAWL ERROR | "
                 f"URL: {url} | "
                 f"Error: {error}"
             )
 
-        time.sleep(REQUEST_DELAY_SECONDS)
+        time.sleep(
+            REQUEST_DELAY_SECONDS
+        )
+
+    print(
+        "REMOTE OK CRAWL COMPLETE | "
+        f"Selected candidates: "
+        f"{len(discovered_entries)} | "
+        f"Normalized recent jobs: "
+        f"{len(normalized_jobs)}"
+    )
 
     return normalized_jobs

@@ -16,7 +16,17 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from io import StringIO
 from werkzeug.utils import secure_filename
-from flask import Flask, render_template, redirect, url_for, flash, request, Response, send_from_directory
+from flask import (
+    Flask,
+    render_template,
+    redirect,
+    url_for,
+    flash,
+    request,
+    Response,
+    send_from_directory,
+    jsonify,
+)
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
 from services.resume_service import analyze_resume_text
@@ -128,6 +138,43 @@ def get_latest_resume_for_user(user_id):
         .filter_by(user_id=user_id)
         .order_by(Resume.uploaded_at.desc())
         .first()
+    )
+
+
+def discovered_job_action_response(
+    job,
+    action,
+    message,
+):
+    # JavaScript requests get JSON so the page does
+    # not have to reload over one button click.
+    if request.headers.get(
+        "X-Requested-With"
+    ) == "XMLHttpRequest":
+        return jsonify({
+            "success": True,
+            "job_id": job.id,
+            "action": action,
+            "is_saved": job.is_saved,
+            "is_ignored": job.is_ignored,
+            "message": message,
+        })
+
+    flash(
+        message,
+        "success"
+        if action in {
+            "save",
+            "restore",
+        }
+        else "info",
+    )
+
+    return redirect(
+        request.referrer
+        or url_for(
+            "discovered_jobs"
+        )
     )
 
 
@@ -2504,25 +2551,32 @@ def discovered_jobs():
     )
 
 
-@app.route("/discovered-jobs/saved")
+@app.route("/discovered-jobs/<int:job_id>/save", methods=["POST"],)
 @login_required
-def saved_discovered_jobs():
-    jobs = (
-        DiscoveredJob.query
-        .filter_by(
-            user_id=current_user.id,
-            is_saved=True,
-            is_ignored=False
-        )
-        .order_by(
-            DiscoveredJob.saved_at.desc()
-        )
-        .all()
+def save_discovered_job(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    job.is_saved = True
+    job.is_ignored = False
+    job.saved_at = datetime.now(
+        timezone.utc
+    )
+    job.ignored_at = None
+
+    db.session.commit()
+
+    message = (
+        f"{job.position_title} "
+        f"was saved for later."
     )
 
-    return render_template(
-        "saved_discovered_jobs.html",
-        jobs=jobs
+    return discovered_job_action_response(
+        job=job,
+        action="save",
+        message=message,
     )
 
 
@@ -2547,37 +2601,12 @@ def ignored_discovered_jobs():
     )
 
 
-@app.route("/discovered-jobs/<int:job_id>/save", methods=["POST"])
-@login_required
-def save_discovered_job(job_id):
-    job = DiscoveredJob.query.filter_by(
-        id=job_id,
-        user_id=current_user.id
-    ).first_or_404()
-
-    job.is_saved = True
-    job.is_ignored = False
-    job.saved_at = datetime.now(timezone.utc)
-    job.ignored_at = None
-
-    db.session.commit()
-
-    flash(
-        f"{job.position_title} was saved for later.",
-        "success"
-    )
-
-    return redirect(
-        request.referrer or url_for("discovered_jobs")
-    )
-
-
-@app.route("/discovered-jobs/<int:job_id>/unsave", methods=["POST"])
+@app.route("/discovered-jobs/<int:job_id>/unsave", methods=["POST"],)
 @login_required
 def unsave_discovered_job(job_id):
     job = DiscoveredJob.query.filter_by(
         id=job_id,
-        user_id=current_user.id
+        user_id=current_user.id,
     ).first_or_404()
 
     job.is_saved = False
@@ -2585,35 +2614,41 @@ def unsave_discovered_job(job_id):
 
     db.session.commit()
 
-    flash("Job removed from saved jobs.", "info")
-
-    return redirect(
-        request.referrer or url_for("discovered_jobs")
+    return discovered_job_action_response(
+        job=job,
+        action="unsave",
+        message=(
+            "Job removed from saved jobs."
+        ),
     )
 
 
-@app.route("/discovered-jobs/<int:job_id>/ignore", methods=["POST"])
+@app.route("/discovered-jobs/<int:job_id>/ignore", methods=["POST"],)
 @login_required
 def ignore_discovered_job(job_id):
     job = DiscoveredJob.query.filter_by(
         id=job_id,
-        user_id=current_user.id
+        user_id=current_user.id,
     ).first_or_404()
 
     job.is_ignored = True
     job.is_saved = False
-    job.ignored_at = datetime.now(timezone.utc)
+    job.ignored_at = datetime.now(
+        timezone.utc
+    )
     job.saved_at = None
 
     db.session.commit()
 
-    flash(
-        f"{job.position_title} was removed from your results.",
-        "info"
+    message = (
+        f"{job.position_title} "
+        f"was removed from your results."
     )
 
-    return redirect(
-        request.referrer or url_for("discovered_jobs")
+    return discovered_job_action_response(
+        job=job,
+        action="ignore",
+        message=message,
     )
 
 

@@ -18,13 +18,26 @@
                 </p>
             </div>
 
+            <div
+                id="job-action-message"
+                class="alert d-none"
+                role="alert"
+            ></div>
+
             {% if jobs %}
 
-                <div class="d-grid gap-3">
+                <div
+                    id="discovered-job-list"
+                    class="d-grid gap-3"
+                >
 
                     {% for job in jobs %}
 
-                        <div class="card">
+                        <div
+                            id="job-card-{{ job.id }}"
+                            class="card discovered-job-card"
+                            data-job-id="{{ job.id }}"
+                        >
                             <div class="card-body">
 
                                 <div
@@ -87,7 +100,10 @@
                                     </a>
 
                                     <a
-                                        href="{{ job.apply_url or job.posting_url }}"
+                                        href="{{
+                                            job.apply_url
+                                            or job.posting_url
+                                        }}"
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         class="btn btn-success"
@@ -95,57 +111,68 @@
                                         Apply
                                     </a>
 
-                                    {% if job.is_saved %}
-                                        <form
-                                            method="POST"
-                                            action="{{ url_for(
+                                    <form
+                                        class="job-action-form"
+                                        method="POST"
+                                        action="{% if job.is_saved %}{{
+                                            url_for(
                                                 'unsave_discovered_job',
                                                 job_id=job.id
-                                            ) }}"
-                                        >
-                                            <input
-                                                type="hidden"
-                                                name="csrf_token"
-                                                value="{{ csrf_token() }}"
-                                            >
-
-                                            <button
-                                                type="submit"
-                                                class="btn btn-outline-warning"
-                                            >
-                                                Unsave
-                                            </button>
-                                        </form>
-                                    {% else %}
-                                        <form
-                                            method="POST"
-                                            action="{{ url_for(
+                                            )
+                                        }}{% else %}{{
+                                            url_for(
                                                 'save_discovered_job',
                                                 job_id=job.id
-                                            ) }}"
+                                            )
+                                        }}{% endif %}"
+                                        data-action="{% if job.is_saved %}unsave{% else %}save{% endif %}"
+                                        data-save-url="{{
+                                            url_for(
+                                                'save_discovered_job',
+                                                job_id=job.id
+                                            )
+                                        }}"
+                                        data-unsave-url="{{
+                                            url_for(
+                                                'unsave_discovered_job',
+                                                job_id=job.id
+                                            )
+                                        }}"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
                                         >
-                                            <input
-                                                type="hidden"
-                                                name="csrf_token"
-                                                value="{{ csrf_token() }}"
-                                            >
 
-                                            <button
-                                                type="submit"
-                                                class="btn btn-warning"
-                                            >
+                                        <button
+                                            type="submit"
+                                            class="btn
+                                                {% if job.is_saved %}
+                                                    btn-outline-warning
+                                                {% else %}
+                                                    btn-warning
+                                                {% endif %}
+                                            "
+                                        >
+                                            {% if job.is_saved %}
+                                                Unsave
+                                            {% else %}
                                                 Save
-                                            </button>
-                                        </form>
-                                    {% endif %}
+                                            {% endif %}
+                                        </button>
+                                    </form>
 
                                     <form
+                                        class="job-action-form"
                                         method="POST"
-                                        action="{{ url_for(
-                                            'ignore_discovered_job',
-                                            job_id=job.id
-                                        ) }}"
-                                        onsubmit="return confirm('Ignore this job and remove it from your results?');"
+                                        action="{{
+                                            url_for(
+                                                'ignore_discovered_job',
+                                                job_id=job.id
+                                            )
+                                        }}"
+                                        data-action="ignore"
                                     >
                                         <input
                                             type="hidden"
@@ -165,9 +192,11 @@
 
                                 <div class="small text-muted mt-3">
                                     Discovered:
-                                    {{ job.discovered_at.strftime(
-                                        "%Y-%m-%d %H:%M"
-                                    ) }}
+                                    {{
+                                        job.discovered_at.strftime(
+                                            "%Y-%m-%d %H:%M"
+                                        )
+                                    }}
                                 </div>
 
                             </div>
@@ -177,9 +206,26 @@
 
                 </div>
 
+                <div
+                    id="no-discovered-jobs"
+                    class="card d-none"
+                >
+                    <div class="card-body">
+                        <h5>No Discovered Jobs Yet</h5>
+
+                        <p class="mb-0">
+                            Active search profiles will place matching
+                            job postings here after scheduled searches run.
+                        </p>
+                    </div>
+                </div>
+
             {% else %}
 
-                <div class="card">
+                <div
+                    id="no-discovered-jobs"
+                    class="card"
+                >
                     <div class="card-body">
                         <h5>No Discovered Jobs Yet</h5>
 
@@ -211,5 +257,194 @@
     </aside>
 
 </div>
+
+<script>
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        const messageBox = document.getElementById(
+            "job-action-message"
+        );
+
+        function showMessage(
+            message,
+            type = "success"
+        ) {
+            if (!messageBox) {
+                return;
+            }
+
+            messageBox.textContent = message;
+            messageBox.className = (
+                `alert alert-${type}`
+            );
+
+            window.clearTimeout(
+                messageBox.hideTimer
+            );
+
+            messageBox.hideTimer = window.setTimeout(
+                () => {
+                    messageBox.classList.add(
+                        "d-none"
+                    );
+                },
+                3000
+            );
+        }
+
+        function checkForEmptyList() {
+            const cards = document.querySelectorAll(
+                ".discovered-job-card"
+            );
+
+            if (cards.length > 0) {
+                return;
+            }
+
+            const emptyState = document.getElementById(
+                "no-discovered-jobs"
+            );
+
+            if (emptyState) {
+                emptyState.classList.remove(
+                    "d-none"
+                );
+            }
+        }
+
+        async function submitJobAction(form) {
+            const button = form.querySelector(
+                "button[type='submit']"
+            );
+
+            const originalText = button.textContent;
+
+            button.disabled = true;
+            button.textContent = "Working...";
+
+            try {
+                const response = await fetch(
+                    form.action,
+                    {
+                        method: "POST",
+                        body: new FormData(form),
+                        headers: {
+                            "X-Requested-With":
+                                "XMLHttpRequest",
+                            "Accept":
+                                "application/json",
+                        },
+                    }
+                );
+
+                const data = await response.json();
+
+                if (!response.ok || !data.success) {
+                    throw new Error(
+                        data.message
+                        || "The job could not be updated."
+                    );
+                }
+
+                const action = form.dataset.action;
+
+                if (action === "ignore") {
+                    const card = document.getElementById(
+                        `job-card-${data.job_id}`
+                    );
+
+                    if (card) {
+                        card.style.opacity = "0";
+                        card.style.transform =
+                            "translateY(-8px)";
+                        card.style.transition =
+                            "opacity 0.2s ease, "
+                            + "transform 0.2s ease";
+
+                        window.setTimeout(
+                            () => {
+                                card.remove();
+                                checkForEmptyList();
+                            },
+                            200
+                        );
+                    }
+
+                    showMessage(
+                        data.message,
+                        "info"
+                    );
+
+                    return;
+                }
+
+                if (action === "save") {
+                    form.dataset.action = "unsave";
+                    form.action =
+                        form.dataset.unsaveUrl;
+
+                    button.textContent = "Unsave";
+                    button.className =
+                        "btn btn-outline-warning";
+                } else {
+                    form.dataset.action = "save";
+                    form.action =
+                        form.dataset.saveUrl;
+
+                    button.textContent = "Save";
+                    button.className =
+                        "btn btn-warning";
+                }
+
+                button.disabled = false;
+
+                showMessage(
+                    data.message,
+                    action === "save"
+                        ? "success"
+                        : "info"
+                );
+
+            } catch (error) {
+                button.disabled = false;
+                button.textContent = originalText;
+
+                showMessage(
+                    error.message,
+                    "danger"
+                );
+            }
+        }
+
+        document.addEventListener(
+            "submit",
+            event => {
+                const form = event.target.closest(
+                    ".job-action-form"
+                );
+
+                if (!form) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                if (
+                    form.dataset.action === "ignore"
+                    && !window.confirm(
+                        "Ignore this job and remove it "
+                        + "from your results?"
+                    )
+                ) {
+                    return;
+                }
+
+                submitJobAction(form);
+            }
+        );
+    }
+);
+</script>
 
 {% endblock %}
