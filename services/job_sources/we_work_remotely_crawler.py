@@ -54,6 +54,15 @@ SENIOR_URL_TERMS = {
     "vp": -14,
 }
 
+FALLBACK_METADATA_LABELS = {
+    "category",
+    "company",
+    "employment type",
+    "job type",
+    "location",
+    "region",
+    "salary",
+}
 
 class LinkCollector(HTMLParser):
     def __init__(self):
@@ -689,32 +698,192 @@ def extract_relative_posted_date(
     return None
 
 
+def extract_fallback_metadata_value(
+    visible_text,
+    label,
+):
+    if not visible_text:
+        return None
+
+    lines = [
+        re.sub(
+            r"\s+",
+            " ",
+            line,
+        ).strip()
+        for line in str(
+            visible_text
+        ).splitlines()
+    ]
+
+    lines = [
+        line
+        for line in lines
+        if line
+    ]
+
+    normalized_label = normalize_text(
+        label
+    )
+
+    for index, line in enumerate(
+        lines
+    ):
+        normalized_line = normalize_text(
+            line
+        )
+
+        # Format:
+        # Region
+        # USA Only
+        if normalized_line == normalized_label:
+            if index + 1 >= len(lines):
+                return None
+
+            candidate = lines[
+                index + 1
+            ].strip()
+
+            if (
+                normalize_text(candidate)
+                in FALLBACK_METADATA_LABELS
+            ):
+                return None
+
+            return candidate
+
+        # Format:
+        # Region: USA Only
+        prefix_patterns = [
+            f"{normalized_label}:",
+            f"{normalized_label} -",
+        ]
+
+        for prefix in prefix_patterns:
+            if not normalized_line.startswith(
+                prefix
+            ):
+                continue
+
+            candidate = line[
+                len(prefix):
+            ].strip()
+
+            if candidate:
+                return candidate
+
+    return None
+
+
+def normalize_fallback_region(
+    value,
+):
+    region = clean_html_text(
+        value
+    )
+
+    if not region:
+        return None
+
+    region = re.sub(
+        r"\s+",
+        " ",
+        region,
+    ).strip()
+
+    normalized_region = normalize_text(
+        region
+    )
+
+    worldwide_values = {
+        "anywhere",
+        "anywhere in the world",
+        "global",
+        "global remote",
+        "remote worldwide",
+        "worldwide",
+    }
+
+    united_states_values = {
+        "america only",
+        "north america",
+        "us",
+        "u.s.",
+        "u.s. only",
+        "usa",
+        "usa only",
+        "united states",
+        "united states only",
+    }
+
+    if normalized_region in worldwide_values:
+        return "Worldwide"
+
+    if normalized_region in united_states_values:
+        return "United States"
+
+    replacements = {
+        "americas only": "Americas",
+        "europe only": "Europe",
+        "european only": "Europe",
+        "emea only": "EMEA",
+        "latin america only": "Latin America",
+        "latam only": "Latin America",
+        "uk only": "United Kingdom",
+        "united kingdom only": (
+            "United Kingdom"
+        ),
+        "canada only": "Canada",
+    }
+
+    return replacements.get(
+        normalized_region,
+        region,
+    )
+
+
 def extract_fallback_employment_type(
     visible_text,
 ):
+    employment_value = (
+        extract_fallback_metadata_value(
+            visible_text,
+            "Job Type",
+        )
+        or extract_fallback_metadata_value(
+            visible_text,
+            "Employment Type",
+        )
+    )
+
+    if employment_value:
+        return normalize_employment_type(
+            employment_value
+        )
+
     text = normalize_text(
         visible_text
     )
 
     patterns = [
         (
-            r"\bjob\s+type\s+full[-\s]?time\b",
+            r"\bfull[-\s]?time\b",
             "Full-time",
         ),
         (
-            r"\bjob\s+type\s+part[-\s]?time\b",
+            r"\bpart[-\s]?time\b",
             "Part-time",
         ),
         (
-            r"\bjob\s+type\s+contract\b",
+            r"\bcontract(?:or)?\b",
             "Contract",
         ),
         (
-            r"\bjob\s+type\s+temporary\b",
+            r"\btemporary\b",
             "Temporary",
         ),
         (
-            r"\bjob\s+type\s+internship\b",
+            r"\binternship\b",
             "Internship",
         ),
     ]
@@ -732,44 +901,29 @@ def extract_fallback_employment_type(
 def extract_fallback_location(
     visible_text,
 ):
-    text = normalize_text(
-        visible_text
+    region_value = (
+        extract_fallback_metadata_value(
+            visible_text,
+            "Region",
+        )
     )
 
-    worldwide_terms = {
-        "anywhere in the world",
-        "worldwide",
-        "remote worldwide",
-        "global remote",
-    }
-
-    if any(
-        term in text
-        for term in worldwide_terms
-    ):
-        return "Worldwide"
-
-    region_match = re.search(
-        r"\bregion\s+"
-        r"([a-z][a-z0-9 ,/&().\-]{2,80})"
-        r"(?=\s+(?:apply now|"
-        r"auto-apply|"
-        r"related jobs|"
-        r"about the job|"
-        r"job type|"
-        r"salary|"
-        r"category)|$)",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    if region_match:
-        region = clean_html_text(
-            region_match.group(1)
+    if not region_value:
+        region_value = (
+            extract_fallback_metadata_value(
+                visible_text,
+                "Location",
+            )
         )
 
-        if region:
-            return region
+    normalized_region = (
+        normalize_fallback_region(
+            region_value
+        )
+    )
+
+    if normalized_region:
+        return normalized_region
 
     return "Remote"
 
@@ -777,40 +931,36 @@ def extract_fallback_location(
 def extract_fallback_salary(
     visible_text,
 ):
-    text = re.sub(
-        r"\s+",
-        " ",
-        visible_text or "",
+    salary = (
+        extract_fallback_metadata_value(
+            visible_text,
+            "Salary",
+        )
     )
 
-    salary_match = re.search(
-        r"\bSalary\s+"
-        r"(.{1,100}?)"
-        r"(?=\s+(?:Category|"
-        r"Region|"
-        r"Apply now|"
-        r"Related Jobs)|$)",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    if not salary_match:
+    if not salary:
         return None
 
     salary = clean_html_text(
-        salary_match.group(1)
+        salary
     )
 
     if not salary:
         return None
 
     rejected_values = {
-        "not specified",
-        "unspecified",
+        "-",
         "competitive",
+        "not provided",
+        "not specified",
+        "n/a",
+        "none",
+        "unspecified",
     }
 
-    if salary.lower() in rejected_values:
+    if normalize_text(
+        salary
+    ) in rejected_values:
         return None
 
     return salary
