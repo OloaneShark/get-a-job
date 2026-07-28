@@ -64,6 +64,13 @@ FALLBACK_METADATA_LABELS = {
     "salary",
 }
 
+LOCATION_CONFIDENCE = {
+    "json_ld": 0.95,
+    "metadata": 0.85,
+    "fallback_remote": 0.35,
+}
+
+
 class LinkCollector(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -908,24 +915,46 @@ def extract_fallback_location(
         )
     )
 
-    if not region_value:
-        region_value = (
-            extract_fallback_metadata_value(
-                visible_text,
-                "Location",
-            )
+    location_value = (
+        extract_fallback_metadata_value(
+            visible_text,
+            "Location",
         )
+    )
+
+    raw_value = (
+        region_value
+        or location_value
+    )
 
     normalized_region = (
         normalize_fallback_region(
-            region_value
+            raw_value
         )
     )
 
     if normalized_region:
-        return normalized_region
+        return {
+            "value": normalized_region,
+            "raw_value": raw_value,
+            "source": "wwr_metadata",
+            "confidence": (
+                LOCATION_CONFIDENCE[
+                    "metadata"
+                ]
+            ),
+        }
 
-    return "Remote"
+    return {
+        "value": "Remote",
+        "raw_value": None,
+        "source": "fallback_default",
+        "confidence": (
+            LOCATION_CONFIDENCE[
+                "fallback_remote"
+            ]
+        ),
+    }
 
 
 def extract_fallback_salary(
@@ -1396,8 +1425,23 @@ def normalize_wwr_html_fallback(
         )
         return None
 
-    location = extract_fallback_location(
-        visible_text
+    location_result = (
+        extract_fallback_location(
+            visible_text
+        )
+    )
+
+    print(
+        f"WWR LOCATION METADATA | "
+        f"Title: {position_title} | "
+        f"Raw: "
+        f"{location_result.get('raw_value')} | "
+        f"Normalized: "
+        f"{location_result.get('value')} | "
+        f"Source: "
+        f"{location_result.get('source')} | "
+        f"Confidence: "
+        f"{location_result.get('confidence')}"
     )
 
     employment_type = (
@@ -1417,7 +1461,20 @@ def normalize_wwr_html_fallback(
         ),
         "company_name": company_name,
         "position_title": position_title,
-        "location": location,
+        "location": (
+            location_result.get("value")
+        ),
+        "location_raw": (
+            location_result.get("raw_value")
+        ),
+        "location_source": (
+            location_result.get("source")
+        ),
+        "location_confidence": (
+            location_result.get(
+                "confidence"
+            )
+        ),
         "employment_type": (
             employment_type
         ),
@@ -1531,6 +1588,16 @@ def fetch_and_normalize_wwr_job(
     location = extract_location(
         job_posting
     )
+    
+    location_source = (
+        "jobposting_json_ld"
+    )
+
+    location_confidence = (
+        LOCATION_CONFIDENCE[
+            "json_ld"
+        ]
+    )
 
     employment_type = (
         normalize_employment_type(
@@ -1554,6 +1621,13 @@ def fetch_and_normalize_wwr_job(
             or "Untitled Position"
         ),
         "location": location,
+        "location_raw": location,
+        "location_source": (
+            location_source
+        ),
+        "location_confidence": (
+            location_confidence
+        ),
         "employment_type": (
             employment_type
         ),
