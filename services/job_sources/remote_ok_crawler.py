@@ -696,6 +696,141 @@ def unique_values(values):
     return results
 
 
+def clean_remote_ok_location_part(value):
+    text = str(
+        value
+        or ""
+    ).strip()
+
+    if not text:
+        return None
+
+    normalized = text.lower()
+
+    useless_values = {
+        "anywhere",
+        "remote",
+        "n/a",
+        "none",
+        "null",
+        "unknown",
+    }
+
+    if normalized in useless_values:
+        return None
+
+    return text
+
+
+def normalize_remote_ok_country(value):
+    if not value:
+        return None
+
+    text = str(value).strip()
+
+    if not text:
+        return None
+
+    normalized = text.lower()
+
+    country_mappings = {
+        "us": "United States",
+        "usa": "United States",
+        "u.s.": "United States",
+        "u.s.a.": "United States",
+        "united states of america": (
+            "United States"
+        ),
+        "uk": "United Kingdom",
+        "u.k.": "United Kingdom",
+    }
+
+    return country_mappings.get(
+        normalized,
+        text,
+    )
+
+
+def build_remote_ok_address_details(
+    address,
+):
+    if not isinstance(address, dict):
+        return {
+            "value": None,
+            "was_worldwide": False,
+        }
+
+    raw_values = [
+        address.get("addressLocality"),
+        address.get("addressRegion"),
+        address.get("addressCountry"),
+    ]
+
+    normalized_raw_values = [
+        str(value).strip().lower()
+        for value in raw_values
+        if value
+        and str(value).strip()
+    ]
+
+    worldwide_values = {
+        "anywhere",
+        "anywhere in the world",
+        "worldwide",
+        "global",
+    }
+
+    # Remote OK sometimes fills every address field
+    # with Anywhere. That means worldwide, not unknown.
+    if (
+        normalized_raw_values
+        and all(
+            value in worldwide_values
+            for value in normalized_raw_values
+        )
+    ):
+        return {
+            "value": "Worldwide",
+            "was_worldwide": True,
+        }
+
+    locality = clean_remote_ok_location_part(
+        address.get("addressLocality")
+    )
+
+    region = clean_remote_ok_location_part(
+        address.get("addressRegion")
+    )
+
+    country = normalize_remote_ok_country(
+        clean_remote_ok_location_part(
+            address.get("addressCountry")
+        )
+    )
+
+    parts = []
+
+    for value in (
+        locality,
+        region,
+        country,
+    ):
+        if (
+            value
+            and value not in parts
+        ):
+            parts.append(value)
+
+    return {
+        "value": (
+            ", ".join(parts)
+            if parts
+            else None
+        ),
+        "was_worldwide": False,
+    }
+
+
 def extract_location_details(
     job_posting,
 ):
@@ -719,33 +854,17 @@ def extract_location_details(
             ):
                 continue
 
-            address = location_item.get(
-                "address"
+            address_details = (
+                build_remote_ok_address_details(
+                    location_item.get(
+                        "address"
+                    )
+                )
             )
 
-            if not isinstance(
-                address,
-                dict,
-            ):
-                continue
-
-            address_parts = [
-                address.get(
-                    "addressLocality"
-                ),
-                address.get(
-                    "addressRegion"
-                ),
-                address.get(
-                    "addressCountry"
-                ),
+            address_text = address_details[
+                "value"
             ]
-
-            address_text = ", ".join(
-                str(part).strip()
-                for part in address_parts
-                if part
-            )
 
             if address_text:
                 explicit_locations.append(
@@ -775,13 +894,17 @@ def extract_location_details(
             ):
                 continue
 
-            name = requirement.get(
-                "name"
+            name = (
+                clean_remote_ok_location_part(
+                    requirement.get("name")
+                )
             )
 
             if name:
                 applicant_locations.append(
-                    str(name).strip()
+                    normalize_remote_ok_country(
+                        name
+                    )
                 )
 
     explicit_locations = unique_values(
@@ -815,28 +938,32 @@ def extract_location_details(
             location.strip().lower()
         )
 
-        generic_applicant_values = {
+        worldwide_values = {
             "anywhere",
             "anywhere in the world",
             "worldwide",
             "global",
-            "remote",
         }
 
-        confidence = (
-            0.85
-            if normalized_location
-            not in generic_applicant_values
-            else 0.75
-        )
+        if normalized_location in worldwide_values:
+            return {
+                "value": "Worldwide",
+                "raw_value": location,
+                "source": (
+                    "remote_ok_json_ld_"
+                    "applicant_location"
+                ),
+                "confidence": 0.85,
+            }
 
         return {
             "value": location,
             "raw_value": location,
             "source": (
-                "remote_ok_json_ld_applicant_location"
+                "remote_ok_json_ld_"
+                "applicant_location"
             ),
-            "confidence": confidence,
+            "confidence": 0.90,
         }
 
     return {

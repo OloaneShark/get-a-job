@@ -2530,6 +2530,29 @@ def toggle_search_profile(profile_id):
     return redirect(url_for("search_profiles"))
 
 
+@app.route("/saved-jobs")
+@login_required
+def saved_discovered_jobs():
+    jobs = (
+        DiscoveredJob.query
+        .filter_by(
+            user_id=current_user.id,
+            is_saved=True,
+            is_ignored=False,
+        )
+        .order_by(
+            DiscoveredJob.saved_at.desc(),
+            DiscoveredJob.discovered_at.desc(),
+        )
+        .all()
+    )
+
+    return render_template(
+        "saved_discovered_jobs.html",
+        jobs=jobs,
+    )
+
+
 @app.route("/discovered-jobs")
 @login_required
 def discovered_jobs():

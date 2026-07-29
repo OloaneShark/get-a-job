@@ -38,7 +38,7 @@ def parse_profile_values(value):
     ]
 
 
-def save_discovered_jobs(profile, jobs):
+def save_discovered_job(profile, jobs):
     saved_count = 0
 
     for job in jobs:
@@ -249,7 +249,7 @@ def process_search_profile(profile, source_configs):
                 error_message
             )
 
-    saved_count = save_discovered_jobs(
+    saved_count = save_discovered_job(
         profile,
         all_matching_jobs
     )
