@@ -131,6 +131,7 @@ FALLBACK_METADATA_LABELS = {
 
 LOCATION_CONFIDENCE = {
     "json_ld": 0.95,
+    "title_restriction": 0.92,
     "metadata": 0.85,
     "fallback_remote": 0.35,
 }
@@ -1188,6 +1189,54 @@ def normalize_fallback_region(
     )
 
 
+
+def extract_title_location_restriction(position_title):
+    title = clean_html_text(position_title)
+    if not title:
+        return None
+    normalized_title = normalize_text(title)
+    location_patterns = (
+        (r"\b(?:u\.?s\.?|usa|united states)(?:\s+only)?\b", "United States"),
+        (r"\bcanada(?:\s+only)?\b", "Canada"),
+        (r"\b(?:uk|u\.k\.|united kingdom)(?:\s+only)?\b", "United Kingdom"),
+        (r"\bnorth america(?:\s+only)?\b", "North America"),
+        (r"\b(?:latam|latin america)(?:\s+only)?\b", "Latin America"),
+        (r"\bemea(?:\s+only)?\b", "EMEA"),
+        (r"\bapac(?:\s+only)?\b", "APAC"),
+        (r"\beurope(?:an)?(?:\s+only)?\b", "Europe"),
+        (r"\baustralia(?:\s+only)?\b", "Australia"),
+        (r"\bnew zealand(?:\s+only)?\b", "New Zealand"),
+        (r"\bindia(?:\s+only)?\b", "India"),
+        (r"\bphilippines(?:\s+only)?\b", "Philippines"),
+    )
+    detected_locations = []
+    for pattern, normalized_location in location_patterns:
+        if re.search(pattern, normalized_title, flags=re.IGNORECASE):
+            if normalized_location not in detected_locations:
+                detected_locations.append(normalized_location)
+    if not detected_locations:
+        return None
+    restriction_context = bool(re.search(
+        r"(?:\bremote\b|\bonly\b|\b(?:based|located)\s+in\b|"
+        r"\b(?:open|available)\s+to\b|\b(?:within|across)\b|"
+        r"[|()[\],;/]|(?:\s[-–—]\s))",
+        normalized_title,
+        flags=re.IGNORECASE,
+    ))
+    if not restriction_context:
+        return None
+    return {
+        "value": " | ".join(detected_locations),
+        "raw_value": title,
+        "source": "wwr_title_location_restriction",
+        "confidence": LOCATION_CONFIDENCE["title_restriction"],
+    }
+
+
+def choose_wwr_location(position_title, metadata_result):
+    title_result = extract_title_location_restriction(position_title)
+    return title_result or metadata_result
+
 def extract_fallback_employment_type(
     visible_text,
 ):
@@ -1764,11 +1813,31 @@ def normalize_wwr_html_fallback(
         )
         return None
 
-    location_result = (
+    metadata_location_result = (
         extract_fallback_location(
             visible_text
         )
     )
+
+    location_result = choose_wwr_location(
+        position_title=position_title,
+        metadata_result=metadata_location_result,
+    )
+
+    if (
+        location_result.get("source")
+        == "wwr_title_location_restriction"
+    ):
+        print(
+            f"WWR TITLE LOCATION OVERRIDE | "
+            f"Title: {position_title} | "
+            f"Metadata: "
+            f"{metadata_location_result.get('value')} | "
+            f"Normalized: "
+            f"{location_result.get('value')} | "
+            f"Confidence: "
+            f"{location_result.get('confidence')}"
+        )
 
     print(
         f"WWR LOCATION METADATA | "
@@ -1924,19 +1993,42 @@ def fetch_and_normalize_wwr_job(
         )
     )
 
-    location = extract_location(
+    json_ld_location = extract_location(
         job_posting
     )
-    
-    location_source = (
-        "jobposting_json_ld"
+
+    metadata_location_result = {
+        "value": json_ld_location,
+        "raw_value": json_ld_location,
+        "source": "jobposting_json_ld",
+        "confidence": LOCATION_CONFIDENCE[
+            "json_ld"
+        ],
+    }
+
+    location_result = choose_wwr_location(
+        position_title=title,
+        metadata_result=metadata_location_result,
     )
 
-    location_confidence = (
-        LOCATION_CONFIDENCE[
-            "json_ld"
-        ]
+    location = location_result.get("value")
+    location_raw = location_result.get("raw_value")
+    location_source = location_result.get("source")
+    location_confidence = location_result.get(
+        "confidence"
     )
+
+    if (
+        location_source
+        == "wwr_title_location_restriction"
+    ):
+        print(
+            f"WWR TITLE LOCATION OVERRIDE | "
+            f"Title: {title} | "
+            f"JSON-LD: {json_ld_location} | "
+            f"Normalized: {location} | "
+            f"Confidence: {location_confidence}"
+        )
 
     employment_type = (
         normalize_employment_type(
@@ -1960,7 +2052,7 @@ def fetch_and_normalize_wwr_job(
             or "Untitled Position"
         ),
         "location": location,
-        "location_raw": location,
+        "location_raw": location_raw,
         "location_source": (
             location_source
         ),
