@@ -54,6 +54,71 @@ SENIOR_URL_TERMS = {
     "vp": -14,
 }
 
+EXPERIENCE_URL_TERMS = {
+    "intern": {
+        "intern",
+        "internship",
+    },
+    "entry": {
+        "entry",
+        "entry level",
+        "graduate",
+        "new grad",
+        "new graduate",
+    },
+    "junior": {
+        "junior",
+        "jr",
+    },
+    "mid": {
+        "mid",
+        "mid level",
+        "intermediate",
+    },
+    "senior": {
+        "senior",
+        "sr",
+    },
+    "staff": {
+        "staff",
+    },
+    "principal": {
+        "principal",
+    },
+    "lead": {
+        "lead",
+        "tech lead",
+        "technical lead",
+    },
+    "manager": {
+        "manager",
+        "director",
+        "head",
+        "vp",
+        "vice president",
+    },
+}
+
+BROAD_PROFILE_TERMS = {
+    "administrator", "associate", "developer", "engineer",
+    "entry", "graduate", "intern", "internship", "it",
+    "junior", "software", "systems", "support",
+    "technician", "web",
+}
+
+TECHNICAL_ROLE_PATTERNS = (
+    r"\b(?:full[\s-]?stack|backend|back[\s-]?end|frontend|front[\s-]?end)"
+    r"\s+(?:developer|engineer)\b",
+    r"\b(?:software|web|python|cloud|platform|infrastructure|systems?)"
+    r"\s+(?:developer|engineer|administrator)\b",
+    r"\bdevsecops\b",
+    r"\bdevops(?:\s+engineer)?\b",
+    r"\b(?:help|service)\s+desk\b",
+    r"\b(?:desktop|technical|cloud|it)\s+support\b",
+    r"\bit\s+(?:specialist|technician|analyst|administrator)\b",
+    r"\bsystems?\s+administrator\b",
+)
+
 FALLBACK_METADATA_LABELS = {
     "category",
     "company",
@@ -350,16 +415,184 @@ def contains_url_term(
     )
 
 
+def canonical_wwr_job_key(url):
+    normalized_url = normalize_posting_url(url)
+
+    if not normalized_url:
+        return None
+
+    slug = (
+        urlparse(normalized_url)
+        .path.rstrip("/")
+        .split("/")[-1]
+        .lower()
+    )
+
+    return re.sub(
+        r"-\d+$",
+        "",
+        slug,
+    )
+
+
+def profile_role_phrases(profile):
+    phrases = []
+
+    for keyword in parse_profile_keywords(profile):
+        phrase = normalize_text(
+            keyword.replace("-", " ")
+        )
+
+        if not phrase:
+            continue
+
+        if phrase in BROAD_PROFILE_TERMS:
+            continue
+
+        if (
+            len(phrase.split()) == 1
+            and phrase in {
+                "admin", "ai", "cloud", "it",
+                "systems", "support",
+            }
+        ):
+            continue
+
+        if phrase not in phrases:
+            phrases.append(phrase)
+
+    return phrases
+
+
+def title_has_technical_role(
+    readable_slug,
+    profile,
+):
+    matched_phrases = [
+        phrase
+        for phrase in profile_role_phrases(profile)
+        if contains_url_term(
+            readable_slug,
+            phrase,
+        )
+    ]
+
+    pattern_match = any(
+        re.search(
+            pattern,
+            readable_slug,
+            flags=re.IGNORECASE,
+        )
+        for pattern in TECHNICAL_ROLE_PATTERNS
+    )
+
+    return (
+        bool(matched_phrases)
+        or pattern_match,
+        matched_phrases,
+    )
+
+
+def parse_profile_values(value):
+    if not value:
+        return []
+
+    return [
+        item.strip().lower()
+        for item in re.split(
+            r"[\n,]+",
+            str(value),
+        )
+        if item.strip()
+    ]
+
+
+def get_requested_experience_levels(
+    profile,
+):
+    return set(
+        parse_profile_values(
+            getattr(
+                profile,
+                "experience_levels",
+                None,
+            )
+        )
+    )
+
+
+def detect_url_experience_levels(
+    readable_slug,
+):
+    detected_levels = set()
+
+    for level, terms in (
+        EXPERIENCE_URL_TERMS.items()
+    ):
+        if any(
+            contains_url_term(
+                readable_slug,
+                term,
+            )
+            for term in terms
+        ):
+            detected_levels.add(level)
+
+    if not detected_levels:
+        detected_levels.add(
+            "unspecified"
+        )
+
+    return detected_levels
+
+
+def url_experience_is_allowed(
+    readable_slug,
+    profile,
+):
+    requested_levels = (
+        get_requested_experience_levels(
+            profile
+        )
+    )
+
+    # No selected experience filters means all
+    # levels are allowed.
+    if not requested_levels:
+        return True, {
+            "unspecified",
+        }
+
+    detected_levels = (
+        detect_url_experience_levels(
+            readable_slug
+        )
+    )
+
+    if "unspecified" in detected_levels:
+        return (
+            "unspecified"
+            in requested_levels,
+            detected_levels,
+        )
+
+    return (
+        bool(
+            requested_levels.intersection(
+                detected_levels
+            )
+        ),
+        detected_levels,
+    )
+
+
 def url_keyword_score(
     url,
     profile,
 ):
-    path = urlparse(
-        url
-    ).path
-
     raw_slug = (
-        path.replace(
+        urlparse(url)
+        .path.replace(
             "/remote-jobs/",
             "",
         )
@@ -371,58 +604,81 @@ def url_keyword_score(
         raw_slug.replace("-", " ")
     )
 
-    score = 0
+    role_match, matched_phrases = (
+        title_has_technical_role(
+            readable_slug,
+            profile,
+        )
+    )
+    
+    experience_allowed, detected_levels = (
+        url_experience_is_allowed(
+            readable_slug,
+            profile,
+        )
+    )
 
-    for keyword in parse_profile_keywords(
-        profile
-    ):
-        normalized_keyword = normalize_text(
-            keyword
+    if not role_match:
+        return {
+            "score": 0,
+            "role_match": False,
+            "experience_allowed": False,
+            "detected_levels": (
+                detected_levels
+            ),
+            "matched_phrases": [],
+            "readable_slug": readable_slug,
+        }
+
+    if not experience_allowed:
+        return {
+            "score": 0,
+            "role_match": True,
+            "experience_allowed": False,
+            "detected_levels": (
+                detected_levels
+            ),
+            "matched_phrases": (
+                matched_phrases
+            ),
+            "readable_slug": readable_slug,
+        }
+
+    score = 10
+
+    for phrase in matched_phrases:
+        score += max(
+            4,
+            len(phrase.split()) * 3,
         )
 
-        if not normalized_keyword:
-            continue
-
-        if normalized_keyword in readable_slug:
-            score += 3
-
-        keyword_parts = [
-            part
-            for part
-            in normalized_keyword.split()
-            if len(part) >= 3
-        ]
-
-        score += sum(
-            1
-            for part in keyword_parts
-            if part in readable_slug
-        )
-
-    for term, adjustment in (
-        ENTRY_LEVEL_URL_TERMS.items()
-    ):
-        readable_term = term.replace(
-            "-",
-            " ",
-        )
+    for term, adjustment in ENTRY_LEVEL_URL_TERMS.items():
+        readable_term = term.replace("-", " ")
 
         if (
             term in raw_slug
-            or readable_term in readable_slug
+            or contains_url_term(
+                readable_slug,
+                readable_term,
+            )
         ):
             score += adjustment
 
-    for term, adjustment in (
-        SENIOR_URL_TERMS.items()
-    ):
+    for term, adjustment in SENIOR_URL_TERMS.items():
         if contains_url_term(
             readable_slug,
             term,
         ):
             score += adjustment
 
-    return score
+    return {
+        "score": score,
+        "role_match": True,
+        "experience_allowed": True,
+        "detected_levels": detected_levels,
+        "matched_phrases": matched_phrases,
+        "readable_slug": readable_slug,
+    }
 
 
 def discover_wwr_job_urls(
@@ -434,6 +690,12 @@ def discover_wwr_job_urls(
         normalize_posting_url(url)
         for url in (excluded_urls or set())
         if normalize_posting_url(url)
+    }
+
+    excluded_keys = {
+        canonical_wwr_job_key(url)
+        for url in excluded_urls
+        if canonical_wwr_job_key(url)
     }
 
     print(
@@ -449,41 +711,100 @@ def discover_wwr_job_urls(
     parser = LinkCollector()
     parser.feed(html)
 
-    discovered_urls = set()
+    discovered_by_key = {}
+    duplicate_count = 0
+    excluded_count = 0
+    non_role_count = 0
+    experience_rejected_count = 0
 
     for href in parser.links:
-        normalized_url = (
-            normalize_posting_url(
-                href
-            )
+        normalized_url = normalize_posting_url(
+            href
         )
 
         if not normalized_url:
             continue
 
-        if normalized_url in excluded_urls:
-            continue
-
-        discovered_urls.add(
+        canonical_key = canonical_wwr_job_key(
             normalized_url
         )
 
-    ranked_urls = [
-        {
-            "url": url,
-            "keyword_score": (
-                url_keyword_score(
-                    url,
-                    profile,
-                )
-            ),
+        if not canonical_key:
+            continue
+
+        if (
+            normalized_url in excluded_urls
+            or canonical_key in excluded_keys
+        ):
+            excluded_count += 1
+            continue
+
+        details = url_keyword_score(
+            normalized_url,
+            profile,
+        )
+
+        if not details["role_match"]:
+            non_role_count += 1
+            continue
+        
+        if not details[
+            "experience_allowed"
+        ]:
+            experience_rejected_count += 1
+            continue
+
+        candidate = {
+            "url": normalized_url,
+            "canonical_key": canonical_key,
+            "keyword_score": details["score"],
+            "matched_phrases": details[
+                "matched_phrases"
+            ],
+            "readable_slug": details[
+                "readable_slug"
+            ],
+            "detected_levels": details[
+                "detected_levels"
+            ],
         }
-        for url in discovered_urls
-    ]
+
+        existing = discovered_by_key.get(
+            canonical_key
+        )
+
+        if existing is None:
+            discovered_by_key[
+                canonical_key
+            ] = candidate
+            continue
+
+        duplicate_count += 1
+
+        candidate_rank = (
+            candidate["keyword_score"],
+            -len(candidate["url"]),
+            candidate["url"],
+        )
+        existing_rank = (
+            existing["keyword_score"],
+            -len(existing["url"]),
+            existing["url"],
+        )
+
+        if candidate_rank > existing_rank:
+            discovered_by_key[
+                canonical_key
+            ] = candidate
+
+    ranked_urls = list(
+        discovered_by_key.values()
+    )
 
     ranked_urls.sort(
         key=lambda entry: (
             entry["keyword_score"],
+            -len(entry["url"]),
             entry["url"],
         ),
         reverse=True,
@@ -495,16 +816,34 @@ def discover_wwr_job_urls(
 
     print(
         f"WWR LISTING DISCOVERY | "
-        f"Found: {len(discovered_urls)} | "
+        f"Qualified unique roles: "
+        f"{len(ranked_urls)} | "
+        f"Duplicates removed: "
+        f"{duplicate_count} | "
+        f"Non-role URLs rejected: "
+        f"{non_role_count} | "
+        f"Experience rejected: "
+        f"{experience_rejected_count} | "
+        f"Excluded: {excluded_count} | "
         f"Selected: {len(selected_urls)} | "
         f"Page limit: {max_job_urls}"
     )
 
     for entry in selected_urls:
+        matched_text = (
+            ", ".join(
+                entry["matched_phrases"]
+            )
+            or "technical role pattern"
+        )
+
         print(
             f"WWR CANDIDATE SELECTED | "
             f"Score: "
             f"{entry['keyword_score']} | "
+            f"Matched: {matched_text} | "
+            f"Key: "
+            f"{entry['canonical_key']} | "
             f"URL: {entry['url']}"
         )
 
