@@ -26,18 +26,58 @@ REMOTE_OK_SITEMAP_URL = (
 
 MAX_JOB_AGE_DAYS = 30
 
-# Keep this bounded so Remote OK does not get hammered.
-MAX_JOB_PAGES_PER_RUN = 300
+MAX_JOB_PAGES_PER_RUN = 20
 
-# Remote OK asks crawlers to wait at least one second.
 REQUEST_DELAY_SECONDS = 1.1
 
 REMOTE_OK_JOB_PATH_PREFIX = "/remote-jobs/"
 
-# We grab a newer slice first, then rank that slice by relevance.
-# This keeps some ancient perfect keyword match from wasting the run.
 MIN_RECENT_POOL_SIZE = 500
 RECENT_POOL_MULTIPLIER = 20
+
+
+BROAD_PROFILE_TERMS = {
+    "administrator",
+    "associate",
+    "developer",
+    "engineer",
+    "entry",
+    "graduate",
+    "intern",
+    "internship",
+    "it",
+    "junior",
+    "software",
+    "systems",
+    "support",
+    "technician",
+    "web",
+}
+
+TECHNICAL_ROLE_PATTERNS = (
+    r"\b(?:full[\s-]?stack|backend|back[\s-]?end|frontend|front[\s-]?end)"
+    r"\s+(?:developer|engineer)\b",
+    r"\b(?:software|web|python|cloud|platform|infrastructure|systems?)"
+    r"\s+(?:developer|engineer|administrator)\b",
+    r"\bdevsecops\b",
+    r"\bdevops(?:\s+engineer)?\b",
+    r"\b(?:help|service)\s+desk\b",
+    r"\b(?:desktop|technical|cloud|it)\s+support\b",
+    r"\bit\s+(?:specialist|technician|analyst|administrator)\b",
+    r"\bsystems?\s+administrator\b",
+)
+
+EXPERIENCE_URL_TERMS = {
+    "intern": {"intern", "internship"},
+    "entry": {"entry", "entry level", "graduate", "new grad", "new graduate", "trainee"},
+    "junior": {"junior", "jr"},
+    "mid": {"mid", "mid level", "intermediate", "pleno"},
+    "senior": {"senior", "sr"},
+    "staff": {"staff"},
+    "principal": {"principal"},
+    "lead": {"lead", "tech lead", "technical lead"},
+    "manager": {"manager", "director", "head", "vp", "vice president"},
+}
 
 
 def utc_now():
@@ -64,8 +104,6 @@ def normalize_datetime(value):
         if not text:
             return None
 
-        # Python does not always like the Z ending,
-        # so turn it into a normal UTC offset first.
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
 
@@ -154,8 +192,6 @@ def is_remote_ok_job_url(url):
 
     path = parsed_url.path.rstrip("/")
 
-    # A real Remote OK job URL uses this path and ends
-    # with the numeric Remote OK job ID.
     return bool(
         path.startswith(
             REMOTE_OK_JOB_PATH_PREFIX
@@ -238,37 +274,154 @@ def parse_keyword_values(value):
     return normalized_values
 
 
-def score_slug_for_profile(
-    slug_text,
-    profile_keywords,
-):
-    if not slug_text:
-        return 0
+def contains_slug_term(text, term):
+    return bool(
+        re.search(
+            r"(?<!\w)" + re.escape(term) + r"(?!\w)",
+            text,
+        )
+    )
 
-    generic_keywords = {
-        "developer",
-        "engineer",
-        "software",
-        "web",
-    }
 
-    score = 0
+def profile_role_phrases(profile_keywords):
+    phrases = []
 
     for keyword in profile_keywords:
-        if keyword in generic_keywords:
-            continue
-
-        if keyword not in slug_text:
-            continue
-
-        # Longer phrases deserve more weight than one broad word.
-        score += max(
-            1,
-            len(keyword.split()),
+        phrase = re.sub(
+            r"\s+",
+            " ",
+            str(keyword or "").replace("-", " ").strip().lower(),
         )
 
-    return score
+        if not phrase:
+            continue
 
+        if phrase in BROAD_PROFILE_TERMS:
+            continue
+
+        if len(phrase.split()) == 1 and phrase in {
+            "admin",
+            "ai",
+            "cloud",
+            "it",
+            "systems",
+            "support",
+        }:
+            continue
+
+        if phrase not in phrases:
+            phrases.append(phrase)
+
+    return phrases
+
+
+def detect_slug_experience_levels(slug_text):
+    detected_levels = set()
+
+    for level, terms in EXPERIENCE_URL_TERMS.items():
+        if any(contains_slug_term(slug_text, term) for term in terms):
+            detected_levels.add(level)
+
+    if not detected_levels:
+        detected_levels.add("unspecified")
+
+    return detected_levels
+
+
+def get_requested_experience_levels(profile):
+    return set(
+        parse_keyword_values(
+            getattr(profile, "experience_levels", None)
+        )
+    )
+
+
+def slug_experience_is_allowed(slug_text, profile):
+    requested_levels = get_requested_experience_levels(profile)
+    detected_levels = detect_slug_experience_levels(slug_text)
+
+    if not requested_levels:
+        return True, detected_levels
+
+    if "unspecified" in detected_levels:
+        return "unspecified" in requested_levels, detected_levels
+
+    return bool(requested_levels.intersection(detected_levels)), detected_levels
+
+
+def score_slug_for_profile(slug_text, profile_keywords, profile=None):
+    if not slug_text:
+        return {
+            "score": 0,
+            "role_match": False,
+            "experience_allowed": False,
+            "matched_phrases": [],
+            "detected_levels": {"unspecified"},
+        }
+
+    role_phrases = profile_role_phrases(profile_keywords)
+
+    matched_phrases = [
+        phrase
+        for phrase in role_phrases
+        if contains_slug_term(slug_text, phrase)
+    ]
+
+    technical_pattern_match = any(
+        re.search(pattern, slug_text, flags=re.IGNORECASE)
+        for pattern in TECHNICAL_ROLE_PATTERNS
+    )
+
+    role_match = bool(matched_phrases) or technical_pattern_match
+    experience_allowed, detected_levels = slug_experience_is_allowed(
+        slug_text, profile
+    )
+
+    if not role_match:
+        return {
+            "score": 0,
+            "role_match": False,
+            "experience_allowed": experience_allowed,
+            "matched_phrases": [],
+            "detected_levels": detected_levels,
+        }
+
+    if not experience_allowed:
+        return {
+            "score": 0,
+            "role_match": True,
+            "experience_allowed": False,
+            "matched_phrases": matched_phrases,
+            "detected_levels": detected_levels,
+        }
+
+    score = 10
+
+    for phrase in matched_phrases:
+        score += max(4, len(phrase.split()) * 3)
+
+    entry_adjustments = {
+        "intern": 10,
+        "internship": 10,
+        "junior": 10,
+        "entry": 10,
+        "graduate": 8,
+        "new grad": 8,
+        "trainee": 8,
+        "associate": 4,
+    }
+
+    for term, adjustment in entry_adjustments.items():
+        if contains_slug_term(slug_text, term):
+            score += adjustment
+
+    return {
+        "score": score,
+        "role_match": True,
+        "experience_allowed": True,
+        "matched_phrases": matched_phrases,
+        "detected_levels": detected_levels,
+    }
 
 def parse_sitemap_document(xml_text):
     try:
@@ -491,12 +644,23 @@ def discover_recent_job_urls(
                 entry["url"]
             )
         )
-        entry["keyword_score"] = (
-            score_slug_for_profile(
-                slug_text,
-                profile_keywords,
-            )
+        score_details = score_slug_for_profile(
+            slug_text,
+            profile_keywords,
+            profile=profile,
         )
+
+        entry["keyword_score"] = score_details["score"]
+        entry["role_match"] = score_details["role_match"]
+        entry["experience_allowed"] = score_details[
+            "experience_allowed"
+        ]
+        entry["matched_phrases"] = score_details[
+            "matched_phrases"
+        ]
+        entry["detected_levels"] = score_details[
+            "detected_levels"
+        ]
 
         last_modified = entry.get(
             "last_modified"
@@ -525,8 +689,6 @@ def discover_recent_job_urls(
         ),
     )
 
-    # First get the newest-looking jobs. Remote OK IDs usually
-    # increase over time, and sitemap lastmod helps when it exists.
     job_entries.sort(
         key=lambda entry: (
             entry.get(
@@ -549,6 +711,27 @@ def discover_recent_job_urls(
         :recent_pool_size
     ]
 
+    non_role_count = sum(
+        1
+        for entry in recent_candidate_pool
+        if not entry.get("role_match", False)
+    )
+
+    experience_rejected_count = sum(
+        1
+        for entry in recent_candidate_pool
+        if entry.get("role_match", False)
+        and not entry.get("experience_allowed", False)
+    )
+
+    qualified_candidate_pool = [
+        entry
+        for entry in recent_candidate_pool
+        if entry.get("role_match", False)
+        and entry.get("experience_allowed", False)
+        and entry.get("keyword_score", 0) > 0
+    ]
+
     print(
         "REMOTE OK RECENT POOL | "
         "Candidates kept before keyword ranking: "
@@ -556,8 +739,7 @@ def discover_recent_job_urls(
         f"Original pool: {len(job_entries)}"
     )
 
-    # Now rank the newer pool by the user's profile.
-    recent_candidate_pool.sort(
+    qualified_candidate_pool.sort(
         key=lambda entry: (
             entry.get(
                 "keyword_score",
@@ -580,13 +762,16 @@ def discover_recent_job_urls(
     )
 
     selected_entries = (
-        recent_candidate_pool[
+        qualified_candidate_pool[
             :max_job_urls
         ]
     )
 
     print(
         "REMOTE OK SITEMAP SELECTION | "
+        f"Qualified roles: {len(qualified_candidate_pool)} | "
+        f"Non-role URLs rejected: {non_role_count} | "
+        f"Experience rejected: {experience_rejected_count} | "
         f"Selected: {len(selected_entries)} | "
         f"Page limit: {max_job_urls}"
     )
@@ -596,6 +781,10 @@ def discover_recent_job_urls(
             "REMOTE OK CANDIDATE SELECTED | "
             f"Score: "
             f"{entry.get('keyword_score', 0)} | "
+            f"Matched: "
+            f"{', '.join(entry.get('matched_phrases', [])) or 'technical role pattern'} | "
+            f"Experience: "
+            f"{','.join(sorted(entry.get('detected_levels', [])))} | "
             f"Sitemap recent: "
             f"{entry.get('sitemap_recent', False)} | "
             f"Last modified: "
@@ -780,8 +969,6 @@ def build_remote_ok_address_details(
         "global",
     }
 
-    # Remote OK sometimes fills every address field
-    # with Anywhere. That means worldwide, not unknown.
     if (
         normalized_raw_values
         and all(
