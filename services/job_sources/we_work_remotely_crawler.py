@@ -1189,7 +1189,6 @@ def normalize_fallback_region(
     )
 
 
-
 def extract_title_location_restriction(position_title):
     title = clean_html_text(position_title)
     if not title:
@@ -1236,6 +1235,7 @@ def extract_title_location_restriction(position_title):
 def choose_wwr_location(position_title, metadata_result):
     title_result = extract_title_location_restriction(position_title)
     return title_result or metadata_result
+
 
 def extract_fallback_employment_type(
     visible_text,
