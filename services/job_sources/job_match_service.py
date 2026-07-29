@@ -1,3 +1,4 @@
+
 import re
 
 
@@ -213,6 +214,26 @@ GENERIC_KEYWORDS = {
 }
 
 
+ROLE_FAMILY_ALIASES = {
+    "full stack": {
+        "full stack",
+        "fullstack",
+        "frontend",
+        "front end",
+        "backend",
+        "back end",
+    },
+    "frontend": {
+        "frontend",
+        "front end",
+    },
+    "backend": {
+        "backend",
+        "back end",
+    },
+}
+
+
 LOCATION_ALIASES = {
     "united states": {
         "united states",
@@ -364,10 +385,77 @@ def parse_profile_values(value):
 
 
 def normalize_text(value):
+    text = str(value or "").strip().lower()
+
+    text = re.sub(
+        r"(?<=\w)-(?=\w)",
+        " ",
+        text,
+    )
+
     return re.sub(
         r"\s+",
         " ",
-        str(value or "").strip().lower()
+        text,
+    )
+
+
+def normalize_role_phrase(value):
+    return normalize_text(value)
+
+
+def get_profile_role_families(profile):
+    keywords = {
+        normalize_role_phrase(keyword)
+        for keyword in parse_profile_values(
+            profile.keywords
+        )
+    }
+
+    families = set()
+
+    if keywords.intersection(
+        {
+            "full stack",
+            "fullstack",
+        }
+    ):
+        families.add("full stack")
+
+    if keywords.intersection(
+        {
+            "frontend",
+            "front end",
+        }
+    ):
+        families.add("frontend")
+
+    if keywords.intersection(
+        {
+            "backend",
+            "back end",
+        }
+    ):
+        families.add("backend")
+
+    return families
+
+
+def title_matches_role_family(
+    title,
+    family,
+):
+    aliases = ROLE_FAMILY_ALIASES.get(
+        family,
+        set(),
+    )
+
+    return any(
+        contains_phrase(
+            title,
+            normalize_role_phrase(alias),
+        )
+        for alias in aliases
     )
 
 
@@ -551,30 +639,61 @@ def matches_role_title(job, profile):
         return False
 
     if any(
-        excluded_term in title
-        for excluded_term in EXCLUDED_TITLE_TERMS
+        contains_phrase(
+            title,
+            normalize_role_phrase(
+                excluded_term
+            ),
+        )
+        for excluded_term
+        in EXCLUDED_TITLE_TERMS
     ):
         return False
 
     keywords = [
-        keyword
+        normalize_role_phrase(keyword)
         for keyword in parse_profile_values(
             profile.keywords
         )
-        if keyword not in GENERIC_KEYWORDS
+        if normalize_role_phrase(
+            keyword
+        ) not in GENERIC_KEYWORDS
     ]
+
+    role_families = (
+        get_profile_role_families(
+            profile
+        )
+    )
+
+    if any(
+        title_matches_role_family(
+            title,
+            family,
+        )
+        for family in role_families
+    ):
+        return True
 
     if not keywords:
         return any(
-            technical_term in title
-            for technical_term in TECHNICAL_TITLE_TERMS
+            contains_phrase(
+                title,
+                normalize_role_phrase(
+                    technical_term
+                ),
+            )
+            for technical_term
+            in TECHNICAL_TITLE_TERMS
         )
 
     return any(
-        contains_phrase(title, keyword)
+        contains_phrase(
+            title,
+            keyword,
+        )
         for keyword in keywords
     )
-
 
 def matches_experience_level(job, profile):
     requested_levels = (
@@ -1084,4 +1203,3 @@ def job_matches_profile(
         )
 
     return matched
-
