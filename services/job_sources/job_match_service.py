@@ -1,5 +1,120 @@
 
+import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+
+
+JOB_MATCH_DEBUG = os.getenv(
+    "JOB_MATCH_DEBUG",
+    "false",
+).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+_ACTIVE_MATCH_DIAGNOSTICS = ContextVar(
+    "active_match_diagnostics",
+    default=None,
+)
+
+
+def create_match_diagnostics():
+    return {
+        "evaluated": 0,
+        "matched": 0,
+        "rejected": 0,
+        "multiple_failures": 0,
+        "failures": {
+            "role": 0,
+            "experience": 0,
+            "location": 0,
+            "employment_type": 0,
+            "visa": 0,
+        },
+    }
+
+
+@contextmanager
+def collect_match_diagnostics():
+    diagnostics = create_match_diagnostics()
+    token = _ACTIVE_MATCH_DIAGNOSTICS.set(
+        diagnostics
+    )
+
+    try:
+        yield diagnostics
+    finally:
+        _ACTIVE_MATCH_DIAGNOSTICS.reset(
+            token
+        )
+
+
+def record_match_diagnostics(
+    matched,
+    failed_checks,
+):
+    diagnostics = (
+        _ACTIVE_MATCH_DIAGNOSTICS.get()
+    )
+
+    if diagnostics is None:
+        return
+
+    diagnostics["evaluated"] += 1
+
+    if matched:
+        diagnostics["matched"] += 1
+        return
+
+    diagnostics["rejected"] += 1
+
+    if len(failed_checks) > 1:
+        diagnostics[
+            "multiple_failures"
+        ] += 1
+
+    for failed_check in failed_checks:
+        if failed_check in diagnostics[
+            "failures"
+        ]:
+            diagnostics["failures"][
+                failed_check
+            ] += 1
+
+
+def format_match_diagnostics(
+    profile_name,
+    source_name,
+    diagnostics,
+):
+    failures = diagnostics["failures"]
+
+    return (
+        f"JOB FILTER SUMMARY | "
+        f"Profile: {profile_name} | "
+        f"Source: {source_name} | "
+        f"Evaluated: "
+        f"{diagnostics['evaluated']} | "
+        f"Matched: "
+        f"{diagnostics['matched']} | "
+        f"Rejected: "
+        f"{diagnostics['rejected']} | "
+        f"Role: {failures['role']} | "
+        f"Experience: "
+        f"{failures['experience']} | "
+        f"Location: "
+        f"{failures['location']} | "
+        f"Employment type: "
+        f"{failures['employment_type']} | "
+        f"Visa: {failures['visa']} | "
+        f"Multiple failures: "
+        f"{diagnostics['multiple_failures']}"
+    )
 
 
 TECHNICAL_TITLE_TERMS = {
@@ -1238,14 +1353,19 @@ def job_matches_profile(
         checks.values()
     )
 
-    if not matched:
-        failed_checks = [
-            name
-            for name, passed
-            in checks.items()
-            if not passed
-        ]
+    failed_checks = [
+        name
+        for name, passed
+        in checks.items()
+        if not passed
+    ]
 
+    record_match_diagnostics(
+        matched,
+        failed_checks,
+    )
+
+    if not matched and JOB_MATCH_DEBUG:
         print(
             f"JOB FILTER REJECTED | "
             f"Title: "

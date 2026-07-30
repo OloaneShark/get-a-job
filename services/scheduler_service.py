@@ -11,6 +11,10 @@ from models import (
     db
 )
 from services.job_sources.registry import create_source
+from services.job_sources.job_match_service import (
+    collect_match_diagnostics,
+    format_match_diagnostics,
+)
 from services.job_sources.utils import build_job_fingerprint
 
 
@@ -38,7 +42,7 @@ def parse_profile_values(value):
     ]
 
 
-def save_discovered_job(profile, jobs):
+def save_discovered_jobs(profile, jobs):
     saved_count = 0
 
     for job in jobs:
@@ -128,10 +132,23 @@ def run_configured_source(profile, source_config):
         f"through {source.source_name}."
     )
 
-    jobs = source.search(
-        profile=profile,
-        source_config=source_config
-    )
+    with collect_match_diagnostics() as diagnostics:
+        jobs = source.search(
+            profile=profile,
+            source_config=source_config
+        )
+
+    if diagnostics["evaluated"] > 0:
+        print(
+            format_match_diagnostics(
+                profile.name,
+                (
+                    f"{source.source_name}: "
+                    f"{source_config.company_name}"
+                ),
+                diagnostics,
+            )
+        )
 
     source_config.last_checked_at = datetime.now(
         timezone.utc
@@ -150,10 +167,20 @@ def run_global_source(profile, source_type):
         f"{source.source_name}."
     )
 
-    jobs = source.search(
-        profile=profile,
-        source_config=None
-    )
+    with collect_match_diagnostics() as diagnostics:
+        jobs = source.search(
+            profile=profile,
+            source_config=None
+        )
+
+    if diagnostics["evaluated"] > 0:
+        print(
+            format_match_diagnostics(
+                profile.name,
+                source.source_name,
+                diagnostics,
+            )
+        )
 
     return source, jobs
 
@@ -249,7 +276,7 @@ def process_search_profile(profile, source_configs):
                 error_message
             )
 
-    saved_count = save_discovered_job(
+    saved_count = save_discovered_jobs(
         profile,
         all_matching_jobs
     )
@@ -375,4 +402,3 @@ def start_scheduler(app):
     )
 
     scheduler.start()
-    

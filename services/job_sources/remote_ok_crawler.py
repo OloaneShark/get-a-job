@@ -1,5 +1,6 @@
 
 import json
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -34,6 +35,32 @@ REMOTE_OK_JOB_PATH_PREFIX = "/remote-jobs/"
 
 MIN_RECENT_POOL_SIZE = 500
 RECENT_POOL_MULTIPLIER = 20
+
+
+def environment_flag(name, default=False):
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return str(value).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def remote_ok_debug_enabled():
+    return environment_flag(
+        "JOB_SOURCE_DEBUG",
+        default=False,
+    )
+
+
+def debug_log(message):
+    if remote_ok_debug_enabled():
+        print(message)
 
 
 BROAD_PROFILE_TERMS = {
@@ -553,7 +580,7 @@ def discover_recent_job_urls(
             sitemap_url
         )
 
-        print(
+        debug_log(
             "REMOTE OK SITEMAP: fetching "
             f"{sitemap_url}"
         )
@@ -568,7 +595,7 @@ def discover_recent_job_urls(
             child_url = child_sitemap["url"]
 
             if "/sitemap-jobs-" not in child_url:
-                print(
+                debug_log(
                     "REMOTE OK SITEMAP SKIPPED: "
                     f"{child_url}"
                 )
@@ -619,7 +646,7 @@ def discover_recent_job_urls(
         discovered_jobs.values()
     )
 
-    print(
+    debug_log(
         "REMOTE OK DISCOVERY POOL | "
         "Eligible URLs before page verification: "
         f"{len(job_entries)}"
@@ -732,7 +759,7 @@ def discover_recent_job_urls(
         and entry.get("keyword_score", 0) > 0
     ]
 
-    print(
+    debug_log(
         "REMOTE OK RECENT POOL | "
         "Candidates kept before keyword ranking: "
         f"{len(recent_candidate_pool)} | "
@@ -777,7 +804,7 @@ def discover_recent_job_urls(
     )
 
     for entry in selected_entries:
-        print(
+        debug_log(
             "REMOTE OK CANDIDATE SELECTED | "
             f"Score: "
             f"{entry.get('keyword_score', 0)} | "
@@ -1300,7 +1327,7 @@ def fetch_and_normalize_job(
     )
 
     if not job_posting:
-        print(
+        debug_log(
             "REMOTE OK PAGE REJECTED | "
             "No JobPosting JSON-LD: "
             f"{url}"
@@ -1312,7 +1339,7 @@ def fetch_and_normalize_job(
     )
 
     if not published_at:
-        print(
+        debug_log(
             "REMOTE OK PAGE REJECTED | "
             f"No datePosted value: {url}"
         )
@@ -1322,7 +1349,7 @@ def fetch_and_normalize_job(
         published_at,
         max_age_days=max_age_days,
     ):
-        print(
+        debug_log(
             "REMOTE OK PAGE TOO OLD | "
             f"Date: {published_at.isoformat()} | "
             f"URL: {url}"
@@ -1357,7 +1384,7 @@ def fetch_and_normalize_job(
     ).strip()
 
     if not title:
-        print(
+        debug_log(
             "REMOTE OK PAGE REJECTED | "
             f"No title value: {url}"
         )
@@ -1437,7 +1464,7 @@ def crawl_recent_remote_ok_jobs(
         )
     )
 
-    print(
+    debug_log(
         "REMOTE OK CRAWL: "
         f"{len(discovered_entries)} ranked "
         "candidate URLs selected for verification."
@@ -1451,7 +1478,7 @@ def crawl_recent_remote_ok_jobs(
     ):
         url = entry["url"]
 
-        print(
+        debug_log(
             "REMOTE OK CRAWL PAGE "
             f"{index}/"
             f"{len(discovered_entries)}: "
@@ -1474,7 +1501,7 @@ def crawl_recent_remote_ok_jobs(
                     job
                 )
 
-                print(
+                debug_log(
                     "REMOTE OK NORMALIZED JOB | "
                     f"Title: "
                     f"{job.get('position_title')} | "
