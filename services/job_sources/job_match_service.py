@@ -234,6 +234,25 @@ ROLE_FAMILY_ALIASES = {
 }
 
 
+BROAD_ROLE_KEYWORDS = {
+    "administrator",
+    "systems",
+}
+
+
+ALLOWED_ADMINISTRATOR_PATTERNS = {
+    "cloud administrator",
+    "database administrator",
+    "it administrator",
+    "linux administrator",
+    "network administrator",
+    "security administrator",
+    "system administrator",
+    "systems administrator",
+    "windows administrator",
+}
+
+
 LOCATION_ALIASES = {
     "united states": {
         "united states",
@@ -655,9 +674,14 @@ def matches_role_title(job, profile):
         for keyword in parse_profile_values(
             profile.keywords
         )
-        if normalize_role_phrase(
-            keyword
-        ) not in GENERIC_KEYWORDS
+        if (
+            normalize_role_phrase(
+                keyword
+            ) not in GENERIC_KEYWORDS
+            and normalize_role_phrase(
+                keyword
+            ) not in BROAD_ROLE_KEYWORDS
+        )
     ]
 
     role_families = (
@@ -665,6 +689,45 @@ def matches_role_title(job, profile):
             profile
         )
     )
+
+    profile_keywords = {
+        normalize_role_phrase(keyword)
+        for keyword in parse_profile_values(
+            profile.keywords
+        )
+    }
+
+    if (
+        "administrator"
+        in profile_keywords
+        and any(
+            contains_phrase(
+                title,
+                pattern,
+            )
+            for pattern in (
+                ALLOWED_ADMINISTRATOR_PATTERNS
+            )
+        )
+    ):
+        return True
+
+    if (
+        "systems" in profile_keywords
+        and any(
+            contains_phrase(
+                title,
+                pattern,
+            )
+            for pattern in {
+                "systems engineer",
+                "systems administrator",
+                "systems analyst",
+                "systems support",
+            }
+        )
+    ):
+        return True
 
     if any(
         title_matches_role_family(
