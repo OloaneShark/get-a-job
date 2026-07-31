@@ -169,8 +169,23 @@ class RemoteOKJobSource(BaseJobSource):
         }
 
     def search(self, profile, source_config=None):
-        raw_jobs = self.fetch_jobs()
-        api_jobs = [self.normalize_job(raw_job) for raw_job in raw_jobs]
+        api_jobs = []
+        api_error = None
+
+        try:
+            raw_jobs = self.fetch_jobs()
+            api_jobs = [
+                self.normalize_job(raw_job)
+                for raw_job in raw_jobs
+            ]
+        except Exception as error:
+            api_error = error
+
+            safe_print(
+                "REMOTE OK API WARNING | "
+                "API unavailable, continuing with crawler | "
+                f"Error: {error}"
+            )
 
         #Setting job pages it goes through as max 20 for now
         crawled_jobs = crawl_recent_remote_ok_jobs(
@@ -178,6 +193,14 @@ class RemoteOKJobSource(BaseJobSource):
             max_age_days=30,
             max_job_pages=20,
         )
+
+        if not api_jobs and not crawled_jobs:
+            if api_error is not None:
+                raise RuntimeError(
+                    "Remote OK API failed and the crawler returned no jobs."
+                ) from api_error
+
+            return []
 
         all_jobs = self.deduplicate_jobs(api_jobs + crawled_jobs)
         matching_jobs = []
@@ -189,6 +212,8 @@ class RemoteOKJobSource(BaseJobSource):
             f"API: {len(api_jobs)} | "
             f"Crawled: {len(crawled_jobs)} | "
             f"Combined: {len(all_jobs)} | "
+            f"API status: "
+            f"{'unavailable' if api_error else 'available'} | "
             f"Experience: {profile.experience_levels or 'any'} | "
             f"Remote scope: {profile.remote_scope or 'any'} | "
             f"Visa: {profile.visa_preference or 'any'}"
@@ -220,4 +245,3 @@ class RemoteOKJobSource(BaseJobSource):
         )
 
         return matching_jobs
-    

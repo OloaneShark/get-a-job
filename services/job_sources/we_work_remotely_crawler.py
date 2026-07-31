@@ -2166,6 +2166,23 @@ def crawl_recent_wwr_jobs(
                 f"Error: {error}"
             )
 
+        processed_count = index
+
+        if (
+            not source_debug_enabled()
+            and (
+                processed_count % 5 == 0
+                or processed_count
+                == len(discovered_entries)
+            )
+        ):
+            safe_print(
+                f"WWR CRAWL PROGRESS | "
+                f"{processed_count}/"
+                f"{len(discovered_entries)} "
+                f"pages processed."
+            )
+
         time.sleep(
             REQUEST_DELAY_SECONDS
         )

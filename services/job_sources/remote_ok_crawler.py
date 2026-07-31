@@ -1524,6 +1524,23 @@ def crawl_recent_remote_ok_jobs(
                 f"Error: {error}"
             )
 
+        processed_count = index
+
+        if (
+            not remote_ok_debug_enabled()
+            and (
+                processed_count % 5 == 0
+                or processed_count
+                == len(discovered_entries)
+            )
+        ):
+            print(
+                "REMOTE OK CRAWL PROGRESS | "
+                f"{processed_count}/"
+                f"{len(discovered_entries)} "
+                "pages processed."
+            )
+
         time.sleep(
             REQUEST_DELAY_SECONDS
         )
