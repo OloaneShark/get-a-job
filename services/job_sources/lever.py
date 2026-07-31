@@ -1,10 +1,32 @@
 
+import os
 import re
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
     clean_html_text,
     fetch_json
 )
+
+
+def environment_flag(name, default=False):
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return str(value).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def source_debug_enabled():
+    return environment_flag(
+        "JOB_SOURCE_DEBUG",
+        default=False,
+    )
 
 
 class LeverJobSource(BaseJobSource):
@@ -138,13 +160,14 @@ class LeverJobSource(BaseJobSource):
             profile.locations
         )
 
-        print(
-            f"LEVER FILTER DEBUG | "
-            f"Profile: {profile.name} | "
-            f"Remote only: {profile.remote_only} | "
-            f"Keywords: {keywords} | "
-            f"Locations: {locations}"
-        )
+        if source_debug_enabled():
+            print(
+                f"LEVER FILTER DEBUG | "
+                f"Profile: {profile.name} | "
+                f"Remote only: {profile.remote_only} | "
+                f"Keywords: {keywords} | "
+                f"Locations: {locations}"
+            )
 
         matching_jobs = []
 
