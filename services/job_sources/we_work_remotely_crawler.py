@@ -2147,7 +2147,7 @@ def crawl_recent_wwr_jobs(
             if job:
                 normalized_jobs.append(job)
 
-                print(
+                debug_log(
                     f"WWR NORMALIZED JOB | "
                     f"Title: "
                     f"{job.get('position_title')} | "
