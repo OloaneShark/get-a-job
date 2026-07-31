@@ -1,6 +1,8 @@
 
 import json
+import os
 import re
+import sys
 import time
 
 from datetime import (
@@ -135,6 +137,32 @@ LOCATION_CONFIDENCE = {
     "metadata": 0.85,
     "fallback_remote": 0.35,
 }
+
+
+def environment_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def source_debug_enabled():
+    return environment_flag("JOB_SOURCE_DEBUG", default=False)
+
+
+def safe_terminal_text(value):
+    text = str(value or "")
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="backslashreplace").decode(encoding, errors="replace")
+
+
+def safe_print(message):
+    print(safe_terminal_text(message))
+
+
+def debug_log(message):
+    if source_debug_enabled():
+        safe_print(message)
 
 
 class LinkCollector(HTMLParser):
@@ -699,7 +727,7 @@ def discover_wwr_job_urls(
         if canonical_wwr_job_key(url)
     }
 
-    print(
+    debug_log(
         f"WWR DISCOVERY PAGE: "
         f"fetching {DISCOVERY_URL}"
     )
@@ -815,7 +843,7 @@ def discover_wwr_job_urls(
         :max_job_urls
     ]
 
-    print(
+    safe_print(
         f"WWR LISTING DISCOVERY | "
         f"Qualified unique roles: "
         f"{len(ranked_urls)} | "
@@ -838,7 +866,7 @@ def discover_wwr_job_urls(
             or "technical role pattern"
         )
 
-        print(
+        debug_log(
             f"WWR CANDIDATE SELECTED | "
             f"Score: "
             f"{entry['keyword_score']} | "
@@ -1773,7 +1801,7 @@ def normalize_wwr_html_fallback(
     )
 
     if published_at is None:
-        print(
+        debug_log(
             f"WWR FALLBACK REJECTED | "
             f"No usable posting date | "
             f"Title: {position_title} | "
@@ -1789,7 +1817,7 @@ def normalize_wwr_html_fallback(
     )
 
     if published_at < cutoff:
-        print(
+        debug_log(
             f"WWR FALLBACK TOO OLD | "
             f"Date: {published_at} | "
             f"Title: {position_title} | "
@@ -1805,7 +1833,7 @@ def normalize_wwr_html_fallback(
     )
 
     if not description:
-        print(
+        debug_log(
             f"WWR FALLBACK REJECTED | "
             f"No usable description | "
             f"Title: {position_title} | "
@@ -1828,7 +1856,7 @@ def normalize_wwr_html_fallback(
         location_result.get("source")
         == "wwr_title_location_restriction"
     ):
-        print(
+        debug_log(
             f"WWR TITLE LOCATION OVERRIDE | "
             f"Title: {position_title} | "
             f"Metadata: "
@@ -1839,7 +1867,7 @@ def normalize_wwr_html_fallback(
             f"{location_result.get('confidence')}"
         )
 
-    print(
+    debug_log(
         f"WWR LOCATION METADATA | "
         f"Title: {position_title} | "
         f"Raw: "
@@ -1928,7 +1956,7 @@ def fetch_and_normalize_wwr_job(
         )
 
         if fallback_job:
-            print(
+            debug_log(
                 f"WWR HTML FALLBACK SUCCESS | "
                 f"Title: "
                 f"{fallback_job.get('position_title')} | "
@@ -1947,7 +1975,7 @@ def fetch_and_normalize_wwr_job(
     )
 
     if not published_value:
-        print(
+        debug_log(
             f"WWR PAGE REJECTED | "
             f"No datePosted: {url}"
         )
@@ -1958,7 +1986,7 @@ def fetch_and_normalize_wwr_job(
     )
 
     if published_at is None:
-        print(
+        debug_log(
             f"WWR PAGE REJECTED | "
             f"Unparseable date: "
             f"{published_value} | "
@@ -1972,7 +2000,7 @@ def fetch_and_normalize_wwr_job(
     )
 
     if published_at < cutoff:
-        print(
+        debug_log(
             f"WWR PAGE TOO OLD | "
             f"Date: {published_at} | "
             f"URL: {url}"
@@ -2022,7 +2050,7 @@ def fetch_and_normalize_wwr_job(
         location_source
         == "wwr_title_location_restriction"
     ):
-        print(
+        debug_log(
             f"WWR TITLE LOCATION OVERRIDE | "
             f"Title: {title} | "
             f"JSON-LD: {json_ld_location} | "
@@ -2103,7 +2131,7 @@ def crawl_recent_wwr_jobs(
     ):
         url = entry["url"]
 
-        print(
+        debug_log(
             f"WWR CRAWL PAGE "
             f"{index}/"
             f"{len(discovered_entries)}: "
@@ -2142,7 +2170,7 @@ def crawl_recent_wwr_jobs(
             REQUEST_DELAY_SECONDS
         )
 
-    print(
+    safe_print(
         f"WWR CRAWL COMPLETE | "
         f"Discovered candidates: "
         f"{len(discovered_entries)} | "

@@ -1,6 +1,8 @@
 
 import hashlib
+import os
 import re
+import sys
 import xml.etree.ElementTree as ET
 
 from datetime import (
@@ -22,6 +24,27 @@ from services.job_sources.job_match_service import (
 from services.job_sources.we_work_remotely_crawler import (
     crawl_recent_wwr_jobs,
 )
+
+
+def environment_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def source_debug_enabled():
+    return environment_flag("JOB_SOURCE_DEBUG", default=False)
+
+
+def safe_terminal_text(value):
+    text = str(value or "")
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return text.encode(encoding, errors="backslashreplace").decode(encoding, errors="replace")
+
+
+def safe_print(message):
+    print(safe_terminal_text(message))
 
 
 class WeWorkRemotelyJobSource(BaseJobSource):
@@ -497,13 +520,14 @@ class WeWorkRemotelyJobSource(BaseJobSource):
             ):
                 invalid_count += 1
 
-                print(
-                    f"WWR INVALID RECORD | "
-                    f"Title: "
-                    f"{job.get('position_title')} | "
-                    f"Company: "
-                    f"{job.get('company_name')}"
-                )
+                if source_debug_enabled():
+                    safe_print(
+                        f"WWR INVALID RECORD | "
+                        f"Title: "
+                        f"{job.get('position_title')} | "
+                        f"Company: "
+                        f"{job.get('company_name')}"
+                    )
 
                 continue
 
@@ -566,4 +590,3 @@ class WeWorkRemotelyJobSource(BaseJobSource):
         )
 
         return matching_jobs
-    
