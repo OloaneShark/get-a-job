@@ -1,6 +1,5 @@
 
 import os
-import re
 
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import clean_html_text, fetch_json
@@ -154,66 +153,3 @@ class AshbyJobSource(BaseJobSource):
             for job in jobs
             if job_matches_profile(job, profile)
         ]
-
-    @staticmethod
-    def parse_values(value):
-        if not value:
-            return []
-
-        return [
-            item.strip().lower()
-            for item in re.split(r"[\n,]+", value)
-            if item.strip()
-        ]
-
-    @staticmethod
-    def matches_keywords(job, keywords):
-        if not keywords:
-            return True
-
-        title = job.get("position_title") or ""
-        description = job.get("job_description") or ""
-        departments = " ".join(job.get("departments") or [])
-
-        searchable_text = " ".join([
-            title,
-            description,
-            departments
-        ]).lower()
-
-        for keyword in keywords:
-            pattern = (
-                r"(?<!\w)"
-                + re.escape(keyword)
-                + r"(?!\w)"
-            )
-
-            if re.search(pattern, searchable_text):
-                return True
-
-        return False
-
-    @staticmethod
-    def matches_locations(job, locations, remote_only=False):
-        job_location = (job.get("location") or "").strip().lower()
-        workplace_type = (
-            job.get("workplace_type")
-            or ""
-        ).strip().lower()
-
-        is_remote = (
-            job.get("is_remote")
-            or workplace_type == "remote"
-            or "remote" in job_location
-        )
-
-        if remote_only and not is_remote:
-            return False
-
-        if not locations:
-            return True
-
-        return any(
-            location in job_location
-            for location in locations
-        )

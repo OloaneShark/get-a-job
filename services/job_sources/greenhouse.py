@@ -1,6 +1,5 @@
 
 import os
-import re
 
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
@@ -151,65 +150,3 @@ class GreenhouseJobSource(BaseJobSource):
             for job in jobs
             if job_matches_profile(job, profile)
         ]
-
-    @staticmethod
-    def parse_values(value):
-        if not value:
-            return []
-
-        return [
-            item.strip().lower()
-            for item in re.split(r"[\n,]+", value)
-            if item.strip()
-        ]
-
-    @staticmethod
-    def matches_keywords(job, keywords):
-        if not keywords:
-            return True
-
-        title = job.get("position_title") or ""
-        description = job.get("job_description") or ""
-        departments = " ".join(job.get("departments") or [])
-
-        searchable_text = " ".join([
-            title,
-            description,
-            departments
-        ]).lower()
-
-        for keyword in keywords:
-            normalized_keyword = keyword.strip().lower()
-
-            if not normalized_keyword:
-                continue
-
-            pattern = (
-                r"(?<!\w)"
-                + re.escape(normalized_keyword)
-                + r"(?!\w)"
-            )
-
-            if re.search(pattern, searchable_text):
-                return True
-
-        return False
-
-    @staticmethod
-    def matches_locations(job, locations, remote_only=False):
-        job_location = (
-            job.get("location")
-            or ""
-        ).strip().lower()
-
-        if remote_only and "remote" not in job_location:
-            return False
-
-        if not locations:
-            return True
-
-        return any(
-            location.strip().lower() in job_location
-            for location in locations
-            if location.strip()
-        )
