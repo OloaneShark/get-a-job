@@ -2936,10 +2936,10 @@ def delete_job_description(job_id):
     return redirect(url_for("dashboard"))
 
 
+start_scheduler(app)
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-
-    start_scheduler(app)
 
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
