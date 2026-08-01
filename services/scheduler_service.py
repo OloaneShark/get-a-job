@@ -1,4 +1,5 @@
 
+import os
 import re
 from datetime import datetime, timezone
 
@@ -19,6 +20,37 @@ from services.job_sources.utils import build_job_fingerprint
 
 
 scheduler = BackgroundScheduler(timezone="UTC")
+
+
+def environment_flag(name, default=False):
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return str(value).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def source_debug_enabled():
+    return environment_flag(
+        "JOB_SOURCE_DEBUG",
+        default=False,
+    )
+
+
+def should_print_match_summary(diagnostics):
+    return (
+        diagnostics["evaluated"] > 0
+        and (
+            diagnostics["matched"] > 0
+            or source_debug_enabled()
+        )
+    )
 
 
 #These sources expose one global job feed and do not require
@@ -138,7 +170,7 @@ def run_configured_source(profile, source_config):
             source_config=source_config
         )
 
-    if diagnostics["evaluated"] > 0:
+    if should_print_match_summary(diagnostics):
         print(
             format_match_diagnostics(
                 profile.name,
@@ -173,7 +205,7 @@ def run_global_source(profile, source_type):
             source_config=None
         )
 
-    if diagnostics["evaluated"] > 0:
+    if should_print_match_summary(diagnostics):
         print(
             format_match_diagnostics(
                 profile.name,
