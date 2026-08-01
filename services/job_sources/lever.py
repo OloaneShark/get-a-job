@@ -1,11 +1,13 @@
 
 import os
 import re
+
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
     clean_html_text,
     fetch_json
 )
+from services.job_sources.job_match_service import job_matches_profile
 
 
 def environment_flag(name, default=False):
@@ -36,7 +38,6 @@ class LeverJobSource(BaseJobSource):
 
     base_url = "https://api.lever.co/v0/postings"
 
-
     def fetch_company_jobs(self, company_slug):
         if not company_slug or not company_slug.strip():
             raise ValueError(
@@ -58,7 +59,6 @@ class LeverJobSource(BaseJobSource):
             )
 
         return payload
-
 
     def normalize_job(self, job, company_name):
         categories = job.get("categories") or {}
@@ -110,7 +110,6 @@ class LeverJobSource(BaseJobSource):
             "recruiter_contact_source": None
         }
 
-
     def search_company(
         self,
         company_slug,
@@ -140,7 +139,6 @@ class LeverJobSource(BaseJobSource):
 
         return normalized_jobs
 
-
     def search(self, profile, source_config=None):
         if source_config is None:
             raise ValueError(
@@ -152,43 +150,18 @@ class LeverJobSource(BaseJobSource):
             company_name=source_config.company_name
         )
 
-        keywords = self.parse_values(
-            profile.keywords
-        )
-
-        locations = self.parse_values(
-            profile.locations
-        )
-
         if source_debug_enabled():
             print(
                 f"LEVER FILTER DEBUG | "
                 f"Profile: {profile.name} | "
-                f"Remote only: {profile.remote_only} | "
-                f"Keywords: {keywords} | "
-                f"Locations: {locations}"
+                f"Jobs evaluated: {len(jobs)}"
             )
 
-        matching_jobs = []
-
-        for job in jobs:
-            if not self.matches_keywords(
-                job,
-                keywords
-            ):
-                continue
-
-            if not self.matches_locations(
-                job,
-                locations,
-                profile.remote_only
-            ):
-                continue
-
-            matching_jobs.append(job)
-
-        return matching_jobs
-
+        return [
+            job
+            for job in jobs
+            if job_matches_profile(job, profile)
+        ]
 
     @staticmethod
     def parse_values(value):
@@ -200,7 +173,6 @@ class LeverJobSource(BaseJobSource):
             for item in re.split(r"[\n,]+", value)
             if item.strip()
         ]
-
 
     @staticmethod
     def matches_keywords(job, keywords):
@@ -236,7 +208,6 @@ class LeverJobSource(BaseJobSource):
 
         return False
 
-
     @staticmethod
     def matches_locations(
         job,
@@ -259,4 +230,3 @@ class LeverJobSource(BaseJobSource):
             for location in locations
             if location.strip()
         )
-        

@@ -1,11 +1,13 @@
 
 import os
 import re
+
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
     clean_html_text,
     fetch_json
 )
+from services.job_sources.job_match_service import job_matches_profile
 
 
 def environment_flag(name, default=False):
@@ -64,7 +66,6 @@ class GreenhouseJobSource(BaseJobSource):
             )
 
         return jobs
-
 
     def normalize_job(self, job, company_name):
         location_data = job.get("location") or {}
@@ -133,42 +134,23 @@ class GreenhouseJobSource(BaseJobSource):
                 "Greenhouse requires a company source configuration."
             )
 
-        board_token = source_config.source_identifier
-        company_name = source_config.company_name
-
         jobs = self.search_company(
-            board_token=board_token,
-            company_name=company_name
+            board_token=source_config.source_identifier,
+            company_name=source_config.company_name
         )
-
-        keywords = self.parse_values(profile.keywords)
-        locations = self.parse_values(profile.locations)
 
         if source_debug_enabled():
             print(
                 f"GREENHOUSE FILTER DEBUG | "
                 f"Profile: {profile.name} | "
-                f"Remote only: {profile.remote_only} | "
-                f"Keywords: {keywords} | "
-                f"Locations: {locations}"
+                f"Jobs evaluated: {len(jobs)}"
             )
 
-        matching_jobs = []
-
-        for job in jobs:
-            if not self.matches_keywords(job, keywords):
-                continue
-
-            if not self.matches_locations(
-                job,
-                locations,
-                profile.remote_only
-            ):
-                continue
-
-            matching_jobs.append(job)
-
-        return matching_jobs
+        return [
+            job
+            for job in jobs
+            if job_matches_profile(job, profile)
+        ]
 
     @staticmethod
     def parse_values(value):
@@ -231,4 +213,3 @@ class GreenhouseJobSource(BaseJobSource):
             for location in locations
             if location.strip()
         )
-        
