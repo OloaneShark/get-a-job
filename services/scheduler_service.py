@@ -61,6 +61,7 @@ GLOBAL_SOURCE_TYPES = [
     "remote_ok",
     "we_work_remotely",
     "remotive",
+    "himalayas",
 ]
 
 
