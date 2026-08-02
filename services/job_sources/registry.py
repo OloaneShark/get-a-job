@@ -7,6 +7,7 @@ from services.job_sources.we_work_remotely import WeWorkRemotelyJobSource
 from services.job_sources.remotive import RemotiveJobSource
 from services.job_sources.himalayas import HimalayasJobSource
 from services.job_sources.jobicy import JobicyJobSource
+from services.job_sources.arbeitnow import ArbeitnowJobSource
 
 
 SOURCE_REGISTRY = {
@@ -18,6 +19,7 @@ SOURCE_REGISTRY = {
     "remotive": RemotiveJobSource,
     "himalayas": HimalayasJobSource,
     "jobicy": JobicyJobSource,
+    "arbeitnow": ArbeitnowJobSource,
 }
 
 
