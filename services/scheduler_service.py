@@ -60,6 +60,7 @@ def should_print_match_summary(diagnostics):
 GLOBAL_SOURCE_TYPES = [
     "remote_ok",
     "we_work_remotely",
+    "remotive",
 ]
 
 
