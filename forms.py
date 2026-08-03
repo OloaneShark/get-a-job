@@ -288,11 +288,28 @@ class JobSearchProfileForm(FlaskForm):
         validators=[DataRequired()]
     )
 
-    remote_scope = SelectField(
-        "Remote Preference",
+    workplace_types = MultiCheckboxField(
+        "Workplace Types",
         choices=[
-            ("any", "Any work arrangement"),
-            ("worldwide", "Remote worldwide"),
+            ("remote", "Remote"),
+            ("hybrid", "Hybrid"),
+            ("on-site", "On-site"),
+        ],
+        default=["remote"],
+        validators=[DataRequired()]
+    )
+
+    remote_scope = SelectField(
+        "Remote Location Scope",
+        choices=[
+            (
+                "any",
+                "Use the selected locations",
+            ),
+            (
+                "worldwide",
+                "Remote worldwide",
+            ),
             (
                 "selected_locations",
                 "Remote in selected locations only",

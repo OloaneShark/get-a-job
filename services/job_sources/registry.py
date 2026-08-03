@@ -8,6 +8,7 @@ from services.job_sources.remotive import RemotiveJobSource
 from services.job_sources.himalayas import HimalayasJobSource
 from services.job_sources.jobicy import JobicyJobSource
 from services.job_sources.arbeitnow import ArbeitnowJobSource
+from services.job_sources.japan_dev import JapanDevJobSource
 
 
 SOURCE_REGISTRY = {
@@ -20,6 +21,7 @@ SOURCE_REGISTRY = {
     "himalayas": HimalayasJobSource,
     "jobicy": JobicyJobSource,
     "arbeitnow": ArbeitnowJobSource,
+    "japan_dev": JapanDevJobSource,
 }
 
 

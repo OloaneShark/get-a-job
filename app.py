@@ -2362,14 +2362,30 @@ def new_search_profile():
     form = JobSearchProfileForm()
 
     if form.validate_on_submit():
+        selected_workplace_types = (
+            form.workplace_types.data
+            or ["remote"]
+        )
+
         profile = JobSearchProfile(
             user_id=current_user.id,
             name=form.name.data,
             keywords=form.keywords.data,
             locations=form.locations.data,
             employment_types=form.employment_types.data,
-            remote_only=form.remote_only.data,
-            visa_required=form.visa_required.data,
+            workplace_types=",".join(
+                selected_workplace_types
+            ),
+            # Keep the old field synchronized temporarily
+            # while the rest of the app moves to workplace_types.
+            remote_only=(
+                selected_workplace_types
+                == ["remote"]
+            ),
+            visa_required=(
+                form.visa_preference.data
+                == "yes"
+            ),
             minimum_salary=form.minimum_salary.data,
             active=form.active.data,
             experience_levels=",".join(
@@ -2420,6 +2436,15 @@ def edit_search_profile(profile_id):
             if value.strip()
         ]
 
+        form.workplace_types.data = [
+            value.strip()
+            for value in (
+                profile.workplace_types
+                or "remote"
+            ).split(",")
+            if value.strip()
+        ]
+
         form.remote_scope.data = (
             profile.remote_scope
             or "any"
@@ -2431,6 +2456,11 @@ def edit_search_profile(profile_id):
         )
 
     if form.validate_on_submit():
+        selected_workplace_types = (
+            form.workplace_types.data
+            or ["remote"]
+        )
+
         profile.name = form.name.data
         profile.keywords = form.keywords.data
         profile.locations = form.locations.data
@@ -2440,16 +2470,17 @@ def edit_search_profile(profile_id):
             form.experience_levels.data or []
         )
 
+        profile.workplace_types = ",".join(
+            selected_workplace_types
+        )
+
         profile.remote_scope = form.remote_scope.data
         profile.visa_preference = form.visa_preference.data
 
         # Keep the old fields synchronized temporarily.
         profile.remote_only = (
-            form.remote_scope.data
-            in {
-                "worldwide",
-                "selected_locations"
-            }
+            selected_workplace_types
+            == ["remote"]
         )
 
         profile.visa_required = (

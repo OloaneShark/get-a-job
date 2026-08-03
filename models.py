@@ -332,6 +332,11 @@ class JobSearchProfile(db.Model):
     keywords = db.Column(db.Text, nullable=False)
     locations = db.Column(db.Text, nullable=False)
     employment_types = db.Column(db.Text, nullable=True)
+    workplace_types = db.Column(
+        db.Text,
+        nullable=False,
+        default="remote"
+    )
     remote_only = db.Column(db.Boolean, default=False, nullable=False)
     visa_required = db.Column(db.Boolean, default=False, nullable=False)
     minimum_salary = db.Column(db.Integer, nullable=True)
@@ -394,6 +399,3 @@ class JobSourceCandidate(db.Model):
             name="uq_job_source_candidate"
         ),
     )
-    
-    
-    

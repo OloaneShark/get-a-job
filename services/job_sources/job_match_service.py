@@ -33,6 +33,7 @@ def create_match_diagnostics():
             "role": 0,
             "experience": 0,
             "location": 0,
+            "workplace_type": 0,
             "employment_type": 0,
             "visa": 0,
         },
@@ -109,6 +110,8 @@ def format_match_diagnostics(
         f"{failures['experience']} | "
         f"Location: "
         f"{failures['location']} | "
+        f"Workplace type: "
+        f"{failures['workplace_type']} | "
         f"Employment type: "
         f"{failures['employment_type']} | "
         f"Visa: {failures['visa']} | "
@@ -930,27 +933,130 @@ def parse_confidence(
     )
 
 
-def job_is_remote(job):
-    if job.get("is_remote") is True:
-        return True
 
-    workplace_type = normalize_text(
+def normalize_workplace_type(value):
+    value = normalize_text(value)
+
+    mappings = {
+        "remote": "remote",
+        "fully remote": "remote",
+        "full remote": "remote",
+        "work from home": "remote",
+        "distributed": "remote",
+        "hybrid": "hybrid",
+        "partially remote": "hybrid",
+        "partial remote": "hybrid",
+        "flexible hybrid": "hybrid",
+        "on site": "on-site",
+        "onsite": "on-site",
+        "in office": "on-site",
+        "office based": "on-site",
+    }
+
+    return mappings.get(value, value)
+
+
+def get_job_workplace_type(job):
+    explicit_type = normalize_workplace_type(
         job.get("workplace_type")
     )
+
+    if explicit_type in {
+        "remote",
+        "hybrid",
+        "on-site",
+    }:
+        return explicit_type
+
+    if job.get("is_remote") is True:
+        return "remote"
 
     location = normalize_text(
         job.get("location")
     )
 
-    return (
-        workplace_type == "remote"
-        or any(
-            contains_phrase(
-                location,
-                term,
-            )
-            for term in REMOTE_TERMS
+    if any(
+        contains_phrase(location, term)
+        for term in REMOTE_TERMS
+    ):
+        return "remote"
+
+    return "on-site"
+
+
+def get_requested_workplace_types(profile):
+    stored_value = getattr(
+        profile,
+        "workplace_types",
+        None,
+    )
+
+    requested_types = {
+        normalize_workplace_type(value)
+        for value in parse_profile_values(
+            stored_value
         )
+    }
+
+    requested_types = {
+        value
+        for value in requested_types
+        if value in {
+            "remote",
+            "hybrid",
+            "on-site",
+        }
+    }
+
+    if requested_types:
+        return requested_types
+
+    # Existing profiles were remote-focused before
+    # workplace_types became a separate setting.
+    if getattr(profile, "remote_only", False):
+        return {"remote"}
+
+    remote_scope = normalize_text(
+        getattr(
+            profile,
+            "remote_scope",
+            "any",
+        )
+    )
+
+    if remote_scope in {
+        "worldwide",
+        "selected_locations",
+    }:
+        return {"remote"}
+
+    return {
+        "remote",
+        "hybrid",
+        "on-site",
+    }
+
+
+def matches_workplace_type(job, profile):
+    requested_types = (
+        get_requested_workplace_types(
+            profile
+        )
+    )
+
+    job_workplace_type = (
+        get_job_workplace_type(job)
+    )
+
+    return (
+        job_workplace_type
+        in requested_types
+    )
+
+def job_is_remote(job):
+    return (
+        get_job_workplace_type(job)
+        == "remote"
     )
 
 
@@ -1082,6 +1188,121 @@ def matches_explicit_location(
     )
 
 
+def get_remote_candidate_scope(job):
+    scope = normalize_text(
+        job.get("remote_candidate_scope")
+    )
+
+    if scope in {
+        "worldwide",
+        "selected_locations",
+    }:
+        return scope
+
+    return None
+
+
+def get_remote_allowed_locations(job):
+    raw_locations = job.get(
+        "remote_allowed_locations"
+    )
+
+    if isinstance(raw_locations, str):
+        return parse_profile_values(
+            raw_locations
+        )
+
+    if isinstance(
+        raw_locations,
+        (list, tuple, set),
+    ):
+        return [
+            normalize_text(location)
+            for location in raw_locations
+            if normalize_text(location)
+        ]
+
+    return []
+
+
+def remote_job_is_worldwide(
+    job,
+    job_location,
+):
+    candidate_scope = (
+        get_remote_candidate_scope(job)
+    )
+
+    if candidate_scope == "worldwide":
+        return True
+
+    if candidate_scope == "selected_locations":
+        return False
+
+    has_worldwide_term = any(
+        contains_phrase(
+            job_location,
+            worldwide_term,
+        )
+        for worldwide_term
+        in WORLDWIDE_REMOTE_TERMS
+    )
+
+    return (
+        has_worldwide_term
+        and not has_specific_location(
+            job_location
+        )
+    )
+
+
+def remote_job_matches_locations(
+    job,
+    job_location,
+    requested_locations,
+):
+    candidate_scope = (
+        get_remote_candidate_scope(job)
+    )
+
+    if candidate_scope == "worldwide":
+        return True
+
+    allowed_locations = (
+        get_remote_allowed_locations(job)
+    )
+
+    if (
+        candidate_scope == "selected_locations"
+        and allowed_locations
+    ):
+        return any(
+            matches_explicit_location(
+                allowed_location,
+                requested_locations,
+            )
+            for allowed_location
+            in allowed_locations
+        )
+
+    if has_uncertain_remote_location(job):
+        return False
+
+    if not job_location:
+        return False
+
+    if remote_job_is_worldwide(
+        job,
+        job_location,
+    ):
+        return True
+
+    return matches_explicit_location(
+        job_location,
+        requested_locations,
+    )
+
+
 def matches_location(job, profile):
     requested_locations = (
         parse_profile_values(
@@ -1108,55 +1329,21 @@ def matches_location(job, profile):
         )
     )
 
-    is_remote = job_is_remote(job)
+    workplace_type = (
+        get_job_workplace_type(job)
+    )
 
     job_location = normalize_text(
         job.get("location")
     )
 
-    # They picked worldwide remote, so any actual
-    # remote job is fine for the location check.
-    if remote_scope == "worldwide":
-        return is_remote
-
-    # They only want remote jobs that actually allow
-    # somebody from one of their selected locations.
-    if remote_scope == "selected_locations":
-        if not is_remote:
-            return False
-
+    # Hybrid and on-site jobs always need to match
+    # one of the user's selected physical locations.
+    if workplace_type in {
+        "hybrid",
+        "on-site",
+    }:
         if not requested_locations:
-            return False
-
-        # Just saying remote does not mean somebody in
-        # the selected country is actually allowed to apply.
-        if has_uncertain_remote_location(
-            job
-        ):
-            return False
-
-        # If the location is missing, we are not going
-        # to pretend the person can work there.
-        if not job_location:
-            return False
-
-        has_worldwide_term = any(
-            contains_phrase(
-                job_location,
-                worldwide_term,
-            )
-            for worldwide_term
-            in WORLDWIDE_REMOTE_TERMS
-        )
-
-        # Worldwide is fine unless the same location
-        # also sneaks in some specific restriction.
-        if (
-            has_worldwide_term
-            and not has_specific_location(
-                job_location
-            )
-        ):
             return True
 
         return matches_explicit_location(
@@ -1164,12 +1351,31 @@ def matches_location(job, profile):
             requested_locations,
         )
 
-    # If they did not pick a strict location, then no
-    # requested location means there is nothing to filter.
+    # A worldwide-remote profile must not accept
+    # country-restricted remote jobs.
+    if remote_scope == "worldwide":
+        return remote_job_is_worldwide(
+            job,
+            job_location,
+        )
+
+    if remote_scope == "selected_locations":
+        if not requested_locations:
+            return False
+
+        return remote_job_matches_locations(
+            job,
+            job_location,
+            requested_locations,
+        )
+
+    # With no strict remote scope, selected locations
+    # still apply when the user entered them.
     if not requested_locations:
         return True
 
-    return matches_explicit_location(
+    return remote_job_matches_locations(
+        job,
         job_location,
         requested_locations,
     )
@@ -1334,6 +1540,12 @@ def job_matches_profile(
         "location": matches_location(
             job,
             profile,
+        ),
+        "workplace_type": (
+            matches_workplace_type(
+                job,
+                profile,
+            )
         ),
         "employment_type": (
             matches_employment_type(
