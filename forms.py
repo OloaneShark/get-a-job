@@ -335,6 +335,18 @@ class JobSearchProfileForm(FlaskForm):
         validators=[DataRequired()]
     )
 
+    overseas_applicant_preference = SelectField(
+        "Overseas Applicant Eligibility",
+        choices=[
+            ("any", "Any / not applicable"),
+            ("yes", "Open to overseas applicants"),
+            ("no", "Current residents only"),
+            ("unknown", "Not stated"),
+        ],
+        default="any",
+        validators=[DataRequired()]
+    )
+
     minimum_salary = IntegerField(
         "Minimum Salary",
         validators=[Optional()]

@@ -65,6 +65,7 @@ GLOBAL_SOURCE_TYPES = [
     "jobicy",
     "arbeitnow",
     "japan_dev",
+    "tokyo_dev",
 ]
 
 

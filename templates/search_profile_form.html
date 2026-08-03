@@ -143,6 +143,23 @@
         </div>
 
         <div class="mb-3">
+            {{ form.overseas_applicant_preference.label(class="form-label") }}
+            {{ form.overseas_applicant_preference(class="form-select") }}
+
+            <div class="form-text">
+                This is separate from visa sponsorship. A company
+                may accept overseas applications without promising
+                immigration sponsorship.
+            </div>
+
+            {% for error in form.overseas_applicant_preference.errors %}
+                <div class="text-danger mt-1">
+                    {{ error }}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="mb-3">
             {{ form.minimum_salary.label(class="form-label") }}
             {{ form.minimum_salary(class="form-control") }}
 

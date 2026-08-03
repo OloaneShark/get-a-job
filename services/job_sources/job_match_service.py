@@ -36,6 +36,7 @@ def create_match_diagnostics():
             "workplace_type": 0,
             "employment_type": 0,
             "visa": 0,
+            "overseas": 0,
         },
     }
 
@@ -115,6 +116,7 @@ def format_match_diagnostics(
         f"Employment type: "
         f"{failures['employment_type']} | "
         f"Visa: {failures['visa']} | "
+        f"Overseas: {failures['overseas']} | "
         f"Multiple failures: "
         f"{diagnostics['multiple_failures']}"
     )
@@ -1489,6 +1491,66 @@ def detect_visa_sponsorship(job):
     return "unknown"
 
 
+def normalize_overseas_applicant_status(value):
+    normalized = normalize_text(value)
+
+    if normalized in {
+        "yes",
+        "open",
+        "allowed",
+        "open to overseas applicants",
+        "overseas applicants welcome",
+    }:
+        return "yes"
+
+    if normalized in {
+        "no",
+        "not allowed",
+        "residents only",
+        "japan residents only",
+        "current residents only",
+    }:
+        return "no"
+
+    if normalized in {
+        "not applicable",
+        "n/a",
+        "na",
+    }:
+        return "not_applicable"
+
+    return "unknown"
+
+
+def matches_overseas_applicant_preference(
+    job,
+    profile,
+):
+    preference = normalize_text(
+        getattr(
+            profile,
+            "overseas_applicant_preference",
+            "any",
+        )
+    )
+
+    if preference in {
+        "",
+        "any",
+        "all",
+    }:
+        return True
+
+    status = normalize_overseas_applicant_status(
+        job.get("overseas_applicant_status")
+    )
+
+    if status == "not_applicable":
+        return True
+
+    return status == preference
+
+
 def matches_visa_requirement(job, profile):
     requested_visa_status = normalize_text(
         getattr(
@@ -1555,6 +1617,12 @@ def job_matches_profile(
         ),
         "visa": (
             matches_visa_requirement(
+                job,
+                profile,
+            )
+        ),
+        "overseas": (
+            matches_overseas_applicant_preference(
                 job,
                 profile,
             )

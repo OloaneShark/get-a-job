@@ -438,6 +438,13 @@ class JapanDevJobSource(BaseJobSource):
                     raw_job.get("sponsors_visas")
                 )
             ),
+            "overseas_applicant_status": (
+                "Yes"
+                if candidate_location == "anywhere"
+                else "No"
+                if candidate_location == "japan only"
+                else "Unknown"
+            ),
             # Preserve the Japan Dev listing as the canonical source page.
             "posting_url": posting_url,
             "apply_url": application_url or posting_url,

@@ -337,6 +337,11 @@ class JobSearchProfile(db.Model):
         nullable=False,
         default="remote"
     )
+    overseas_applicant_preference = db.Column(
+        db.String(20),
+        nullable=False,
+        default="any"
+    )
     remote_only = db.Column(db.Boolean, default=False, nullable=False)
     visa_required = db.Column(db.Boolean, default=False, nullable=False)
     minimum_salary = db.Column(db.Integer, nullable=True)

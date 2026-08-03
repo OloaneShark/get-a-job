@@ -2392,7 +2392,10 @@ def new_search_profile():
                 form.experience_levels.data or []
             ),
             remote_scope=form.remote_scope.data,
-            visa_preference=form.visa_preference.data
+            visa_preference=form.visa_preference.data,
+            overseas_applicant_preference=(
+                form.overseas_applicant_preference.data
+            )
         )
 
         db.session.add(profile)
@@ -2455,6 +2458,11 @@ def edit_search_profile(profile_id):
             or "any"
         )
 
+        form.overseas_applicant_preference.data = (
+            profile.overseas_applicant_preference
+            or "any"
+        )
+
     if form.validate_on_submit():
         selected_workplace_types = (
             form.workplace_types.data
@@ -2476,6 +2484,9 @@ def edit_search_profile(profile_id):
 
         profile.remote_scope = form.remote_scope.data
         profile.visa_preference = form.visa_preference.data
+        profile.overseas_applicant_preference = (
+            form.overseas_applicant_preference.data
+        )
 
         # Keep the old fields synchronized temporarily.
         profile.remote_only = (
@@ -2511,6 +2522,7 @@ def edit_search_profile(profile_id):
         form=form,
         title="Edit Search Profile"
     )
+
 
 
 @app.route("/search-profiles/<int:profile_id>/delete", methods=["POST"])
