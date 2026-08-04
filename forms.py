@@ -23,7 +23,8 @@ from wtforms.validators import (
     Email,
     EqualTo,
     URL,
-    Optional
+    Optional,
+    ValidationError
 )
 
 
@@ -295,8 +296,7 @@ class JobSearchProfileForm(FlaskForm):
             ("hybrid", "Hybrid"),
             ("on-site", "On-site"),
         ],
-        default=["remote"],
-        validators=[DataRequired()]
+        default=["remote"]
     )
 
     remote_scope = SelectField(
@@ -360,6 +360,15 @@ class JobSearchProfileForm(FlaskForm):
     submit = SubmitField(
         "Save Search Profile"
     )
+
+    def validate_workplace_types(
+        self,
+        workplace_types,
+    ):
+        if not workplace_types.data:
+            raise ValidationError(
+                "Select at least one workplace type."
+            )
     
     
 class JobSourceCompanyForm(FlaskForm):

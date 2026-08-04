@@ -2398,20 +2398,47 @@ def new_search_profile():
             )
         )
 
-        db.session.add(profile)
-        db.session.commit()
+        try:
+            db.session.add(profile)
+            db.session.commit()
 
-        log_action(
-            current_user.id,
-            f"Created search profile '{profile.name}'"
+            log_action(
+                current_user.id,
+                f"Created search profile '{profile.name}'"
+            )
+
+            flash(
+                "Search profile created successfully.",
+                "success"
+            )
+
+            return redirect(url_for("search_profiles"))
+
+        except Exception as error:
+            db.session.rollback()
+
+            print(
+                "SEARCH PROFILE SAVE ERROR:",
+                repr(error),
+            )
+
+            flash(
+                "The search profile could not be saved.",
+                "danger"
+            )
+
+    if request.method == "POST":
+        print(
+            "SEARCH PROFILE FORM ERRORS:",
+            form.errors,
         )
 
-        flash(
-            "Search profile created successfully.",
-            "success"
-        )
-
-        return redirect(url_for("search_profiles"))
+        if form.errors:
+            flash(
+                "The search profile could not be saved. "
+                "Check the form fields and try again.",
+                "danger"
+            )
 
     return render_template(
         "search_profile_form.html",
