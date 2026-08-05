@@ -19,7 +19,9 @@ from services.job_sources.job_match_service import (
 from services.job_sources.utils import build_job_fingerprint
 
 
-scheduler = BackgroundScheduler(timezone="UTC")
+scheduler = BackgroundScheduler(
+    timezone="UTC"
+)
 
 
 def environment_flag(name, default=False):
@@ -43,7 +45,9 @@ def source_debug_enabled():
     )
 
 
-def should_print_match_summary(diagnostics):
+def should_print_match_summary(
+    diagnostics,
+):
     return (
         diagnostics["evaluated"] > 0
         and (
@@ -75,34 +79,52 @@ def parse_profile_values(value):
 
     return [
         item.strip()
-        for item in re.split(r"[\n,]+", value)
+        for item in re.split(
+            r"[\n,]+",
+            value,
+        )
         if item.strip()
     ]
 
 
-def save_discovered_jobs(profile, jobs):
+def save_discovered_jobs(
+    profile,
+    jobs,
+):
     saved_count = 0
 
     for job in jobs:
-        posting_url = job.get("posting_url")
+        posting_url = job.get(
+            "posting_url"
+        )
 
         if not posting_url:
             continue
 
-        fingerprint = build_job_fingerprint(
-            job.get("company_name"),
-            job.get("position_title"),
-            job.get("location"),
-            posting_url
+        fingerprint = (
+            build_job_fingerprint(
+                job.get("company_name"),
+                job.get("position_title"),
+                job.get("location"),
+                posting_url,
+            )
         )
 
-        existing_job = DiscoveredJob.query.filter_by(
-            user_id=profile.user_id,
-            fingerprint=fingerprint
-        ).first()
+        existing_job = (
+            DiscoveredJob.query
+            .filter_by(
+                user_id=profile.user_id,
+                fingerprint=fingerprint,
+            )
+            .first()
+        )
 
         if existing_job:
-            if profile not in existing_job.matched_profiles:
+            if (
+                profile
+                not in existing_job
+                .matched_profiles
+            ):
                 existing_job.matched_profiles.append(
                     profile
                 )
@@ -112,8 +134,13 @@ def save_discovered_jobs(profile, jobs):
         discovered_job = DiscoveredJob(
             user_id=profile.user_id,
             search_profile_id=profile.id,
-            source=job.get("source") or "Unknown",
-            external_id=job.get("external_id"),
+            source=(
+                job.get("source")
+                or "Unknown"
+            ),
+            external_id=job.get(
+                "external_id"
+            ),
             company_name=(
                 job.get("company_name")
                 or "Unknown Company"
@@ -123,31 +150,44 @@ def save_discovered_jobs(profile, jobs):
                 or "Untitled Position"
             ),
             location=job.get("location"),
-            employment_type=job.get("employment_type"),
+            employment_type=job.get(
+                "employment_type"
+            ),
             salary=job.get("salary"),
             visa_sponsorship=(
                 job.get("visa_sponsorship")
                 or "Unknown"
             ),
             posting_url=posting_url,
-            apply_url=job.get("apply_url") or posting_url,
-            job_description=job.get("job_description"),
-            recruiter_name=job.get("recruiter_name"),
-            recruiter_email=job.get("recruiter_email"),
+            apply_url=(
+                job.get("apply_url")
+                or posting_url
+            ),
+            job_description=job.get(
+                "job_description"
+            ),
+            recruiter_name=job.get(
+                "recruiter_name"
+            ),
+            recruiter_email=job.get(
+                "recruiter_email"
+            ),
             recruiter_contact_url=job.get(
                 "recruiter_contact_url"
             ),
             recruiter_contact_source=job.get(
                 "recruiter_contact_source"
             ),
-            fingerprint=fingerprint
+            fingerprint=fingerprint,
         )
 
         discovered_job.matched_profiles.append(
             profile
         )
 
-        db.session.add(discovered_job)
+        db.session.add(
+            discovered_job
+        )
         saved_count += 1
 
     return saved_count
@@ -158,23 +198,78 @@ def get_active_source_configs():
         JobSourceCompany.query
         .filter_by(is_active=True)
         .order_by(
-            JobSourceCompany.source_type.asc(),
-            JobSourceCompany.company_name.asc()
+            JobSourceCompany
+            .source_type.asc(),
+            JobSourceCompany
+            .company_name.asc(),
         )
         .all()
     )
 
 
-def run_configured_source(profile, source_config):
+def create_global_sources():
+    return {
+        source_type: create_source(
+            source_type
+        )
+        for source_type
+        in GLOBAL_SOURCE_TYPES
+    }
+
+
+def prepare_global_sources(
+    profiles,
+    global_sources,
+):
+    for source_type in GLOBAL_SOURCE_TYPES:
+        source = global_sources[
+            source_type
+        ]
+        prepare = getattr(
+            source,
+            "prepare",
+            None,
+        )
+
+        if not callable(prepare):
+            continue
+
+        try:
+            print(
+                "GLOBAL SOURCE PREPARE | "
+                f"Preparing shared "
+                f"{source.source_name} feed "
+                f"for {len(profiles)} "
+                "active profiles."
+            )
+            prepare(profiles)
+
+        except Exception as error:
+            # Keep the scheduler alive. The source's search()
+            # method may retry for an individual profile, and
+            # the failure will still be recorded normally.
+            print(
+                "GLOBAL SOURCE PREPARE ERROR | "
+                f"{source.source_name}: "
+                f"{error}"
+            )
+
+
+def run_configured_source(
+    profile,
+    source_config,
+):
     source_type = (
         source_config.source_type
         or ""
     ).strip().lower()
 
-    source = create_source(source_type)
+    source = create_source(
+        source_type
+    )
 
     print(
-        f"JOB SOURCE: checking "
+        "JOB SOURCE: checking "
         f"{source_config.company_name} "
         f"through {source.source_name}."
     )
@@ -182,10 +277,12 @@ def run_configured_source(profile, source_config):
     with collect_match_diagnostics() as diagnostics:
         jobs = source.search(
             profile=profile,
-            source_config=source_config
+            source_config=source_config,
         )
 
-    if should_print_match_summary(diagnostics):
+    if should_print_match_summary(
+        diagnostics
+    ):
         print(
             format_match_diagnostics(
                 profile.name,
@@ -197,30 +294,40 @@ def run_configured_source(profile, source_config):
             )
         )
 
-    source_config.last_checked_at = datetime.now(
-        timezone.utc
+    source_config.last_checked_at = (
+        datetime.now(timezone.utc)
     )
-    source_config.last_check_status = "Completed"
+    source_config.last_check_status = (
+        "Completed"
+    )
     source_config.last_check_error = None
 
     return jobs
 
 
-def run_global_source(profile, source_type):
-    source = create_source(source_type)
+def run_global_source(
+    profile,
+    source_type,
+    global_sources,
+):
+    source = global_sources[
+        source_type
+    ]
 
     print(
-        f"JOB SOURCE: checking global source "
+        "JOB SOURCE: checking global source "
         f"{source.source_name}."
     )
 
     with collect_match_diagnostics() as diagnostics:
         jobs = source.search(
             profile=profile,
-            source_config=None
+            source_config=None,
         )
 
-    if should_print_match_summary(diagnostics):
+    if should_print_match_summary(
+        diagnostics
+    ):
         print(
             format_match_diagnostics(
                 profile.name,
@@ -232,19 +339,31 @@ def run_global_source(profile, source_type):
     return source, jobs
 
 
-def process_search_profile(profile, source_configs):
+def process_search_profile(
+    profile,
+    source_configs,
+    global_sources,
+):
     all_matching_jobs = []
     source_errors = []
 
-    keywords = parse_profile_values(profile.keywords)
-    locations = parse_profile_values(profile.locations)
-    employment_types = parse_profile_values(
-        profile.employment_types
+    keywords = parse_profile_values(
+        profile.keywords
+    )
+    locations = parse_profile_values(
+        profile.locations
+    )
+    employment_types = (
+        parse_profile_values(
+            profile.employment_types
+        )
     )
 
     if any(
-        employment_type.lower() in {"all", "any"}
-        for employment_type in employment_types
+        employment_type.lower()
+        in {"all", "any"}
+        for employment_type
+        in employment_types
     ):
         employment_types = []
 
@@ -252,7 +371,7 @@ def process_search_profile(profile, source_configs):
         f"SEARCH PROFILE: {profile.name} | "
         f"Keywords: {keywords} | "
         f"Locations: {locations} | "
-        f"Employment Types: "
+        "Employment Types: "
         f"{employment_types or ['All']}"
     )
 
@@ -260,12 +379,15 @@ def process_search_profile(profile, source_configs):
     # Greenhouse, Lever, and Ashby.
     for source_config in source_configs:
         try:
-            source_jobs = run_configured_source(
-                profile,
-                source_config
+            source_jobs = (
+                run_configured_source(
+                    profile,
+                    source_config,
+                )
             )
-
-            all_matching_jobs.extend(source_jobs)
+            all_matching_jobs.extend(
+                source_jobs
+            )
 
             print(
                 f"{source_config.source_type.upper()} "
@@ -274,35 +396,46 @@ def process_search_profile(profile, source_configs):
             )
 
         except Exception as error:
-            source_config.last_checked_at = datetime.now(
-                timezone.utc
+            source_config.last_checked_at = (
+                datetime.now(timezone.utc)
             )
-            source_config.last_check_status = "Failed"
-            source_config.last_check_error = str(error)
+            source_config.last_check_status = (
+                "Failed"
+            )
+            source_config.last_check_error = (
+                str(error)
+            )
 
             error_message = (
                 f"{source_config.company_name} "
                 f"({source_config.source_type}): "
                 f"{error}"
             )
-
-            source_errors.append(error_message)
+            source_errors.append(
+                error_message
+            )
 
             print(
                 "JOB SOURCE ERROR:",
-                error_message
+                error_message,
             )
 
     # Run global feeds such as Remote OK.
     # These do not require JobSourceCompany records.
     for source_type in GLOBAL_SOURCE_TYPES:
         try:
-            source, source_jobs = run_global_source(
+            (
+                source,
+                source_jobs,
+            ) = run_global_source(
                 profile,
-                source_type
+                source_type,
+                global_sources,
             )
 
-            all_matching_jobs.extend(source_jobs)
+            all_matching_jobs.extend(
+                source_jobs
+            )
 
             print(
                 f"{source.source_name.upper()} "
@@ -312,97 +445,137 @@ def process_search_profile(profile, source_configs):
 
         except Exception as error:
             error_message = (
-                f"Global source {source_type}: "
-                f"{error}"
+                f"Global source "
+                f"{source_type}: {error}"
             )
-
-            source_errors.append(error_message)
+            source_errors.append(
+                error_message
+            )
 
             print(
                 "GLOBAL JOB SOURCE ERROR:",
-                error_message
+                error_message,
             )
 
     saved_count = save_discovered_jobs(
         profile,
-        all_matching_jobs
+        all_matching_jobs,
     )
 
     return (
         len(all_matching_jobs),
         saved_count,
-        source_errors
+        source_errors,
     )
 
 
 def process_active_search_profiles(app):
     with app.app_context():
+        profiles = (
+            JobSearchProfile.query
+            .filter_by(active=True)
+            .all()
+        )
         profile_ids = [
             profile.id
-            for profile in JobSearchProfile.query.filter_by(
-                active=True
-            ).all()
+            for profile in profiles
         ]
+        source_configs = (
+            get_active_source_configs()
+        )
+        global_sources = (
+            create_global_sources()
+        )
 
-        source_configs = get_active_source_configs()
-
-        configured_source_count = len(source_configs)
-        global_source_count = len(GLOBAL_SOURCE_TYPES)
+        configured_source_count = len(
+            source_configs
+        )
+        global_source_count = len(
+            GLOBAL_SOURCE_TYPES
+        )
         total_source_count = (
             configured_source_count
             + global_source_count
         )
 
         print(
-            f"JOB SEARCH SCHEDULER: "
-            f"found {len(profile_ids)} active profiles, "
-            f"{configured_source_count} configured sources, "
-            f"{global_source_count} global sources, "
-            f"and {total_source_count} total sources."
+            "JOB SEARCH SCHEDULER: "
+            f"found {len(profile_ids)} "
+            "active profiles, "
+            f"{configured_source_count} "
+            "configured sources, "
+            f"{global_source_count} "
+            "global sources, "
+            f"and {total_source_count} "
+            "total sources."
+        )
+
+        # Remote OK and We Work Remotely use this
+        # hook to build one normalized discovery feed
+        # for every active profile. Other sources keep
+        # their existing cache behavior unchanged.
+        prepare_global_sources(
+            profiles,
+            global_sources,
         )
 
         for profile_id in profile_ids:
             profile = db.session.get(
                 JobSearchProfile,
-                profile_id
+                profile_id,
             )
 
-            if not profile or not profile.active:
+            if (
+                not profile
+                or not profile.active
+            ):
                 continue
 
             try:
                 (
                     matched_count,
                     saved_count,
-                    source_errors
+                    source_errors,
                 ) = process_search_profile(
                     profile,
-                    source_configs
+                    source_configs,
+                    global_sources,
                 )
 
-                profile.last_searched_at = datetime.now(
-                    timezone.utc
+                profile.last_searched_at = (
+                    datetime.now(
+                        timezone.utc
+                    )
                 )
 
                 # This remains the number of newly saved jobs,
                 # matching the current behavior of your app.
-                profile.last_result_count = saved_count
+                profile.last_result_count = (
+                    saved_count
+                )
 
                 if source_errors:
                     profile.last_search_status = (
                         "Completed With Errors"
                     )
-                    profile.last_search_error = "\n".join(
-                        source_errors
+                    profile.last_search_error = (
+                        "\n".join(
+                            source_errors
+                        )
                     )
                 else:
-                    profile.last_search_status = "Completed"
-                    profile.last_search_error = None
+                    profile.last_search_status = (
+                        "Completed"
+                    )
+                    profile.last_search_error = (
+                        None
+                    )
 
                 db.session.commit()
 
                 print(
-                    f"SEARCH COMPLETE: {profile.name} | "
+                    f"SEARCH COMPLETE: "
+                    f"{profile.name} | "
                     f"{matched_count} matched | "
                     f"{saved_count} newly saved."
                 )
@@ -412,23 +585,29 @@ def process_active_search_profiles(app):
 
                 profile = db.session.get(
                     JobSearchProfile,
-                    profile_id
+                    profile_id,
                 )
 
                 if profile:
-                    profile.last_searched_at = datetime.now(
-                        timezone.utc
+                    profile.last_searched_at = (
+                        datetime.now(
+                            timezone.utc
+                        )
                     )
                     profile.last_result_count = 0
-                    profile.last_search_status = "Failed"
-                    profile.last_search_error = str(error)
+                    profile.last_search_status = (
+                        "Failed"
+                    )
+                    profile.last_search_error = (
+                        str(error)
+                    )
 
                     db.session.commit()
 
                 print(
-                    f"SEARCH PROFILE ERROR: "
+                    "SEARCH PROFILE ERROR: "
                     f"{profile_id}:",
-                    repr(error)
+                    repr(error),
                 )
 
 
@@ -445,7 +624,9 @@ def start_scheduler(app):
         replace_existing=True,
         max_instances=1,
         coalesce=True,
-        next_run_time=datetime.now(timezone.utc)
+        next_run_time=datetime.now(
+            timezone.utc
+        ),
     )
 
     scheduler.start()
