@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin, urlparse
@@ -26,6 +27,10 @@ class JapanDevJobSource(BaseJobSource):
     # scheduler does not crawl every detail page for every profile.
     cache_duration = timedelta(hours=6)
     max_workers = 4
+    sitemap_url = (
+        f"{base_url}/cdn/sitemaps/sitemap.xml"
+    )
+    max_sitemap_files = 25
 
     _cached_jobs = None
     _cache_fetched_at = None
@@ -162,13 +167,50 @@ class JapanDevJobSource(BaseJobSource):
         return None
 
     @classmethod
-    def discover_job_urls(cls):
-        html = fetch_html(cls.jobs_url)
+    def normalize_job_url(
+        cls,
+        raw_url,
+    ):
+        absolute_url = urljoin(
+            cls.base_url,
+            cls.normalize_space(raw_url),
+        )
+        parsed = urlparse(absolute_url)
+
+        if parsed.netloc.lower() not in {
+            "japan-dev.com",
+            "www.japan-dev.com",
+        }:
+            return None
+
+        path_parts = [
+            part
+            for part in parsed.path.split("/")
+            if part
+        ]
+
+        # A Japan Dev job-detail URL has this form:
+        # /jobs/<company-slug>/<job-slug>
+        if (
+            len(path_parts) != 3
+            or path_parts[0].lower() != "jobs"
+        ):
+            return None
+
+        return (
+            f"https://japan-dev.com/"
+            f"{'/'.join(path_parts)}"
+        )
+
+    @classmethod
+    def extract_job_urls_from_html(
+        cls,
+        html,
+    ):
         soup = BeautifulSoup(
             html,
             "html.parser",
         )
-
         urls = []
         seen = set()
 
@@ -176,42 +218,160 @@ class JapanDevJobSource(BaseJobSource):
             "a",
             href=True,
         ):
-            absolute_url = urljoin(
-                cls.base_url,
-                anchor.get("href"),
+            clean_url = cls.normalize_job_url(
+                anchor.get("href")
             )
-            parsed = urlparse(absolute_url)
 
-            if parsed.netloc.lower() not in {
-                "japan-dev.com",
-                "www.japan-dev.com",
-            }:
-                continue
-
-            path_parts = [
-                part
-                for part in parsed.path.split("/")
-                if part
-            ]
-
-            # A Japan Dev job-detail URL has this form:
-            # /jobs/<company-slug>/<job-slug>
             if (
-                len(path_parts) != 3
-                or path_parts[0].lower() != "jobs"
+                not clean_url
+                or clean_url in seen
             ):
-                continue
-
-            clean_url = (
-                f"https://japan-dev.com/"
-                f"{'/'.join(path_parts)}"
-            )
-
-            if clean_url in seen:
                 continue
 
             seen.add(clean_url)
             urls.append(clean_url)
+
+        return urls
+
+    @classmethod
+    def parse_sitemap_locations(
+        cls,
+        xml_text,
+    ):
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as error:
+            raise RuntimeError(
+                "Japan Dev returned invalid sitemap XML."
+            ) from error
+
+        locations = []
+
+        for element in root.iter():
+            if not str(element.tag).lower().endswith(
+                "}loc"
+            ) and str(element.tag).lower() != "loc":
+                continue
+
+            value = cls.normalize_space(
+                element.text
+            )
+
+            if value:
+                locations.append(value)
+
+        return locations
+
+    @classmethod
+    def discover_job_urls_from_sitemap(
+        cls,
+    ):
+        pending_sitemaps = [
+            cls.sitemap_url
+        ]
+        visited_sitemaps = set()
+        urls = []
+        seen_urls = set()
+
+        while (
+            pending_sitemaps
+            and len(visited_sitemaps)
+            < cls.max_sitemap_files
+        ):
+            sitemap_url = (
+                pending_sitemaps.pop(0)
+            )
+
+            if sitemap_url in visited_sitemaps:
+                continue
+
+            visited_sitemaps.add(
+                sitemap_url
+            )
+            xml_text = fetch_html(
+                sitemap_url
+            )
+            locations = (
+                cls.parse_sitemap_locations(
+                    xml_text
+                )
+            )
+
+            sitemap_children = 0
+            job_urls_added = 0
+
+            for location in locations:
+                parsed = urlparse(location)
+
+                if parsed.path.lower().endswith(
+                    (".xml", ".xml.gz")
+                ):
+                    if (
+                        location
+                        not in visited_sitemaps
+                        and location
+                        not in pending_sitemaps
+                    ):
+                        pending_sitemaps.append(
+                            location
+                        )
+                        sitemap_children += 1
+
+                    continue
+
+                clean_url = (
+                    cls.normalize_job_url(
+                        location
+                    )
+                )
+
+                if (
+                    not clean_url
+                    or clean_url in seen_urls
+                ):
+                    continue
+
+                seen_urls.add(clean_url)
+                urls.append(clean_url)
+                job_urls_added += 1
+
+            print(
+                "JAPAN DEV SITEMAP PAGE | "
+                f"URL: {sitemap_url} | "
+                f"Locations: {len(locations)} | "
+                f"Child sitemaps: "
+                f"{sitemap_children} | "
+                f"New job URLs: "
+                f"{job_urls_added} | "
+                f"Total: {len(urls)}"
+            )
+
+        return urls
+
+    @classmethod
+    def discover_job_urls(cls):
+        try:
+            urls = (
+                cls.discover_job_urls_from_sitemap()
+            )
+        except Exception as error:
+            print(
+                "JAPAN DEV SITEMAP FAILED | "
+                f"Error: {error}"
+            )
+            urls = []
+
+        if not urls:
+            print(
+                "JAPAN DEV SITEMAP FALLBACK | "
+                "Using the live listing page."
+            )
+            html = fetch_html(cls.jobs_url)
+            urls = (
+                cls.extract_job_urls_from_html(
+                    html
+                )
+            )
 
         print(
             "JAPAN DEV LISTING DISCOVERY | "
@@ -222,38 +382,75 @@ class JapanDevJobSource(BaseJobSource):
 
     @classmethod
     def extract_page_lines(cls, soup):
-        main = (
-            soup.find("main")
+        # Japan Dev places the title and Conditions panel
+        # outside the main description element. Read the full
+        # body so eligibility, visa, remote, and date labels
+        # belong to the current role and are not lost.
+        root = (
+            soup.body
+            or soup.find("main")
             or soup.find("article")
-            or soup.body
         )
 
-        if main is None:
+        if root is None:
             return []
 
         return [
             cls.normalize_space(value)
-            for value in main.stripped_strings
+            for value in root.stripped_strings
             if cls.normalize_space(value)
         ]
 
     @classmethod
     def get_header_lines(
         cls,
-        lines,
-        title,
+        title_element,
     ):
-        normalized_title = cls.normalize_space(
-            title
-        )
+        # Read forward from the actual <h1> node instead of
+        # trying to find the title again in flattened page text.
+        # Japan Dev sometimes splits a title across nested spans,
+        # which made exact string matching fall back to navigation
+        # text and lose the current role's Conditions panel.
+        lines = []
 
-        for index, line in enumerate(lines):
-            if line == normalized_title:
-                return lines[
-                    index:index + 35
-                ]
+        for raw_value in title_element.find_all_next(
+            string=True,
+            limit=160,
+        ):
+            parent = getattr(
+                raw_value,
+                "parent",
+                None,
+            )
 
-        return lines[:35]
+            if (
+                parent is not None
+                and parent.name in {
+                    "script",
+                    "style",
+                    "noscript",
+                    "template",
+                }
+            ):
+                continue
+
+            normalized = cls.normalize_space(
+                raw_value
+            )
+
+            if not normalized:
+                continue
+
+            lines.append(normalized)
+
+            # The eligibility, visa, workplace, employment type,
+            # posting date, language, and experience fields all
+            # appear near the top of the detail page. Stop well
+            # before footer filters and related-job cards.
+            if len(lines) >= 80:
+                break
+
+        return lines
 
     @classmethod
     def extract_company_name(
@@ -362,6 +559,69 @@ class JapanDevJobSource(BaseJobSource):
         )
 
     @classmethod
+    def parse_workplace_line(
+        cls,
+        value,
+    ):
+        lowered = cls.normalize_space(
+            value
+        ).lower()
+
+        if not lowered:
+            return None
+
+        if (
+            "partial remote" in lowered
+            or "hybrid" in lowered
+        ):
+            return (
+                "Hybrid",
+                True,
+                None,
+                [],
+            )
+
+        if "no remote" in lowered:
+            return (
+                "On-site",
+                False,
+                None,
+                [],
+            )
+
+        if "worldwide" in lowered:
+            return (
+                "Remote",
+                True,
+                "worldwide",
+                [],
+            )
+
+        if "anywhere in japan" in lowered:
+            return (
+                "Remote",
+                True,
+                "selected_locations",
+                ["Japan"],
+            )
+
+        if (
+            "full remote" in lowered
+            or "remote ok" in lowered
+            or lowered == "remote"
+        ):
+            return (
+                "Remote",
+                True,
+                "selected_locations",
+                ["Japan"],
+            )
+
+        return cls.WORKPLACE_LABELS.get(
+            lowered
+        )
+
+    @classmethod
     def extract_visible_location(
         cls,
         header_lines,
@@ -371,10 +631,7 @@ class JapanDevJobSource(BaseJobSource):
         for index, line in enumerate(
             header_lines
         ):
-            if (
-                line.lower()
-                in cls.WORKPLACE_LABELS
-            ):
+            if cls.parse_workplace_line(line):
                 workplace_index = index
                 break
 
@@ -399,7 +656,6 @@ class JapanDevJobSource(BaseJobSource):
                 or "osaka" in lowered
                 or "nagoya" in lowered
                 or "fukuoka" in lowered
-                or "remote" in lowered
             ):
                 return line
 
@@ -411,8 +667,8 @@ class JapanDevJobSource(BaseJobSource):
         header_lines,
     ):
         for line in header_lines:
-            details = cls.WORKPLACE_LABELS.get(
-                line.lower()
+            details = cls.parse_workplace_line(
+                line
             )
 
             if details:
@@ -673,48 +929,81 @@ class JapanDevJobSource(BaseJobSource):
     @classmethod
     def detect_candidate_location(
         cls,
+        header_lines,
         page_text,
     ):
-        lowered = page_text.lower()
-
-        negative_phrases = (
-            "apply from japan only",
-            "japan residents only",
-            "residents only",
-            "must currently reside in japan",
-            "only open to candidates in japan",
-        )
-
-        if any(
-            phrase in lowered
-            for phrase in negative_phrases
-        ):
-            return "japan only"
+        # Japan Dev can split one visible label across nested
+        # elements, producing separate strings such as
+        # "Apply from" and "Anywhere". Search a normalized block
+        # rather than checking each text node independently.
+        header_text = cls.normalize_space(
+            " ".join(header_lines)
+        ).lower()
 
         positive_phrases = (
             "apply from anywhere",
             "apply from abroad",
+            "apply from overseas",
             "overseas applicants welcome",
-            "open to overseas applicants",
-            "applications from overseas",
+        )
+        negative_phrases = (
+            "apply from japan only",
+            "japan residents only",
+            "current residents only",
+            "residents only",
         )
 
         if any(
-            phrase in lowered
+            phrase in header_text
             for phrase in positive_phrases
         ):
             return "anywhere"
+
+        if any(
+            phrase in header_text
+            for phrase in negative_phrases
+        ):
+            return "japan only"
+
+        # Keep the fallback specific enough that unrelated footer
+        # filters and related-job cards cannot classify this role.
+        normalized_page_text = cls.normalize_space(
+            page_text
+        ).lower()
+
+        if any(
+            phrase in normalized_page_text
+            for phrase in (
+                "sponsors visas for candidates living outside of japan",
+                "overseas applicants welcome",
+                "open to overseas applicants",
+                "applications from overseas are accepted",
+            )
+        ):
+            return "anywhere"
+
+        if any(
+            phrase in normalized_page_text
+            for phrase in (
+                "must currently reside in japan",
+                "only open to candidates currently in japan",
+                "applications from outside japan are not accepted",
+            )
+        ):
+            return "japan only"
 
         return None
 
     @classmethod
     def detect_overseas_status(
         cls,
+        header_lines,
         page_text,
     ):
         candidate_location = (
             cls.detect_candidate_location(
-                page_text
+                header_lines,
+                page_text,
             )
         )
 
@@ -729,39 +1018,66 @@ class JapanDevJobSource(BaseJobSource):
     @classmethod
     def detect_visa_sponsorship(
         cls,
+        header_lines,
         page_text,
+        candidate_location,
     ):
-        lowered = page_text.lower()
-
-        negative_phrases = (
-            "no relocation to japan",
-            "no visa sponsorship from overseas",
-            "no visa sponsorship",
-            "visa sponsorship is not available",
-            "cannot sponsor visas",
-            "does not sponsor visas",
-        )
+        header_text = cls.normalize_space(
+            " ".join(header_lines)
+        ).lower()
 
         if any(
-            phrase in lowered
-            for phrase in negative_phrases
+            phrase in header_text
+            for phrase in (
+                "no relocation to japan",
+                "no visa sponsorship from overseas",
+                "no visa sponsorship",
+            )
         ):
             return "No"
 
-        positive_phrases = (
-            "overseas visa sponsorship supported",
-            "relocation to japan",
-            "visa sponsorship available",
-            "visa sponsorship provided",
-            "visa support available",
-            "sponsor your visa",
-        )
+        if any(
+            phrase in header_text
+            for phrase in (
+                "overseas visa sponsorship supported",
+                "relocation to japan",
+                "visa sponsorship available",
+            )
+        ):
+            return "Yes"
+
+        # Japan Dev defines "Apply from Anywhere" as accepting
+        # overseas applicants with Japan visa sponsorship.
+        if candidate_location == "anywhere":
+            return "Yes"
+
+        if candidate_location == "japan only":
+            return "No"
+
+        lowered = cls.normalize_space(
+            page_text
+        ).lower()
 
         if any(
             phrase in lowered
-            for phrase in positive_phrases
+            for phrase in (
+                "sponsors visas for candidates living outside of japan",
+                "visa sponsorship provided",
+                "visa support available",
+                "sponsor your visa",
+            )
         ):
             return "Yes"
+
+        if any(
+            phrase in lowered
+            for phrase in (
+                "visa sponsorship is not available",
+                "cannot sponsor visas",
+                "does not sponsor visas",
+            )
+        ):
+            return "No"
 
         return "Unknown"
 
@@ -1006,8 +1322,7 @@ class JapanDevJobSource(BaseJobSource):
 
         lines = cls.extract_page_lines(soup)
         header_lines = cls.get_header_lines(
-            lines,
-            title,
+            title_element
         )
         page_text = "\n".join(lines)
         job_posting = (
@@ -1036,19 +1351,23 @@ class JapanDevJobSource(BaseJobSource):
         ) = cls.extract_workplace_details(
             header_lines
         )
-        visa_sponsorship = (
-            cls.detect_visa_sponsorship(
-                page_text
+        candidate_location = (
+            cls.detect_candidate_location(
+                header_lines,
+                page_text,
             )
         )
         overseas_status = (
             cls.detect_overseas_status(
-                page_text
+                header_lines,
+                page_text,
             )
         )
-        candidate_location = (
-            cls.detect_candidate_location(
-                page_text
+        visa_sponsorship = (
+            cls.detect_visa_sponsorship(
+                header_lines,
+                page_text,
+                candidate_location,
             )
         )
         experience_level = (
@@ -1261,11 +1580,60 @@ class JapanDevJobSource(BaseJobSource):
                 datetime.now(timezone.utc)
             )
 
+            overseas_yes = sum(
+                job.get(
+                    "overseas_applicant_status"
+                ) == "Yes"
+                for job in normalized_jobs
+            )
+            overseas_no = sum(
+                job.get(
+                    "overseas_applicant_status"
+                ) == "No"
+                for job in normalized_jobs
+            )
+            overseas_unknown = (
+                len(normalized_jobs)
+                - overseas_yes
+                - overseas_no
+            )
+            dated_jobs = sum(
+                bool(job.get("published_at"))
+                for job in normalized_jobs
+            )
+
             print(
                 "JAPAN DEV FEED | "
                 f"Fetched "
                 f"{len(normalized_jobs)} jobs."
             )
+            print(
+                "JAPAN DEV NORMALIZATION SUMMARY | "
+                f"Overseas yes: {overseas_yes} | "
+                f"Overseas no: {overseas_no} | "
+                f"Overseas unknown: "
+                f"{overseas_unknown} | "
+                f"Published dates: {dated_jobs}"
+            )
+
+            unknown_samples = [
+                job
+                for job in normalized_jobs
+                if (
+                    job.get(
+                        "overseas_applicant_status"
+                    )
+                    == "Unknown"
+                )
+            ][:3]
+
+            for job in unknown_samples:
+                print(
+                    "JAPAN DEV ELIGIBILITY UNKNOWN | "
+                    f"Title: "
+                    f"{job.get('position_title')} | "
+                    f"URL: {job.get('posting_url')}"
+                )
 
             return list(normalized_jobs)
 
@@ -1292,4 +1660,3 @@ class JapanDevJobSource(BaseJobSource):
         )
 
         return matching_jobs
-    
