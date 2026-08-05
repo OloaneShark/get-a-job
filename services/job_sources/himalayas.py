@@ -201,6 +201,11 @@ class HimalayasJobSource(BaseJobSource):
             "job_description": clean_html_text(description),
             "departments": departments,
             "offices": [],
+            # Himalayas exposes seniority as an array. Keep it in a
+            # dedicated structured field so the shared matcher can
+            # strictly enforce the profile's selected experience levels.
+            "experience_level": seniority,
+            "seniority": seniority,
             "is_remote": True,
             "workplace_type": "Remote",
             "published_at": raw_job.get("pubDate"),

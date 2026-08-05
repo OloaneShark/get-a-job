@@ -363,6 +363,37 @@ BROAD_ROLE_KEYWORDS = {
 }
 
 
+# Some boards put a secondary skill in the title, for example:
+# "Data Engineering with knowledge in DevOps". Text after one of
+# these qualifiers describes supporting knowledge, not the core role.
+SECONDARY_ROLE_QUALIFIER_PATTERNS = (
+    re.compile(
+        r"\b(?:with|com)\s+"
+        r"(?:knowledge|conhecimento|experience|experiencia|experiência)"
+        r"\s+(?:in|em|of|with|com)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:knowledge|conhecimento|familiarity|familiaridade)"
+        r"\s+(?:in|em|of|with|com)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+# Marketplace/network listings can omit a normal seniority field while
+# still explicitly positioning applicants as top expert freelancers.
+# Treat that language as senior-level rather than "unspecified".
+EXPERT_LEVEL_DESCRIPTION_PHRASES = {
+    "exclusive network of the top",
+    "top freelance software developers",
+    "top freelance developers",
+    "top 3% of freelance talent",
+    "top 3% of talent",
+    "verified expert in engineering",
+}
+
+
 ALLOWED_ADMINISTRATOR_PATTERNS = {
     "cloud administrator",
     "database administrator",
@@ -546,6 +577,44 @@ def normalize_role_phrase(value):
     return normalize_text(value)
 
 
+def get_core_role_title(value):
+    title = normalize_role_phrase(value)
+
+    if not title:
+        return ""
+
+    qualifier_positions = []
+
+    for pattern in SECONDARY_ROLE_QUALIFIER_PATTERNS:
+        match = pattern.search(title)
+
+        if match:
+            qualifier_positions.append(match.start())
+
+    if qualifier_positions:
+        title = title[:min(qualifier_positions)]
+
+    return title.strip(" -–—|:/,()")
+
+
+def get_implied_experience_levels(job):
+    searchable_text = normalize_text(
+        " ".join([
+            job.get("company_name") or "",
+            job.get("position_title") or "",
+            job.get("job_description") or "",
+        ])
+    )
+
+    if any(
+        phrase in searchable_text
+        for phrase in EXPERT_LEVEL_DESCRIPTION_PHRASES
+    ):
+        return {"senior"}
+
+    return set()
+
+
 def get_profile_role_families(profile):
     keywords = {
         normalize_role_phrase(keyword)
@@ -723,18 +792,37 @@ def normalize_structured_experience_level(value):
     return mappings.get(normalized)
 
 
-def get_structured_experience_level(job):
+def get_structured_experience_levels(job):
+    levels = set()
+
     for field_name in (
         "experience_level",
         "seniority_level",
         "seniority",
     ):
-        level = normalize_structured_experience_level(
-            job.get(field_name)
-        )
+        raw_value = job.get(field_name)
 
-        if level:
-            return level
+        if isinstance(raw_value, (list, tuple, set)):
+            values = raw_value
+        else:
+            values = [raw_value]
+
+        for value in values:
+            level = normalize_structured_experience_level(value)
+
+            if level:
+                levels.add(level)
+
+    return levels
+
+
+def get_structured_experience_level(job):
+    # Compatibility wrapper for any older caller that still expects
+    # one level. Multi-level source data is handled by the plural helper.
+    levels = get_structured_experience_levels(job)
+
+    if len(levels) == 1:
+        return next(iter(levels))
 
     return None
 
@@ -793,14 +881,14 @@ def classify_experience_years(years):
 
 
 def classify_job_experience(job):
-    structured_level = (
-        get_structured_experience_level(
+    structured_levels = (
+        get_structured_experience_levels(
             job
         )
     )
 
-    if structured_level:
-        return {structured_level}
+    if structured_levels:
+        return structured_levels
 
     title = normalize_text(
         job.get("position_title")
@@ -830,6 +918,10 @@ def classify_job_experience(job):
             years_level
         )
 
+    detected_levels.update(
+        get_implied_experience_levels(job)
+    )
+
     if not detected_levels:
         detected_levels.add(
             "unspecified"
@@ -839,16 +931,17 @@ def classify_job_experience(job):
 
 
 def matches_role_title(job, profile):
-    title = normalize_text(
+    full_title = normalize_text(
         job.get("position_title")
     )
+    title = get_core_role_title(full_title)
 
     if not title:
         return False
 
     if any(
         contains_phrase(
-            title,
+            full_title,
             normalize_role_phrase(
                 excluded_term
             ),
@@ -911,7 +1004,6 @@ def matches_role_title(job, profile):
             for pattern in {
                 "systems engineer",
                 "systems administrator",
-                "systems analyst",
                 "systems support",
             }
         )
@@ -959,14 +1051,18 @@ def matches_experience_level(job, profile):
 
     # Trust a source's dedicated seniority field before
     # scanning the full description for years of experience.
-    structured_level = (
-        get_structured_experience_level(
+    structured_levels = (
+        get_structured_experience_levels(
             job
         )
     )
 
-    if structured_level:
-        return structured_level in requested_levels
+    if structured_levels:
+        return bool(
+            requested_levels.intersection(
+                structured_levels
+            )
+        )
 
     required_years = (
         extract_required_experience_years(
@@ -980,6 +1076,15 @@ def matches_experience_level(job, profile):
 
     if years_level:
         return years_level in requested_levels
+
+    implied_levels = get_implied_experience_levels(job)
+
+    if implied_levels:
+        return bool(
+            requested_levels.intersection(
+                implied_levels
+            )
+        )
 
     detected_levels = classify_job_experience(
         job

@@ -394,11 +394,28 @@ def save_discovered_jobs(
             )
         )
 
+        canonical_posting_url = (
+            str(posting_url)
+            .strip()
+            .rstrip("/")
+        )
+        posting_url_variants = {
+            canonical_posting_url,
+            f"{canonical_posting_url}/",
+        }
+
         existing_job = (
             DiscoveredJob.query
-            .filter_by(
-                user_id=profile.user_id,
-                fingerprint=fingerprint,
+            .filter(
+                DiscoveredJob.user_id
+                == profile.user_id,
+                db.or_(
+                    DiscoveredJob.fingerprint
+                    == fingerprint,
+                    DiscoveredJob.posting_url.in_(
+                        posting_url_variants
+                    ),
+                ),
             )
             .first()
         )

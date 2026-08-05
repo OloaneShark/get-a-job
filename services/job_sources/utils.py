@@ -12,7 +12,7 @@ def build_job_fingerprint(
         (company or "").strip().lower(),
         (position or "").strip().lower(),
         (location or "").strip().lower(),
-        (posting_url or "").strip().lower()
+        (posting_url or "").strip().lower().rstrip("/")
     ])
 
     return hashlib.sha256(
