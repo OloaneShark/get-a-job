@@ -347,6 +347,18 @@ class JobSearchProfileForm(FlaskForm):
         validators=[DataRequired()]
     )
 
+    maximum_posting_age_days = SelectField(
+        "Maximum Posting Age",
+        choices=[
+            ("30", "1 month"),
+            ("90", "3 months"),
+            ("183", "6 months"),
+            ("395", "13 months"),
+        ],
+        default="395",
+        validators=[DataRequired()]
+    )
+
     minimum_salary = IntegerField(
         "Minimum Salary",
         validators=[Optional()]
@@ -409,5 +421,3 @@ class JobSourceDiscoveryForm(FlaskForm):
     )
 
     submit = SubmitField("Discover Sources")
-    
-    

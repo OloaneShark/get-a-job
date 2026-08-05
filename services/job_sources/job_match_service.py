@@ -1,6 +1,7 @@
 
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -37,6 +38,7 @@ def create_match_diagnostics():
             "employment_type": 0,
             "visa": 0,
             "overseas": 0,
+            "posting_age": 0,
         },
     }
 
@@ -117,6 +119,7 @@ def format_match_diagnostics(
         f"{failures['employment_type']} | "
         f"Visa: {failures['visa']} | "
         f"Overseas: {failures['overseas']} | "
+        f"Posting age: {failures['posting_age']} | "
         f"Multiple failures: "
         f"{diagnostics['multiple_failures']}"
     )
@@ -679,6 +682,63 @@ def get_requested_experience_levels(profile):
     return set(parse_profile_values(value))
 
 
+def normalize_structured_experience_level(value):
+    normalized = normalize_text(value)
+
+    mappings = {
+        "intern": "intern",
+        "internship": "intern",
+        "student": "intern",
+        "entry": "entry",
+        "entry level": "entry",
+        "new grad": "entry",
+        "new graduate": "entry",
+        "graduate": "entry",
+        "new grad or above": "entry",
+        "junior": "junior",
+        "jr": "junior",
+        "junior level": "junior",
+        "junior or above": "junior",
+        "mid": "mid",
+        "mid level": "mid",
+        "middle": "mid",
+        "intermediate": "mid",
+        "mid level or above": "mid",
+        "senior": "senior",
+        "senior level": "senior",
+        "sr": "senior",
+        "staff": "staff",
+        "staff level": "staff",
+        "principal": "principal",
+        "principal level": "principal",
+        "lead": "lead",
+        "tech lead": "lead",
+        "technical lead": "lead",
+        "manager": "manager",
+        "engineering manager": "manager",
+        "director": "manager",
+        "head": "manager",
+    }
+
+    return mappings.get(normalized)
+
+
+def get_structured_experience_level(job):
+    for field_name in (
+        "experience_level",
+        "seniority_level",
+        "seniority",
+    ):
+        level = normalize_structured_experience_level(
+            job.get(field_name)
+        )
+
+        if level:
+            return level
+
+    return None
+
+
 def extract_required_experience_years(job):
     searchable_text = normalize_text(
         " ".join([
@@ -733,6 +793,15 @@ def classify_experience_years(years):
 
 
 def classify_job_experience(job):
+    structured_level = (
+        get_structured_experience_level(
+            job
+        )
+    )
+
+    if structured_level:
+        return {structured_level}
+
     title = normalize_text(
         job.get("position_title")
     )
@@ -887,6 +956,17 @@ def matches_experience_level(job, profile):
 
     if not requested_levels:
         return True
+
+    # Trust a source's dedicated seniority field before
+    # scanning the full description for years of experience.
+    structured_level = (
+        get_structured_experience_level(
+            job
+        )
+    )
+
+    if structured_level:
+        return structured_level in requested_levels
 
     required_years = (
         extract_required_experience_years(
@@ -1572,6 +1652,122 @@ def matches_visa_requirement(job, profile):
     return detected_status == requested_visa_status
 
 
+def parse_job_datetime(value):
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        parsed = value
+
+    elif isinstance(value, (int, float)):
+        timestamp = float(value)
+
+        # Some APIs expose Unix milliseconds instead of seconds.
+        if timestamp > 100_000_000_000:
+            timestamp /= 1000
+
+        try:
+            parsed = datetime.fromtimestamp(
+                timestamp,
+                tz=timezone.utc,
+            )
+        except (
+            OverflowError,
+            OSError,
+            ValueError,
+        ):
+            return None
+
+    else:
+        text = str(value).strip()
+
+        if not text:
+            return None
+
+        # Algolia can return Unix timestamps as numeric strings.
+        if text.isdigit():
+            timestamp = float(text)
+
+            if timestamp > 100_000_000_000:
+                timestamp /= 1000
+
+            try:
+                parsed = datetime.fromtimestamp(
+                    timestamp,
+                    tz=timezone.utc,
+                )
+            except (
+                OverflowError,
+                OSError,
+                ValueError,
+            ):
+                return None
+        else:
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+
+            parsed = None
+
+            try:
+                parsed = datetime.fromisoformat(text)
+            except ValueError:
+                for date_format in (
+                    "%Y-%m-%d",
+                    "%B %d, %Y",
+                    "%b %d, %Y",
+                ):
+                    try:
+                        parsed = datetime.strptime(
+                            text,
+                            date_format,
+                        )
+                        break
+                    except ValueError:
+                        continue
+
+            if parsed is None:
+                return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(
+            tzinfo=timezone.utc
+        )
+
+    return parsed.astimezone(
+        timezone.utc
+    )
+
+
+def matches_posting_age(job, profile):
+    try:
+        maximum_age_days = int(
+            getattr(
+                profile,
+                "maximum_posting_age_days",
+                395,
+            )
+            or 395
+        )
+    except (TypeError, ValueError):
+        maximum_age_days = 395
+
+    published_at = parse_job_datetime(
+        job.get("published_at")
+        or job.get("date_posted")
+    )
+
+    # Keep jobs from sources that do not expose a reliable date.
+    if published_at is None:
+        return True
+
+    cutoff = (
+        datetime.now(timezone.utc)
+        - timedelta(days=maximum_age_days)
+    )
+
+    return published_at >= cutoff
+
+
 def job_matches_profile(
     job,
     profile,
@@ -1623,6 +1819,12 @@ def job_matches_profile(
         ),
         "overseas": (
             matches_overseas_applicant_preference(
+                job,
+                profile,
+            )
+        ),
+        "posting_age": (
+            matches_posting_age(
                 job,
                 profile,
             )

@@ -2395,6 +2395,9 @@ def new_search_profile():
             visa_preference=form.visa_preference.data,
             overseas_applicant_preference=(
                 form.overseas_applicant_preference.data
+            ),
+            maximum_posting_age_days=int(
+                form.maximum_posting_age_days.data
             )
         )
 
@@ -2490,6 +2493,11 @@ def edit_search_profile(profile_id):
             or "any"
         )
 
+        form.maximum_posting_age_days.data = str(
+            profile.maximum_posting_age_days
+            or 395
+        )
+
     if form.validate_on_submit():
         selected_workplace_types = (
             form.workplace_types.data
@@ -2513,6 +2521,10 @@ def edit_search_profile(profile_id):
         profile.visa_preference = form.visa_preference.data
         profile.overseas_applicant_preference = (
             form.overseas_applicant_preference.data
+        )
+
+        profile.maximum_posting_age_days = int(
+            form.maximum_posting_age_days.data
         )
 
         # Keep the old fields synchronized temporarily.
@@ -2626,21 +2638,73 @@ def saved_discovered_jobs():
 @app.route("/discovered-jobs")
 @login_required
 def discovered_jobs():
-    jobs = (
-        DiscoveredJob.query
+    page = request.args.get(
+        "page",
+        1,
+        type=int,
+    )
+    selected_profile_id = request.args.get(
+        "profile_id",
+        type=int,
+    )
+
+    profiles = (
+        JobSearchProfile.query
         .filter_by(
-            user_id=current_user.id,
-            is_ignored=False
+            user_id=current_user.id
         )
         .order_by(
-            DiscoveredJob.discovered_at.desc()
+            JobSearchProfile.created_at.desc()
         )
         .all()
     )
 
+    valid_profile_ids = {
+        profile.id
+        for profile in profiles
+    }
+
+    if (
+        selected_profile_id
+        and selected_profile_id
+        not in valid_profile_ids
+    ):
+        selected_profile_id = None
+
+    query = (
+        DiscoveredJob.query
+        .filter_by(
+            user_id=current_user.id,
+            is_ignored=False,
+        )
+    )
+
+    if selected_profile_id:
+        query = query.filter(
+            DiscoveredJob.matched_profiles.any(
+                JobSearchProfile.id
+                == selected_profile_id
+            )
+        )
+
+    pagination = (
+        query
+        .order_by(
+            DiscoveredJob.discovered_at.desc()
+        )
+        .paginate(
+            page=page,
+            per_page=20,
+            error_out=False,
+        )
+    )
+
     return render_template(
         "discovered_jobs.html",
-        jobs=jobs
+        jobs=pagination.items,
+        pagination=pagination,
+        profiles=profiles,
+        selected_profile_id=selected_profile_id,
     )
 
 

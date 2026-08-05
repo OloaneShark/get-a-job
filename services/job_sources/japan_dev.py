@@ -121,6 +121,65 @@ class JapanDevJobSource(BaseJobSource):
 
         return "Unknown"
 
+    @classmethod
+    def normalize_overseas_applicant_status(
+        cls,
+        raw_job,
+        candidate_location,
+    ):
+        searchable_parts = [
+            candidate_location,
+            raw_job.get("candidate_location"),
+            raw_job.get("intro"),
+            raw_job.get("details"),
+            raw_job.get("requirements"),
+        ]
+
+        searchable_text = clean_html_text(
+            " ".join(
+                str(value or "")
+                for value in searchable_parts
+            )
+        ).lower()
+
+        negative_phrases = (
+            "japan only",
+            "residents only",
+            "current residents only",
+            "already in japan",
+            "must reside in japan",
+            "must be residing in japan",
+            "currently living in japan",
+            "current residents of japan",
+            "apply from japan only",
+            "domestic applicants only",
+        )
+
+        positive_phrases = (
+            "anywhere",
+            "apply from abroad",
+            "overseas applicants welcome",
+            "open to overseas applicants",
+            "applications from overseas",
+            "overseas applications accepted",
+            "outside japan",
+        )
+
+        if any(
+            phrase in searchable_text
+            for phrase in negative_phrases
+        ):
+            return "No"
+
+        if any(
+            phrase in searchable_text
+            for phrase in positive_phrases
+        ):
+            return "Yes"
+
+        return "Unknown"
+
+
     @staticmethod
     def format_salary(minimum, maximum):
         if minimum is None and maximum is None:
@@ -313,6 +372,30 @@ class JapanDevJobSource(BaseJobSource):
                 for hit in hits
                 if isinstance(hit, dict)
             )
+            
+            if page_number == 0:
+                print(
+                    "JAPAN DEV DATE DEBUG"
+                )
+
+                for debug_job in hits[:10]:
+                    print(
+                        {
+                            "title": debug_job.get("title"),
+                            "job_post_date": (
+                                debug_job.get("job_post_date")
+                            ),
+                            "published_at": (
+                                debug_job.get("published_at")
+                            ),
+                            "created_at": (
+                                debug_job.get("created_at")
+                            ),
+                            "updated_at": (
+                                debug_job.get("updated_at")
+                            ),
+                        }
+                    )
 
             print(
                 "JAPAN DEV FETCH PROGRESS | "
@@ -439,11 +522,10 @@ class JapanDevJobSource(BaseJobSource):
                 )
             ),
             "overseas_applicant_status": (
-                "Yes"
-                if candidate_location == "anywhere"
-                else "No"
-                if candidate_location == "japan only"
-                else "Unknown"
+                self.normalize_overseas_applicant_status(
+                    raw_job,
+                    candidate_location,
+                )
             ),
             # Preserve the Japan Dev listing as the canonical source page.
             "posting_url": posting_url,
@@ -462,9 +544,18 @@ class JapanDevJobSource(BaseJobSource):
                 remote_allowed_locations
             ),
             "candidate_location": candidate_location,
+            # Japan Dev provides a dedicated seniority field.
+            # The shared matcher trusts this before description text.
+            "experience_level": seniority,
             "published_at": (
-                raw_job.get("published_at")
-                or raw_job.get("job_post_date")
+                # Japan Dev's published_at value can describe when
+                # the Algolia record was first published rather than
+                # the job board's visible posting date. Prefer the
+                # dedicated job_post_date for profile age filtering.
+                raw_job.get("job_post_date")
+                or raw_job.get("published_at")
+                or raw_job.get("updated_at")
+                or raw_job.get("created_at")
             ),
             "recruiter_name": None,
             "recruiter_email": None,

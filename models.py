@@ -6,6 +6,30 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
+discovered_job_profile = db.Table(
+    "discovered_job_profile",
+    db.Column(
+        "discovered_job_id",
+        db.Integer,
+        db.ForeignKey(
+            "discovered_job.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    ),
+    db.Column(
+        "search_profile_id",
+        db.Integer,
+        db.ForeignKey(
+            "job_search_profile.id",
+            ondelete="CASCADE",
+        ),
+        primary_key=True,
+    ),
+)
+
+
+
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     
@@ -280,6 +304,12 @@ class DiscoveredJob(db.Model):
     is_ignored = db.Column(db.Boolean, nullable=False, default=False)
     saved_at = db.Column(db.DateTime, nullable=True)
     ignored_at = db.Column(db.DateTime, nullable=True)
+    matched_profiles = db.relationship(
+        "JobSearchProfile",
+        secondary=discovered_job_profile,
+        back_populates="matched_jobs",
+        lazy="selectin",
+    )
     
     
 class ApplicationPackage(db.Model):
@@ -356,6 +386,17 @@ class JobSearchProfile(db.Model):
     experience_levels = db.Column(db.Text, nullable=True)
     visa_preference = db.Column(db.String(20), nullable=False, default="any")
     remote_scope = db.Column(db.String(30), nullable=False, default="any")
+    maximum_posting_age_days = db.Column(
+        db.Integer,
+        nullable=False,
+        default=395,
+    )
+    matched_jobs = db.relationship(
+        "DiscoveredJob",
+        secondary=discovered_job_profile,
+        back_populates="matched_profiles",
+        lazy="selectin",
+    )
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"

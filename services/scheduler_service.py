@@ -102,6 +102,11 @@ def save_discovered_jobs(profile, jobs):
         ).first()
 
         if existing_job:
+            if profile not in existing_job.matched_profiles:
+                existing_job.matched_profiles.append(
+                    profile
+                )
+
             continue
 
         discovered_job = DiscoveredJob(
@@ -136,6 +141,10 @@ def save_discovered_jobs(profile, jobs):
                 "recruiter_contact_source"
             ),
             fingerprint=fingerprint
+        )
+
+        discovered_job.matched_profiles.append(
+            profile
         )
 
         db.session.add(discovered_job)

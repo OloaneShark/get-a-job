@@ -160,6 +160,22 @@
         </div>
 
         <div class="mb-3">
+            {{ form.maximum_posting_age_days.label(class="form-label") }}
+            {{ form.maximum_posting_age_days(class="form-select") }}
+
+            <div class="form-text">
+                Jobs with a known posting date older than this limit
+                are excluded. The largest available window is 13 months.
+            </div>
+
+            {% for error in form.maximum_posting_age_days.errors %}
+                <div class="text-danger mt-1">
+                    {{ error }}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="mb-3">
             {{ form.minimum_salary.label(class="form-label") }}
             {{ form.minimum_salary(class="form-control") }}
 
