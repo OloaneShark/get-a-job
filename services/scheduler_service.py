@@ -2,6 +2,10 @@
 import os
 import re
 from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from sqlalchemy import inspect
+from sqlalchemy.exc import DBAPIError
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -85,6 +89,286 @@ def parse_profile_values(value):
         )
         if item.strip()
     ]
+
+
+DATABASE_DISCONNECT_MARKERS = (
+    "ssl connection has been closed unexpectedly",
+    "server closed the connection unexpectedly",
+    "connection already closed",
+    "connection is closed",
+    "connection not open",
+    "terminating connection",
+    "connection reset by peer",
+    "could not receive data from server",
+    "broken pipe",
+)
+
+
+def snapshot_model(instance):
+    return SimpleNamespace(**{
+        attribute.key: getattr(
+            instance,
+            attribute.key,
+        )
+        for attribute
+        in inspect(instance).mapper.column_attrs
+    })
+
+
+def database_error_is_disconnect(error):
+    if (
+        isinstance(error, DBAPIError)
+        and getattr(
+            error,
+            "connection_invalidated",
+            False,
+        )
+    ):
+        return True
+
+    original_error = getattr(
+        error,
+        "orig",
+        None,
+    )
+    message = (
+        f"{error} {original_error or ''}"
+        .lower()
+    )
+
+    return any(
+        marker in message
+        for marker
+        in DATABASE_DISCONNECT_MARKERS
+    )
+
+
+def run_database_transaction(
+    operation_name,
+    callback,
+    max_attempts=2,
+):
+    last_error = None
+
+    for attempt in range(
+        1,
+        max_attempts + 1,
+    ):
+        # Remove any session that may still own a
+        # connection from before the long crawl.
+        db.session.remove()
+
+        try:
+            result = callback()
+            db.session.commit()
+
+        except Exception as error:
+            last_error = error
+
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+            db.session.remove()
+
+            should_retry = (
+                attempt < max_attempts
+                and database_error_is_disconnect(
+                    error
+                )
+            )
+
+            if not should_retry:
+                raise
+
+            print(
+                "DATABASE CONNECTION RETRY | "
+                f"Operation: {operation_name} | "
+                f"Attempt: {attempt + 1}/"
+                f"{max_attempts} | "
+                f"Error: {error}"
+            )
+
+            # The failed transaction is gone. Dispose
+            # the stale pool so the retry checks out a
+            # newly established PostgreSQL connection.
+            db.engine.dispose()
+            continue
+
+        db.session.remove()
+        return result
+
+    raise last_error
+
+
+def load_scheduler_snapshots():
+    def load():
+        profiles = (
+            JobSearchProfile.query
+            .filter_by(active=True)
+            .all()
+        )
+        source_configs = (
+            JobSourceCompany.query
+            .filter_by(is_active=True)
+            .order_by(
+                JobSourceCompany
+                .source_type.asc(),
+                JobSourceCompany
+                .company_name.asc(),
+            )
+            .all()
+        )
+
+        return (
+            [
+                snapshot_model(profile)
+                for profile in profiles
+            ],
+            [
+                snapshot_model(source_config)
+                for source_config
+                in source_configs
+            ],
+        )
+
+    return run_database_transaction(
+        "load scheduler configuration",
+        load,
+    )
+
+
+def apply_source_status_updates(
+    source_status_updates,
+):
+    for update in source_status_updates:
+        source_config = db.session.get(
+            JobSourceCompany,
+            update["id"],
+        )
+
+        if source_config is None:
+            continue
+
+        source_config.last_checked_at = (
+            update["last_checked_at"]
+        )
+        source_config.last_check_status = (
+            update["last_check_status"]
+        )
+        source_config.last_check_error = (
+            update["last_check_error"]
+        )
+
+
+def persist_profile_results(
+    profile_id,
+    jobs,
+    matched_count,
+    source_errors,
+    source_status_updates,
+):
+    def persist():
+        profile = db.session.get(
+            JobSearchProfile,
+            profile_id,
+        )
+
+        if (
+            profile is None
+            or not profile.active
+        ):
+            return {
+                "profile_name": None,
+                "saved_count": 0,
+                "skipped": True,
+            }
+
+        apply_source_status_updates(
+            source_status_updates
+        )
+
+        saved_count = save_discovered_jobs(
+            profile,
+            jobs,
+        )
+
+        profile.last_searched_at = (
+            datetime.now(
+                timezone.utc
+            )
+        )
+        profile.last_result_count = (
+            saved_count
+        )
+
+        if source_errors:
+            profile.last_search_status = (
+                "Completed With Errors"
+            )
+            profile.last_search_error = (
+                "\n".join(
+                    source_errors
+                )
+            )
+        else:
+            profile.last_search_status = (
+                "Completed"
+            )
+            profile.last_search_error = None
+
+        return {
+            "profile_name": profile.name,
+            "matched_count": matched_count,
+            "saved_count": saved_count,
+            "skipped": False,
+        }
+
+    return run_database_transaction(
+        (
+            "save search results for "
+            f"profile {profile_id}"
+        ),
+        persist,
+    )
+
+
+def persist_profile_failure(
+    profile_id,
+    error,
+):
+    def persist():
+        profile = db.session.get(
+            JobSearchProfile,
+            profile_id,
+        )
+
+        if profile is None:
+            return None
+
+        profile.last_searched_at = (
+            datetime.now(
+                timezone.utc
+            )
+        )
+        profile.last_result_count = 0
+        profile.last_search_status = (
+            "Failed"
+        )
+        profile.last_search_error = (
+            str(error)
+        )
+
+        return profile.name
+
+    return run_database_transaction(
+        (
+            "record search failure for "
+            f"profile {profile_id}"
+        ),
+        persist,
+    )
 
 
 def save_discovered_jobs(
@@ -193,20 +477,6 @@ def save_discovered_jobs(
     return saved_count
 
 
-def get_active_source_configs():
-    return (
-        JobSourceCompany.query
-        .filter_by(is_active=True)
-        .order_by(
-            JobSourceCompany
-            .source_type.asc(),
-            JobSourceCompany
-            .company_name.asc(),
-        )
-        .all()
-    )
-
-
 def create_global_sources():
     return {
         source_type: create_source(
@@ -294,14 +564,6 @@ def run_configured_source(
             )
         )
 
-    source_config.last_checked_at = (
-        datetime.now(timezone.utc)
-    )
-    source_config.last_check_status = (
-        "Completed"
-    )
-    source_config.last_check_error = None
-
     return jobs
 
 
@@ -346,6 +608,7 @@ def process_search_profile(
 ):
     all_matching_jobs = []
     source_errors = []
+    source_status_updates = []
 
     keywords = parse_profile_values(
         profile.keywords
@@ -378,6 +641,10 @@ def process_search_profile(
     # Run company-configured ATS sources such as:
     # Greenhouse, Lever, and Ashby.
     for source_config in source_configs:
+        checked_at = datetime.now(
+            timezone.utc
+        )
+
         try:
             source_jobs = (
                 run_configured_source(
@@ -388,6 +655,14 @@ def process_search_profile(
             all_matching_jobs.extend(
                 source_jobs
             )
+            source_status_updates.append({
+                "id": source_config.id,
+                "last_checked_at": checked_at,
+                "last_check_status": (
+                    "Completed"
+                ),
+                "last_check_error": None,
+            })
 
             print(
                 f"{source_config.source_type.upper()} "
@@ -396,15 +671,12 @@ def process_search_profile(
             )
 
         except Exception as error:
-            source_config.last_checked_at = (
-                datetime.now(timezone.utc)
-            )
-            source_config.last_check_status = (
-                "Failed"
-            )
-            source_config.last_check_error = (
-                str(error)
-            )
+            source_status_updates.append({
+                "id": source_config.id,
+                "last_checked_at": checked_at,
+                "last_check_status": "Failed",
+                "last_check_error": str(error),
+            })
 
             error_message = (
                 f"{source_config.company_name} "
@@ -457,32 +729,34 @@ def process_search_profile(
                 error_message,
             )
 
-    saved_count = save_discovered_jobs(
-        profile,
-        all_matching_jobs,
-    )
-
     return (
         len(all_matching_jobs),
-        saved_count,
+        all_matching_jobs,
         source_errors,
+        source_status_updates,
     )
 
 
 def process_active_search_profiles(app):
     with app.app_context():
-        profiles = (
-            JobSearchProfile.query
-            .filter_by(active=True)
-            .all()
-        )
+        try:
+            (
+                profiles,
+                source_configs,
+            ) = load_scheduler_snapshots()
+
+        except Exception as error:
+            print(
+                "JOB SEARCH SCHEDULER "
+                "DATABASE ERROR:",
+                repr(error),
+            )
+            return
+
         profile_ids = [
             profile.id
             for profile in profiles
         ]
-        source_configs = (
-            get_active_source_configs()
-        )
         global_sources = (
             create_global_sources()
         )
@@ -510,103 +784,80 @@ def process_active_search_profiles(app):
             "total sources."
         )
 
-        # Remote OK and We Work Remotely use this
-        # hook to build one normalized discovery feed
-        # for every active profile. Other sources keep
-        # their existing cache behavior unchanged.
+        # At this point profiles and source configs are
+        # plain snapshots. No PostgreSQL connection is
+        # held during the network-heavy preparation or
+        # source crawling below.
         prepare_global_sources(
             profiles,
             global_sources,
         )
 
-        for profile_id in profile_ids:
-            profile = db.session.get(
-                JobSearchProfile,
-                profile_id,
-            )
-
-            if (
-                not profile
-                or not profile.active
-            ):
+        for profile in profiles:
+            if not profile.active:
                 continue
 
             try:
                 (
                     matched_count,
-                    saved_count,
+                    matching_jobs,
                     source_errors,
+                    source_status_updates,
                 ) = process_search_profile(
                     profile,
                     source_configs,
                     global_sources,
                 )
 
-                profile.last_searched_at = (
-                    datetime.now(
-                        timezone.utc
-                    )
+                result = persist_profile_results(
+                    profile.id,
+                    matching_jobs,
+                    matched_count,
+                    source_errors,
+                    source_status_updates,
                 )
 
-                # This remains the number of newly saved jobs,
-                # matching the current behavior of your app.
-                profile.last_result_count = (
-                    saved_count
-                )
-
-                if source_errors:
-                    profile.last_search_status = (
-                        "Completed With Errors"
+                if result["skipped"]:
+                    print(
+                        "SEARCH PROFILE SKIPPED | "
+                        f"Profile ID: {profile.id} | "
+                        "Profile was removed or disabled "
+                        "during the crawl."
                     )
-                    profile.last_search_error = (
-                        "\n".join(
-                            source_errors
-                        )
-                    )
-                else:
-                    profile.last_search_status = (
-                        "Completed"
-                    )
-                    profile.last_search_error = (
-                        None
-                    )
-
-                db.session.commit()
+                    continue
 
                 print(
                     f"SEARCH COMPLETE: "
-                    f"{profile.name} | "
+                    f"{result['profile_name']} | "
                     f"{matched_count} matched | "
-                    f"{saved_count} newly saved."
+                    f"{result['saved_count']} "
+                    "newly saved."
                 )
 
             except Exception as error:
-                db.session.rollback()
-
-                profile = db.session.get(
-                    JobSearchProfile,
-                    profile_id,
-                )
-
-                if profile:
-                    profile.last_searched_at = (
-                        datetime.now(
-                            timezone.utc
+                try:
+                    failure_profile_name = (
+                        persist_profile_failure(
+                            profile.id,
+                            error,
                         )
                     )
-                    profile.last_result_count = 0
-                    profile.last_search_status = (
-                        "Failed"
+                except Exception as status_error:
+                    failure_profile_name = (
+                        profile.name
                     )
-                    profile.last_search_error = (
-                        str(error)
+                    print(
+                        "SEARCH PROFILE FAILURE "
+                        "STATUS ERROR | "
+                        f"Profile ID: "
+                        f"{profile.id} | "
+                        f"Error: {status_error}"
                     )
-
-                    db.session.commit()
 
                 print(
                     "SEARCH PROFILE ERROR: "
-                    f"{profile_id}:",
+                    f"{profile.id} "
+                    f"({failure_profile_name or profile.name}):",
                     repr(error),
                 )
 
