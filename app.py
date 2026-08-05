@@ -555,7 +555,18 @@ def job_source_candidates():
 @app.route("/admin/job-source-candidates/<int:candidate_id>/approve", methods=["POST"])
 @login_required
 def approve_job_source_candidate(candidate_id):
+    ajax_request = (
+        request.headers.get("X-Requested-With")
+        == "XMLHttpRequest"
+    )
+
     if not current_user.is_admin:
+        if ajax_request:
+            return jsonify({
+                "success": False,
+                "message": "Administrator access is required.",
+            }), 403
+
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
@@ -564,10 +575,15 @@ def approve_job_source_candidate(candidate_id):
     )
 
     if candidate.validation_status != "valid":
-        flash(
-            "Only validated sources can be approved.",
-            "warning"
-        )
+        message = "Only validated sources can be approved."
+
+        if ajax_request:
+            return jsonify({
+                "success": False,
+                "message": message,
+            }), 409
+
+        flash(message, "warning")
         return redirect(
             url_for("job_source_candidates")
         )
@@ -581,37 +597,46 @@ def approve_job_source_candidate(candidate_id):
         candidate.validation_status = "approved"
         db.session.commit()
 
-        flash(
-            "That source already exists and was marked approved.",
-            "info"
+        message = (
+            "That source already exists and was marked approved."
+        )
+        source_id = existing_source.id
+        category = "info"
+
+    else:
+        source = JobSourceCompany(
+            company_name=(
+                candidate.company_name
+                or candidate.source_identifier
+            ),
+            source_type=candidate.source_type,
+            source_identifier=candidate.source_identifier,
+            careers_url=candidate.discovered_url,
+            is_active=True
         )
 
-        return redirect(
-            url_for("job_source_candidates")
+        db.session.add(source)
+        candidate.validation_status = "approved"
+        db.session.commit()
+
+        message = (
+            f"{source.company_name} was approved and activated."
         )
+        source_id = source.id
+        category = "success"
 
-    source = JobSourceCompany(
-        company_name=(
-            candidate.company_name
-            or candidate.source_identifier
-        ),
-        source_type=candidate.source_type,
-        source_identifier=candidate.source_identifier,
-        careers_url=candidate.discovered_url,
-        is_active=True
-    )
+    if ajax_request:
+        return jsonify({
+            "success": True,
+            "action": "approve",
+            "candidate_id": candidate.id,
+            "source_id": source_id,
+            "message": message,
+            "category": category,
+            "remove_row": True,
+        })
 
-    db.session.add(source)
-
-    candidate.validation_status = "approved"
-
-    db.session.commit()
-
-    flash(
-        f"{source.company_name} was approved and activated.",
-        "success"
-    )
-
+    flash(message, category)
     return redirect(
         url_for("job_source_candidates")
     )
@@ -709,7 +734,18 @@ def validate_job_source_candidate(candidate_id):
 @app.route("/admin/job-source-candidates/<int:candidate_id>/reject", methods=["POST"])
 @login_required
 def reject_job_source_candidate(candidate_id):
+    ajax_request = (
+        request.headers.get("X-Requested-With")
+        == "XMLHttpRequest"
+    )
+
     if not current_user.is_admin:
+        if ajax_request:
+            return jsonify({
+                "success": False,
+                "message": "Administrator access is required.",
+            }), 403
+
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
@@ -725,11 +761,21 @@ def reject_job_source_candidate(candidate_id):
 
     db.session.commit()
 
-    flash(
-        "Source rejected and blocked from future discovery.",
-        "info"
+    message = (
+        "Source rejected and blocked from future discovery."
     )
 
+    if ajax_request:
+        return jsonify({
+            "success": True,
+            "action": "reject",
+            "candidate_id": candidate.id,
+            "message": message,
+            "category": "info",
+            "remove_row": True,
+        })
+
+    flash(message, "info")
     return redirect(
         url_for("job_source_candidates")
     )

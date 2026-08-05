@@ -84,6 +84,13 @@
         </div>
     </div>
 
+    <div
+        id="candidate-action-status"
+        class="alert d-none"
+        role="status"
+        aria-live="polite"
+    ></div>
+
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h4 class="mb-1">Discovered Candidates</h4>
@@ -159,7 +166,10 @@
 
             {% if candidates %}
 
-                <div class="table-responsive">
+                <div
+                    id="candidate-table-container"
+                    class="table-responsive"
+                >
                     <table class="table table-dark table-striped align-middle">
 
                         <thead>
@@ -174,11 +184,13 @@
                             </tr>
                         </thead>
 
-                        <tbody>
+                        <tbody id="candidate-table-body">
 
                             {% for candidate in candidates %}
 
-                                <tr>
+                                <tr
+                                    data-candidate-row="{{ candidate.id }}"
+                                >
                                     <td>
                                         {{ candidate.company_name or candidate.source_identifier }}
                                     </td>
@@ -271,6 +283,8 @@
                                                         'approve_job_source_candidate',
                                                         candidate_id=candidate.id
                                                     ) }}"
+                                                    class="candidate-action-form"
+                                                    data-action="approve"
                                                 >
                                                     <input
                                                         type="hidden"
@@ -296,6 +310,8 @@
                                                         'reject_job_source_candidate',
                                                         candidate_id=candidate.id
                                                     ) }}"
+                                                    class="candidate-action-form"
+                                                    data-action="reject"
                                                 >
                                                     <input
                                                         type="hidden"
@@ -334,17 +350,25 @@
                     </table>
                 </div>
 
-            {% else %}
-
-                <p class="helper-text mb-0">
-                    No source candidates have been discovered yet.
-                </p>
-
             {% endif %}
+
+            <p
+                id="candidate-empty-state"
+                class="helper-text mb-0{% if candidates %} d-none{% endif %}"
+            >
+                No source candidates are awaiting review.
+            </p>
 
         </div>
     </div>
 
 </div>
+
+<script
+    src="{{ url_for(
+        'static',
+        filename='js/job_source_candidates.js'
+    ) }}"
+></script>
 
 {% endblock %}
