@@ -145,6 +145,7 @@ def fetch_with_retries(
 
         except Exception as error:
             last_error = error
+            error_text = str(error)
 
             print(
                 "COMMON CRAWL REQUEST FAILED | "
@@ -153,6 +154,21 @@ def fetch_with_retries(
                 f"{MAX_REQUEST_ATTEMPTS} | "
                 f"Error: {error}"
             )
+
+            # Retrying a malformed or missing page will
+            # produce the same result and only delays the
+            # discovery request. Retry temporary server
+            # failures, but stop immediately for 4xx errors.
+            permanent_client_error = any(
+                status_text in error_text
+                for status_text in (
+                    "400 Client Error",
+                    "404 Client Error",
+                )
+            )
+
+            if permanent_client_error:
+                break
 
             if attempt < MAX_REQUEST_ATTEMPTS:
                 wait_seconds = (
@@ -480,9 +496,6 @@ def fetch_common_crawl_page(
                 COMMON_CRAWL_PAGE_SIZE
             ),
             "page": int(page),
-            "limit": (
-                MAX_RECORDS_PER_PAGE
-            ),
         },
         timeout=60,
         label=(

@@ -8,7 +8,8 @@ GREENHOUSE_HOSTS = {
 }
 
 LEVER_HOSTS = {
-    "jobs.lever.co"
+    "jobs.lever.co",
+    "jobs.eu.lever.co",
 }
 
 ASHBY_HOSTS = {

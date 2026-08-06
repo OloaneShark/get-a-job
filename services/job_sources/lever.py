@@ -1,5 +1,6 @@
 
 import os
+from urllib.parse import urlparse
 
 from services.job_sources.base import BaseJobSource
 from services.job_sources.http_client import (
@@ -35,16 +36,45 @@ class LeverJobSource(BaseJobSource):
     source_type = "lever"
     requires_company_config = True
 
-    base_url = "https://api.lever.co/v0/postings"
+    global_base_url = (
+        "https://api.lever.co/v0/postings"
+    )
+    eu_base_url = (
+        "https://api.eu.lever.co/v0/postings"
+    )
 
-    def fetch_company_jobs(self, company_slug):
+    @classmethod
+    def get_api_base_url(
+        cls,
+        careers_url=None,
+    ):
+        hostname = (
+            urlparse(
+                str(careers_url or "")
+            ).hostname
+            or ""
+        ).lower()
+
+        if hostname == "jobs.eu.lever.co":
+            return cls.eu_base_url
+
+        return cls.global_base_url
+
+    def fetch_company_jobs(
+        self,
+        company_slug,
+        careers_url=None,
+    ):
         if not company_slug or not company_slug.strip():
             raise ValueError(
                 "A Lever company slug is required."
             )
 
         company_slug = company_slug.strip()
-        url = f"{self.base_url}/{company_slug}"
+        base_url = self.get_api_base_url(
+            careers_url
+        )
+        url = f"{base_url}/{company_slug}"
 
         payload = fetch_json(
             url,
@@ -112,7 +142,8 @@ class LeverJobSource(BaseJobSource):
     def search_company(
         self,
         company_slug,
-        company_name
+        company_name,
+        careers_url=None,
     ):
         if not company_name or not company_name.strip():
             raise ValueError(
@@ -120,7 +151,8 @@ class LeverJobSource(BaseJobSource):
             )
 
         raw_jobs = self.fetch_company_jobs(
-            company_slug
+            company_slug,
+            careers_url=careers_url,
         )
 
         normalized_jobs = []
@@ -145,8 +177,17 @@ class LeverJobSource(BaseJobSource):
             )
 
         jobs = self.search_company(
-            company_slug=source_config.source_identifier,
-            company_name=source_config.company_name
+            company_slug=(
+                source_config.source_identifier
+            ),
+            company_name=(
+                source_config.company_name
+            ),
+            careers_url=getattr(
+                source_config,
+                "careers_url",
+                None,
+            ),
         )
 
         if source_debug_enabled():

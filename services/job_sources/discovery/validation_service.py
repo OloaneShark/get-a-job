@@ -8,9 +8,15 @@ MINIMUM_VALID_JOBS = 1
 
 
 class SourceValidationConfig:
-    def __init__(self, company_name, source_identifier):
+    def __init__(
+        self,
+        company_name,
+        source_identifier,
+        careers_url=None,
+    ):
         self.company_name = company_name
         self.source_identifier = source_identifier
+        self.careers_url = careers_url
 
 
 def has_usable_job_data(job):
@@ -79,12 +85,25 @@ def validate_source_candidate(candidate):
                 candidate.company_name
                 or candidate.source_identifier
             ),
-            source_identifier=candidate.source_identifier
+            source_identifier=(
+                candidate.source_identifier
+            ),
+            careers_url=(
+                candidate.discovered_url
+            ),
         )
 
-        jobs = source.fetch_company_jobs(
-            temporary_config.source_identifier
-        )
+        if candidate.source_type == "lever":
+            jobs = source.fetch_company_jobs(
+                temporary_config.source_identifier,
+                careers_url=(
+                    temporary_config.careers_url
+                ),
+            )
+        else:
+            jobs = source.fetch_company_jobs(
+                temporary_config.source_identifier
+            )
 
         if not isinstance(jobs, list):
             raise ValueError(
