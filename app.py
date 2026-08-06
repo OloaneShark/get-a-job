@@ -95,7 +95,11 @@ from services.account_security_service import (
     get_client_ip,
     record_security_event
 )
-from services.scheduler_service import start_scheduler
+from services.scheduler_service import (
+    get_automatic_source_discovery_status,
+    queue_automatic_source_discovery,
+    start_scheduler,
+)
 from services.job_sources.source_utils import (
     extract_ashby_job_board_name,
     extract_greenhouse_board_token,
@@ -781,71 +785,99 @@ def reject_job_source_candidate(candidate_id):
     )
 
 
-@app.route("/admin/job-source-candidates/run-discovery", methods=["POST"])
+@app.route(
+    "/admin/job-source-candidates/run-discovery",
+    methods=["POST"],
+)
 @login_required
 def run_job_source_discovery():
+    ajax_request = (
+        request.headers.get("X-Requested-With")
+        == "XMLHttpRequest"
+    )
+
     if not current_user.is_admin:
-        flash(
-            "Administrator access is required.",
-            "danger"
-        )
+        message = "Administrator access is required."
+
+        if ajax_request:
+            return jsonify({
+                "success": False,
+                "message": message,
+            }), 403
+
+        flash(message, "danger")
         return redirect(url_for("dashboard"))
 
     try:
-        results = run_common_crawl_discovery(
-            limit_per_source=20
-        )
-
-        source_counts = results["by_source"]
-        source_failures = results.get(
-            "source_failures",
-            {}
-        )
-
-        failed_source_text = ""
-
-        if source_failures:
-            failed_source_text = (
-                " Sources temporarily unavailable: "
-                + ", ".join(
-                    source_type.title()
-                    for source_type in source_failures
-                )
-                + "."
-            )
-
-        flash(
-            f"Automatic discovery complete. "
-            f"{results['found']} plausible boards found: "
-            f"{source_counts.get('lever', 0)} Lever, "
-            f"{source_counts.get('greenhouse', 0)} Greenhouse, "
-            f"{source_counts.get('ashby', 0)} Ashby. "
-            f"{results['created']} valid candidates added, "
-            f"{results['invalid_rejected']} invalid boards discarded, "
-            f"{results['already_active']} already active, "
-            f"{results['already_blocked']} previously rejected, "
-            f"{results['already_candidate']} already awaiting review, "
-            f"{results['failed']} failed."
-            f"{failed_source_text}",
-            "success"
+        queued, status = queue_automatic_source_discovery(
+            app,
+            limit_per_source=20,
         )
 
     except Exception as error:
-        db.session.rollback()
-
         print(
-            f"AUTOMATIC DISCOVERY FAILED | "
+            "AUTOMATIC DISCOVERY QUEUE FAILED | "
             f"Error: {error}"
         )
-
-        flash(
-            f"Automatic discovery failed: {error}",
-            "danger"
+        message = (
+            "Automatic discovery could not be started: "
+            f"{error}"
         )
 
-    return redirect(
-        url_for("job_source_candidates")
-    )
+        if ajax_request:
+            return jsonify({
+                "success": False,
+                "message": message,
+            }), 500
+
+        flash(message, "danger")
+        return redirect(url_for("job_source_candidates"))
+
+    if queued:
+        message = (
+            "Automatic discovery started in the background. "
+            "This page will update when it finishes."
+        )
+        response_status = 202
+        category = "info"
+    else:
+        message = (
+            "Automatic discovery is already queued or running."
+        )
+        response_status = 200
+        category = "warning"
+
+    if ajax_request:
+        return jsonify({
+            "success": True,
+            "queued": queued,
+            "state": status.get("state"),
+            "run_id": status.get("run_id"),
+            "message": message,
+            "category": category,
+        }), response_status
+
+    flash(message, category)
+    return redirect(url_for("job_source_candidates"))
+
+
+@app.route(
+    "/admin/job-source-candidates/discovery-status",
+    methods=["GET"],
+)
+@login_required
+def job_source_discovery_status():
+    if not current_user.is_admin:
+        return jsonify({
+            "success": False,
+            "message": "Administrator access is required.",
+        }), 403
+
+    status = get_automatic_source_discovery_status()
+    return jsonify({
+        "success": True,
+        **status,
+    })
 
 
 @app.route("/admin/job-source-candidates/cleanup-invalid", methods=["POST"])

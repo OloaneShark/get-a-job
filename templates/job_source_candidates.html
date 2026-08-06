@@ -37,8 +37,12 @@
                 </div>
 
                 <form
+                    id="automatic-discovery-form"
                     method="POST"
                     action="{{ url_for('run_job_source_discovery') }}"
+                    data-status-url="{{ url_for(
+                        'job_source_discovery_status'
+                    ) }}"
                 >
                     <input
                         type="hidden"
@@ -47,6 +51,7 @@
                     >
 
                     <button
+                        id="automatic-discovery-button"
                         type="submit"
                         class="btn btn-primary"
                     >

@@ -10,6 +10,13 @@
     const emptyState = document.getElementById(
         "candidate-empty-state"
     );
+    const discoveryForm = document.getElementById(
+        "automatic-discovery-form"
+    );
+    const discoveryButton = document.getElementById(
+        "automatic-discovery-button"
+    );
+    let discoveryPollTimer = null;
 
     if (!statusElement) {
         return;
@@ -76,6 +83,138 @@
             updateEmptyState();
         }, 170);
     };
+
+    const setDiscoveryButtonState = (running) => {
+        if (!discoveryButton) {
+            return;
+        }
+
+        discoveryButton.disabled = running;
+        discoveryButton.textContent = running
+            ? "Discovery Running..."
+            : "Run Automatic Discovery";
+    };
+
+    const scheduleDiscoveryPoll = () => {
+        window.clearTimeout(discoveryPollTimer);
+        discoveryPollTimer = window.setTimeout(
+            checkDiscoveryStatus,
+            3000
+        );
+    };
+
+    const handleCompletedDiscovery = (payload) => {
+        setDiscoveryButtonState(false);
+        showStatus(payload.message, "success");
+
+        const storageKey = "completed-source-discovery-run";
+        const previousRun = window.sessionStorage.getItem(storageKey);
+
+        if (payload.run_id && payload.run_id !== previousRun) {
+            window.sessionStorage.setItem(storageKey, payload.run_id);
+            window.setTimeout(() => {
+                window.location.reload();
+            }, 700);
+        }
+    };
+
+    const checkDiscoveryStatus = async () => {
+        if (!discoveryForm) {
+            return;
+        }
+
+        try {
+            const response = await fetch(
+                discoveryForm.dataset.statusUrl,
+                {
+                    headers: {"Accept": "application/json"},
+                    credentials: "same-origin",
+                    cache: "no-store",
+                }
+            );
+            const payload = await response.json();
+
+            if (!response.ok || !payload.success) {
+                throw new Error(
+                    payload.message || "Discovery status failed."
+                );
+            }
+
+            if (payload.state === "queued" || payload.state === "running") {
+                setDiscoveryButtonState(true);
+                showStatus(payload.message, "info");
+                scheduleDiscoveryPoll();
+                return;
+            }
+
+            if (payload.state === "completed") {
+                handleCompletedDiscovery(payload);
+                return;
+            }
+
+            if (payload.state === "failed") {
+                setDiscoveryButtonState(false);
+                showStatus(payload.message, "danger");
+                return;
+            }
+
+            setDiscoveryButtonState(false);
+
+        } catch (error) {
+            setDiscoveryButtonState(false);
+            showStatus(
+                error.message || "Discovery status could not be checked.",
+                "danger"
+            );
+        }
+    };
+
+    if (discoveryForm) {
+        discoveryForm.addEventListener("submit", async (event) => {
+            event.preventDefault();
+
+            if (discoveryButton && discoveryButton.disabled) {
+                return;
+            }
+
+            setDiscoveryButtonState(true);
+            showStatus("Starting automatic discovery...", "info");
+
+            try {
+                const response = await fetch(
+                    discoveryForm.action,
+                    {
+                        method: "POST",
+                        body: new FormData(discoveryForm),
+                        headers: {
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Accept": "application/json",
+                        },
+                        credentials: "same-origin",
+                    }
+                );
+                const payload = await response.json();
+
+                if (!response.ok || !payload.success) {
+                    throw new Error(
+                        payload.message || "Discovery could not be started."
+                    );
+                }
+
+                showStatus(payload.message, payload.category || "info");
+                scheduleDiscoveryPoll();
+
+            } catch (error) {
+                setDiscoveryButtonState(false);
+                showStatus(
+                    error.message || "Discovery could not be started.",
+                    "danger"
+                );
+            }
+        });
+
+        checkDiscoveryStatus();
+    }
 
     document.addEventListener(
         "submit",

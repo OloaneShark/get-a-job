@@ -1,6 +1,8 @@
 
 import os
 import re
+import threading
+import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -21,11 +23,32 @@ from services.job_sources.job_match_service import (
     format_match_diagnostics,
 )
 from services.job_sources.utils import build_job_fingerprint
+from services.job_sources.discovery.common_crawl_discovery import (
+    run_common_crawl_discovery,
+)
 
 
 scheduler = BackgroundScheduler(
     timezone="UTC"
 )
+
+
+AUTOMATIC_DISCOVERY_JOB_ID = (
+    "automatic_job_source_discovery"
+)
+_automatic_discovery_lock = threading.Lock()
+_automatic_discovery_status = {
+    "run_id": None,
+    "state": "idle",
+    "message": (
+        "Automatic discovery has not been run "
+        "in this process."
+    ),
+    "started_at": None,
+    "completed_at": None,
+    "error": None,
+    "results": None,
+}
 
 
 def environment_flag(name, default=False):
@@ -877,6 +900,182 @@ def process_active_search_profiles(app):
                     f"({failure_profile_name or profile.name}):",
                     repr(error),
                 )
+
+
+def serialize_datetime(value):
+    if value is None:
+        return None
+
+    return value.isoformat()
+
+
+def set_automatic_discovery_status(**updates):
+    with _automatic_discovery_lock:
+        _automatic_discovery_status.update(updates)
+
+
+def get_automatic_source_discovery_status():
+    with _automatic_discovery_lock:
+        status = dict(_automatic_discovery_status)
+
+    status["started_at"] = serialize_datetime(
+        status.get("started_at")
+    )
+    status["completed_at"] = serialize_datetime(
+        status.get("completed_at")
+    )
+    return status
+
+
+def format_automatic_discovery_message(results):
+    source_counts = results.get("by_source", {})
+    source_failures = results.get("source_failures", {})
+    failed_source_text = ""
+
+    if source_failures:
+        failed_source_text = (
+            " Sources temporarily unavailable: "
+            + ", ".join(
+                source_type.title()
+                for source_type in source_failures
+            )
+            + "."
+        )
+
+    return (
+        "Automatic discovery complete. "
+        f"{results.get('found', 0)} plausible boards found: "
+        f"{source_counts.get('lever', 0)} Lever, "
+        f"{source_counts.get('greenhouse', 0)} Greenhouse, "
+        f"{source_counts.get('ashby', 0)} Ashby. "
+        f"{results.get('created', 0)} valid candidates added, "
+        f"{results.get('invalid_rejected', 0)} invalid boards discarded, "
+        f"{results.get('already_active', 0)} already active, "
+        f"{results.get('already_blocked', 0)} previously rejected, "
+        f"{results.get('already_candidate', 0)} already awaiting review, "
+        f"{results.get('failed', 0)} failed."
+        f"{failed_source_text}"
+    )
+
+
+def process_automatic_source_discovery(
+    app,
+    run_id,
+    limit_per_source=20,
+):
+    set_automatic_discovery_status(
+        run_id=run_id,
+        state="running",
+        message="Automatic discovery is running.",
+        started_at=datetime.now(timezone.utc),
+        completed_at=None,
+        error=None,
+        results=None,
+    )
+
+    print(
+        "AUTOMATIC DISCOVERY BACKGROUND START | "
+        f"Run ID: {run_id}"
+    )
+
+    with app.app_context():
+        try:
+            results = run_common_crawl_discovery(
+                limit_per_source=limit_per_source
+            )
+            message = format_automatic_discovery_message(results)
+
+            set_automatic_discovery_status(
+                run_id=run_id,
+                state="completed",
+                message=message,
+                completed_at=datetime.now(timezone.utc),
+                error=None,
+                results=results,
+            )
+
+            print(
+                "AUTOMATIC DISCOVERY BACKGROUND COMPLETE | "
+                f"Run ID: {run_id} | "
+                f"Created: {results.get('created', 0)}"
+            )
+
+        except Exception as error:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
+            error_message = str(error)
+            set_automatic_discovery_status(
+                run_id=run_id,
+                state="failed",
+                message=(
+                    "Automatic discovery failed: "
+                    f"{error_message}"
+                ),
+                completed_at=datetime.now(timezone.utc),
+                error=error_message,
+                results=None,
+            )
+
+            print(
+                "AUTOMATIC DISCOVERY BACKGROUND FAILED | "
+                f"Run ID: {run_id} | Error: {error}"
+            )
+
+        finally:
+            db.session.remove()
+
+
+def queue_automatic_source_discovery(
+    app,
+    limit_per_source=20,
+):
+    with _automatic_discovery_lock:
+        current_state = _automatic_discovery_status["state"]
+
+        if current_state in {"queued", "running"}:
+            return False, dict(_automatic_discovery_status)
+
+        run_id = uuid.uuid4().hex
+        _automatic_discovery_status.update({
+            "run_id": run_id,
+            "state": "queued",
+            "message": "Automatic discovery was queued.",
+            "started_at": None,
+            "completed_at": None,
+            "error": None,
+            "results": None,
+        })
+
+    try:
+        scheduler.add_job(
+            process_automatic_source_discovery,
+            "date",
+            run_date=datetime.now(timezone.utc),
+            args=[app, run_id, limit_per_source],
+            id=AUTOMATIC_DISCOVERY_JOB_ID,
+            replace_existing=False,
+            max_instances=1,
+            misfire_grace_time=300,
+        )
+
+    except Exception as error:
+        error_message = str(error)
+        set_automatic_discovery_status(
+            run_id=run_id,
+            state="failed",
+            message=(
+                "Automatic discovery could not be queued: "
+                f"{error_message}"
+            ),
+            completed_at=datetime.now(timezone.utc),
+            error=error_message,
+        )
+        raise
+
+    return True, get_automatic_source_discovery_status()
 
 
 def start_scheduler(app):
