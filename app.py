@@ -431,6 +431,82 @@ def job_sources():
     )
 
 
+@app.route("/admin/job-sources/<int:source_id>/toggle", methods=["POST"])
+@login_required
+def toggle_job_source(source_id):
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    source = db.session.get(
+        JobSourceCompany,
+        source_id
+    )
+
+    if source is None:
+        flash("Job source not found.", "warning")
+        return redirect(url_for("job_sources"))
+
+    try:
+        source.is_active = not source.is_active
+        db.session.commit()
+
+        state = "enabled" if source.is_active else "disabled"
+
+        flash(
+            f"{source.company_name} was {state}.",
+            "success"
+        )
+
+    except Exception as error:
+        db.session.rollback()
+        print("JOB SOURCE TOGGLE ERROR:", repr(error))
+        flash(
+            "The job source status could not be changed.",
+            "danger"
+        )
+
+    return redirect(url_for("job_sources"))
+
+
+@app.route("/admin/job-sources/<int:source_id>/delete", methods=["POST"])
+@login_required
+def delete_job_source(source_id):
+    if not current_user.is_admin:
+        flash("Administrator access is required.", "danger")
+        return redirect(url_for("dashboard"))
+
+    source = db.session.get(
+        JobSourceCompany,
+        source_id
+    )
+
+    if source is None:
+        flash("Job source not found.", "warning")
+        return redirect(url_for("job_sources"))
+
+    company_name = source.company_name
+
+    try:
+        db.session.delete(source)
+        db.session.commit()
+
+        flash(
+            f"{company_name} job source was deleted.",
+            "success"
+        )
+
+    except Exception as error:
+        db.session.rollback()
+        print("JOB SOURCE DELETE ERROR:", repr(error))
+        flash(
+            "The job source could not be deleted.",
+            "danger"
+        )
+
+    return redirect(url_for("job_sources"))
+
+
 @app.route("/admin/job-sources/new", methods=["GET", "POST"])
 @login_required
 def new_job_source():

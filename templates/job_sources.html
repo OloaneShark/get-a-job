@@ -33,6 +33,7 @@
                         <th>Identifier</th>
                         <th>Status</th>
                         <th>Last Check</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
 
@@ -63,6 +64,51 @@
                                         {{ source.last_check_error }}
                                     </div>
                                 {% endif %}
+                            </td>
+
+                            <td>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for('toggle_job_source', source_id=source.id) }}"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-sm {% if source.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                                        >
+                                            {% if source.is_active %}
+                                                Disable
+                                            {% else %}
+                                                Enable
+                                            {% endif %}
+                                        </button>
+                                    </form>
+
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for('delete_job_source', source_id=source.id) }}"
+                                        onsubmit="return confirm('Delete this job source?');"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-sm btn-outline-danger"
+                                        >
+                                            Delete
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     {% endfor %}
