@@ -105,6 +105,9 @@ from services.job_sources.source_utils import (
     extract_greenhouse_board_token,
     extract_lever_company_slug
 )
+from services.job_sources.workday_crawler import (
+    WorkdayCrawler,
+)
 from services.job_sources.discovery.source_discovery import (detect_source_type)
 from services.job_sources.discovery.validation_service import (validate_source_candidate)
 from services.job_sources.discovery.candidate_service import (ingest_source_urls)
@@ -453,6 +456,11 @@ def new_job_source():
                 
             elif form.source_type.data == "ashby":
                 source_identifier = extract_ashby_job_board_name(
+                    source_identifier
+                )
+
+            elif form.source_type.data == "workday":
+                source_identifier = WorkdayCrawler.canonical_board_url(
                     source_identifier
                 )
 

@@ -6,6 +6,9 @@ from services.job_sources.source_utils import (
     extract_greenhouse_board_token,
     extract_lever_company_slug
 )
+from services.job_sources.workday_crawler import (
+    WorkdayCrawler,
+)
 
 
 def detect_source_type(url):
@@ -44,8 +47,18 @@ def detect_source_type(url):
             extract_ashby_job_board_name(cleaned_url)
         )
 
+    if hostname.endswith(
+        ".myworkdayjobs.com"
+    ):
+        return (
+            "workday",
+            WorkdayCrawler.canonical_board_url(
+                cleaned_url
+            )
+        )
+
     raise ValueError(
         "Unsupported job-board URL. "
-        "Currently supported: Greenhouse, Lever, and Ashby."
+        "Currently supported: Greenhouse, Lever, Ashby, and Workday."
     )
     

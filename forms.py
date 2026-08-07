@@ -390,7 +390,8 @@ class JobSourceCompanyForm(FlaskForm):
         choices=[
             ("greenhouse", "Greenhouse"),
             ("lever", "Lever"),
-            ("ashby", "Ashby")
+            ("ashby", "Ashby"),
+            ("workday", "Workday")
         ],
         validators=[DataRequired()]
     )
@@ -415,7 +416,9 @@ class JobSourceDiscoveryForm(FlaskForm):
                 "Paste one URL per line:\n"
                 "https://jobs.lever.co/mujininc\n"
                 "https://boards.greenhouse.io/remotecom\n"
-                "https://jobs.ashbyhq.com/example"
+                "https://jobs.ashbyhq.com/example\n"
+                "https://nvidia.wd5.myworkdayjobs.com/"
+                "NVIDIAExternalCareerSite"
             )
         }
     )
