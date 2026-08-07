@@ -10,6 +10,7 @@ from services.job_sources.http_client import (
     clean_html_text,
 )
 from services.job_sources.job_match_service import (
+    get_requested_experience_levels,
     job_matches_profile,
     matches_role_title,
 )
@@ -40,17 +41,139 @@ class WorkdayJobSource(BaseJobSource):
     max_detail_candidates_per_profile = 300
     max_detail_workers = 5
 
+    explicit_title_level_patterns = (
+        (
+            "manager",
+            re.compile(
+                r"\b(?:engineering\s+manager|manager|director|"
+                r"head\s+of|vice\s+president|vp)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "principal",
+            re.compile(
+                r"\bprincipal\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "staff",
+            re.compile(
+                r"\bstaff\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "lead",
+            re.compile(
+                r"\b(?:tech(?:nical)?\s+lead|lead)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "senior",
+            re.compile(
+                r"\b(?:senior|sr\.?)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "mid",
+            re.compile(
+                r"\b(?:mid(?:[-\s]+level)?|intermediate)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "junior",
+            re.compile(
+                r"\b(?:junior|jr\.?)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "entry",
+            re.compile(
+                r"\b(?:entry(?:[-\s]+level)?|new\s+grad(?:uate)?|"
+                r"graduate)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "intern",
+            re.compile(
+                r"\b(?:intern|internship|co[-\s]?op|student)\b",
+                re.IGNORECASE,
+            ),
+        ),
+    )
+
+    @classmethod
+    def explicit_title_experience_level(
+        cls,
+        title,
+    ):
+        title = str(
+            title or ""
+        ).strip()
+
+        if not title:
+            return None
+
+        for (
+            level,
+            pattern,
+        ) in cls.explicit_title_level_patterns:
+            if pattern.search(title):
+                return level
+
+        return None
+
+    @classmethod
+    def title_experience_matches_profile(
+        cls,
+        summary,
+        profile,
+    ):
+        requested_levels = (
+            get_requested_experience_levels(
+                profile
+            )
+        )
+
+        if not requested_levels:
+            return True
+
+        explicit_level = (
+            cls.explicit_title_experience_level(
+                summary.get(
+                    "position_title"
+                )
+            )
+        )
+
+        if explicit_level is None:
+            return True
+
+        return (
+            explicit_level
+            in requested_levels
+        )
+
     def fetch_company_jobs(
         self,
         board_url,
     ):
-        """
-        Used by source validation and by search().
-
-        Returns lightweight Workday listing records.
-        """
-
         return WorkdayCrawler.fetch_listings(
+            board_url
+        )
+
+    def fetch_validation_jobs(
+        self,
+        board_url,
+    ):
+        return WorkdayCrawler.fetch_validation_listings(
             board_url
         )
 
@@ -324,6 +447,35 @@ class WorkdayJobSource(BaseJobSource):
                 profile,
             )
         ]
+
+        experience_candidates = [
+            summary
+            for summary in role_candidates
+            if self.title_experience_matches_profile(
+                summary,
+                profile,
+            )
+        ]
+
+        experience_rejected = (
+            len(role_candidates)
+            - len(experience_candidates)
+        )
+
+        print(
+            "WORKDAY PRE-DETAIL FILTER | "
+            f"Company: {company_name} | "
+            f"Role candidates: "
+            f"{len(role_candidates)} | "
+            f"Explicit experience rejected: "
+            f"{experience_rejected} | "
+            f"Detail candidates: "
+            f"{len(experience_candidates)}"
+        )
+
+        role_candidates = (
+            experience_candidates
+        )
 
         if (
             len(role_candidates)
