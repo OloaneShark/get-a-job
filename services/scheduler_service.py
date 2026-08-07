@@ -1085,7 +1085,7 @@ def start_scheduler(app):
     scheduler.add_job(
         process_active_search_profiles,
         "interval",
-        minutes=15,
+        hours=1,
         args=[app],
         id="process_active_search_profiles",
         replace_existing=True,
