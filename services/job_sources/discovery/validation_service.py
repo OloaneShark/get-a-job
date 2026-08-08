@@ -93,13 +93,22 @@ def validate_source_candidate(candidate):
             ),
         )
 
-        if candidate.source_type == "lever":
+        if hasattr(
+            source,
+            "fetch_validation_jobs",
+        ):
+            jobs = source.fetch_validation_jobs(
+                temporary_config.source_identifier
+            )
+
+        elif candidate.source_type == "lever":
             jobs = source.fetch_company_jobs(
                 temporary_config.source_identifier,
                 careers_url=(
                     temporary_config.careers_url
                 ),
             )
+
         else:
             jobs = source.fetch_company_jobs(
                 temporary_config.source_identifier
