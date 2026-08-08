@@ -15,6 +15,7 @@ from services.job_sources.discovery.candidate_service import (
     ingest_source_url,
 )
 from services.job_sources.http_client import fetch_response
+from services.job_sources.workday_crawler import WorkdayCrawler
 
 
 COMMON_CRAWL_COLLECTIONS_URL = (
@@ -42,6 +43,9 @@ DISCOVERY_PATTERNS = {
     ),
     "ashby": (
         "jobs.ashbyhq.com/*",
+    ),
+    "workday": (
+        "*.myworkdayjobs.com/*",
     ),
 }
 
@@ -552,6 +556,54 @@ def normalize_board_record(url):
         parsed.hostname
         or ""
     ).lower()
+
+    if hostname.endswith(
+        ".myworkdayjobs.com"
+    ):
+        try:
+            board = (
+                WorkdayCrawler
+                .parse_board_url(url)
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        site = str(
+            board.get("site")
+            or ""
+        ).strip()
+        lowered_site = site.lower()
+
+        if (
+            not site
+            or lowered_site
+            in RESERVED_IDENTIFIERS
+            or re.fullmatch(
+                r"[a-z]{2}",
+                lowered_site,
+            )
+        ):
+            return None
+
+        canonical_url = (
+            board["canonical_url"]
+        )
+
+        return {
+            "source_type": "workday",
+            "source_identifier": (
+                canonical_url
+            ),
+            "url": canonical_url,
+            "key": (
+                "workday",
+                canonical_url.lower(),
+            ),
+        }
+
     path_parts = [
         unquote(part).strip()
         for part in parsed.path.split("/")
