@@ -98,6 +98,7 @@ GLOBAL_SOURCE_TYPES = [
     "japan_dev",
     "tokyo_dev",
     "adzuna",
+    "jooble",
 ]
 
 
