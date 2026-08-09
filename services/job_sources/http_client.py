@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 import requests
+from urllib.parse import urlsplit, urlunsplit
 
 
 DEFAULT_TIMEOUT = 20
@@ -19,6 +20,60 @@ DEFAULT_HEADERS = {
 
 class JobSourceRequestError(RuntimeError):
     pass
+
+
+def safe_request_url(url):
+    try:
+        parts = urlsplit(
+            str(url or "")
+        )
+
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                "",
+                "",
+            )
+        )
+
+    except Exception:
+        return "<request URL hidden>"
+
+
+def safe_request_error(error):
+    response = getattr(
+        error,
+        "response",
+        None,
+    )
+    status_code = getattr(
+        response,
+        "status_code",
+        None,
+    )
+    reason = getattr(
+        response,
+        "reason",
+        None,
+    )
+
+    parts = [
+        type(error).__name__
+    ]
+
+    if status_code is not None:
+        parts.append(
+            f"HTTP {status_code}"
+        )
+
+    if reason:
+        parts.append(
+            str(reason)
+        )
+
+    return " | ".join(parts)
 
 
 def fetch_response(
@@ -46,12 +101,15 @@ def fetch_response(
 
     except requests.Timeout as error:
         raise JobSourceRequestError(
-            f"Request timed out while accessing {url}"
+            "Request timed out while accessing "
+            f"{safe_request_url(url)}"
         ) from error
 
     except requests.RequestException as error:
         raise JobSourceRequestError(
-            f"Request failed for {url}: {error}"
+            "Request failed for "
+            f"{safe_request_url(url)}: "
+            f"{safe_request_error(error)}"
         ) from error
 
 
@@ -82,12 +140,15 @@ def post_json(
 
     except requests.Timeout as error:
         raise JobSourceRequestError(
-            f"Request timed out while accessing {url}"
+            "Request timed out while accessing "
+            f"{safe_request_url(url)}"
         ) from error
 
     except requests.RequestException as error:
         raise JobSourceRequestError(
-            f"Request failed for {url}: {error}"
+            "Request failed for "
+            f"{safe_request_url(url)}: "
+            f"{safe_request_error(error)}"
         ) from error
 
     try:
@@ -95,7 +156,8 @@ def post_json(
 
     except ValueError as error:
         raise JobSourceRequestError(
-            f"Invalid JSON returned from {url}"
+            "Invalid JSON returned from "
+            f"{safe_request_url(url)}"
         ) from error
 
 
@@ -118,7 +180,8 @@ def fetch_json(
 
     except ValueError as error:
         raise JobSourceRequestError(
-            f"Invalid JSON returned from {url}"
+            "Invalid JSON returned from "
+            f"{safe_request_url(url)}"
         ) from error
 
 

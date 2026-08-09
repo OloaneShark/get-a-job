@@ -97,6 +97,7 @@ GLOBAL_SOURCE_TYPES = [
     "arbeitnow",
     "japan_dev",
     "tokyo_dev",
+    "adzuna",
 ]
 
 

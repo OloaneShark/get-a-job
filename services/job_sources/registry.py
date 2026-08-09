@@ -11,6 +11,7 @@ from services.job_sources.arbeitnow import ArbeitnowJobSource
 from services.job_sources.japan_dev import JapanDevJobSource
 from services.job_sources.tokyo_dev import TokyoDevJobSource
 from services.job_sources.workday import WorkdayJobSource
+from services.job_sources.adzuna import AdzunaJobSource
 
 
 SOURCE_REGISTRY = {
@@ -26,6 +27,7 @@ SOURCE_REGISTRY = {
     "japan_dev": JapanDevJobSource,
     "tokyo_dev": TokyoDevJobSource,
     "workday": WorkdayJobSource,
+    "adzuna": AdzunaJobSource,
 }
 
 
