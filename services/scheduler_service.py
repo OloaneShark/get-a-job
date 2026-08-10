@@ -99,6 +99,7 @@ GLOBAL_SOURCE_TYPES = [
     "tokyo_dev",
     "adzuna",
     "jooble",
+    "usajobs",
 ]
 
 
