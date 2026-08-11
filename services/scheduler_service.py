@@ -100,6 +100,9 @@ GLOBAL_SOURCE_TYPES = [
     "adzuna",
     "jooble",
     "usajobs",
+    "the_muse",
+    "python_org",
+    "hacker_news_jobs",
 ]
 
 

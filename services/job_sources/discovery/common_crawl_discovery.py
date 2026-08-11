@@ -16,6 +16,7 @@ from services.job_sources.discovery.candidate_service import (
 )
 from services.job_sources.http_client import fetch_response
 from services.job_sources.workday_crawler import WorkdayCrawler
+from services.job_sources.recruitee import RecruiteeJobSource
 
 
 COMMON_CRAWL_COLLECTIONS_URL = (
@@ -46,6 +47,9 @@ DISCOVERY_PATTERNS = {
     ),
     "workday": (
         "*.myworkdayjobs.com/*",
+    ),
+    "recruitee": (
+        "*.recruitee.com/o/*",
     ),
 }
 
@@ -601,6 +605,39 @@ def normalize_board_record(url):
             "key": (
                 "workday",
                 canonical_url.lower(),
+            ),
+        }
+
+    if hostname.endswith(
+        ".recruitee.com"
+    ):
+        try:
+            board_identifier = (
+                RecruiteeJobSource
+                .extract_company_slug(
+                    url
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        normalized_url = (
+            f"https://{board_identifier}"
+            ".recruitee.com"
+        )
+
+        return {
+            "source_type": "recruitee",
+            "source_identifier": (
+                board_identifier
+            ),
+            "url": normalized_url,
+            "key": (
+                "recruitee",
+                board_identifier.lower(),
             ),
         }
 

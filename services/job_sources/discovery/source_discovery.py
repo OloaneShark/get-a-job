@@ -9,6 +9,7 @@ from services.job_sources.source_utils import (
 from services.job_sources.workday_crawler import (
     WorkdayCrawler,
 )
+from services.job_sources.recruitee import RecruiteeJobSource
 
 
 def detect_source_type(url):
@@ -57,8 +58,18 @@ def detect_source_type(url):
             )
         )
 
+    if hostname.endswith(
+        ".recruitee.com"
+    ):
+        return (
+            "recruitee",
+            RecruiteeJobSource.extract_company_slug(
+                cleaned_url
+            )
+        )
+
     raise ValueError(
         "Unsupported job-board URL. "
-        "Currently supported: Greenhouse, Lever, Ashby, and Workday."
+        "Currently supported: Greenhouse, Lever, Ashby, Workday, and Recruitee."
     )
     

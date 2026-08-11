@@ -11,9 +11,13 @@ from services.job_sources.arbeitnow import ArbeitnowJobSource
 from services.job_sources.japan_dev import JapanDevJobSource
 from services.job_sources.tokyo_dev import TokyoDevJobSource
 from services.job_sources.workday import WorkdayJobSource
+from services.job_sources.recruitee import RecruiteeJobSource
 from services.job_sources.adzuna import AdzunaJobSource
 from services.job_sources.jooble import JoobleJobSource
 from services.job_sources.usajobs import USAJobsJobSource
+from services.job_sources.the_muse import TheMuseJobSource
+from services.job_sources.python_org import PythonOrgJobSource
+from services.job_sources.hacker_news_jobs import HackerNewsJobsSource
 
 
 SOURCE_REGISTRY = {
@@ -29,9 +33,13 @@ SOURCE_REGISTRY = {
     "japan_dev": JapanDevJobSource,
     "tokyo_dev": TokyoDevJobSource,
     "workday": WorkdayJobSource,
+    "recruitee": RecruiteeJobSource,
     "adzuna": AdzunaJobSource,
     "jooble": JoobleJobSource,
     "usajobs": USAJobsJobSource,
+    "the_muse": TheMuseJobSource,
+    "python_org": PythonOrgJobSource,
+    "hacker_news_jobs": HackerNewsJobsSource,
 }
 
 
