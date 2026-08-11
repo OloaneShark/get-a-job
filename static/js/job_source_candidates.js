@@ -4,11 +4,15 @@
     const statusElement = document.getElementById(
         "candidate-action-status"
     );
-    const tableContainer = document.getElementById(
-        "candidate-table-container"
+    const getTableContainer = () => (
+        document.getElementById(
+            "candidate-table-container"
+        )
     );
-    const emptyState = document.getElementById(
-        "candidate-empty-state"
+    const getEmptyState = () => (
+        document.getElementById(
+            "candidate-empty-state"
+        )
     );
     const discoveryForm = document.getElementById(
         "automatic-discovery-form"
@@ -49,6 +53,9 @@
         if (remainingRows > 0) {
             return;
         }
+
+        const tableContainer = getTableContainer();
+        const emptyState = getEmptyState();
 
         if (tableContainer) {
             tableContainer.classList.add("d-none");
@@ -216,6 +223,132 @@
         checkDiscoveryStatus();
     }
 
+
+    const loadCandidateSource = async (
+        url,
+        updateHistory = true
+    ) => {
+        const currentFilter = document.getElementById(
+            "candidate-source-filter"
+        );
+        const currentResults = document.getElementById(
+            "candidate-results-card"
+        );
+
+        if (!currentFilter || !currentResults) {
+            return;
+        }
+
+        currentFilter.setAttribute("aria-busy", "true");
+        currentResults.setAttribute("aria-busy", "true");
+        currentFilter.style.opacity = "0.65";
+        currentResults.style.opacity = "0.65";
+
+        try {
+            const response = await fetch(
+                url,
+                {
+                    headers: {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Accept": "text/html",
+                    },
+                    credentials: "same-origin",
+                    cache: "no-store",
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error(
+                    "The source filter could not be loaded."
+                );
+            }
+
+            const html = await response.text();
+            const parsedDocument = new DOMParser().parseFromString(
+                html,
+                "text/html"
+            );
+
+            const nextFilter = parsedDocument.getElementById(
+                "candidate-source-filter"
+            );
+            const nextResults = parsedDocument.getElementById(
+                "candidate-results-card"
+            );
+
+            if (!nextFilter || !nextResults) {
+                throw new Error(
+                    "The filtered candidate view was incomplete."
+                );
+            }
+
+            currentFilter.replaceWith(nextFilter);
+            currentResults.replaceWith(nextResults);
+
+            if (updateHistory) {
+                window.history.pushState(
+                    {
+                        discoverySourceFilter: true,
+                    },
+                    "",
+                    url
+                );
+            }
+        } catch (error) {
+            currentFilter.removeAttribute("aria-busy");
+            currentResults.removeAttribute("aria-busy");
+            currentFilter.style.opacity = "";
+            currentResults.style.opacity = "";
+
+            showStatus(
+                error.message
+                || "The source filter could not be loaded.",
+                "danger"
+            );
+        }
+    };
+
+    document.addEventListener(
+        "click",
+        (event) => {
+            const filterLink = event.target.closest(
+                "#candidate-source-filter a"
+            );
+
+            if (!filterLink) {
+                return;
+            }
+
+            if (
+                event.defaultPrevented
+                || event.button !== 0
+                || event.metaKey
+                || event.ctrlKey
+                || event.shiftKey
+                || event.altKey
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+
+            loadCandidateSource(
+                filterLink.href,
+                true
+            );
+        }
+    );
+
+    window.addEventListener(
+        "popstate",
+        () => {
+            loadCandidateSource(
+                window.location.href,
+                false
+            );
+        }
+    );
+
     document.addEventListener(
         "submit",
         async (event) => {
@@ -293,4 +426,199 @@
             }
         }
     );
+
+    const scopedBulkActions = [
+        {
+            path: "/admin/job-source-candidates/cleanup-invalid",
+            label: "Clear Invalid",
+            confirmText: "Clear invalid and rejected candidates",
+        },
+        {
+            path: "/admin/job-source-candidates/cleanup-approved",
+            label: "Clear Approved",
+            confirmText: "Clear approved candidates",
+        },
+        {
+            path: "/admin/job-source-candidates/approve-all-valid",
+            label: "Approve All Valid",
+            confirmText: "Approve all valid candidates",
+        },
+    ];
+
+    const getScopedBulkAction = (form) => {
+        if (!form || !form.action) {
+            return null;
+        }
+
+        const actionUrl = new URL(
+            form.action,
+            window.location.origin
+        );
+
+        return (
+            scopedBulkActions.find(
+                (action) => (
+                    action.path
+                    === actionUrl.pathname
+                )
+            )
+            || null
+        );
+    };
+
+    const sourceDisplayName = (source) => {
+        return String(source || "")
+            .split("_")
+            .filter(Boolean)
+            .map((part) => (
+                part.charAt(0).toUpperCase()
+                + part.slice(1)
+            ))
+            .join(" ");
+    };
+
+    const syncScopedBulkActions = (url) => {
+        const pageUrl = new URL(
+            url || window.location.href,
+            window.location.origin
+        );
+        const source = (
+            pageUrl.searchParams.get("source")
+            || ""
+        ).trim().toLowerCase();
+        const displaySource = sourceDisplayName(
+            source
+        );
+
+        document.querySelectorAll(
+            "form"
+        ).forEach((form) => {
+            const action = getScopedBulkAction(
+                form
+            );
+
+            if (!action) {
+                return;
+            }
+
+            form.onsubmit = null;
+
+            let sourceInput = form.querySelector(
+                'input[name="source"]'
+            );
+
+            if (!sourceInput) {
+                sourceInput = (
+                    document.createElement("input")
+                );
+                sourceInput.type = "hidden";
+                sourceInput.name = "source";
+                form.appendChild(
+                    sourceInput
+                );
+            }
+
+            sourceInput.value = source;
+
+            const button = form.querySelector(
+                'button[type="submit"], '
+                + 'input[type="submit"]'
+            );
+
+            if (button) {
+                const buttonLabel = (
+                    displaySource
+                    ? (
+                        `${action.label} — `
+                        + displaySource
+                    )
+                    : action.label
+                );
+
+                if (
+                    button.tagName.toLowerCase()
+                    === "input"
+                ) {
+                    button.value = buttonLabel;
+                } else {
+                    button.textContent = (
+                        buttonLabel
+                    );
+                }
+            }
+
+            form.dataset.scopedBulkConfirm = (
+                displaySource
+                ? (
+                    `${action.confirmText} for `
+                    + `${displaySource} only?`
+                )
+                : (
+                    `${action.confirmText} `
+                    + "across ALL sources?"
+                )
+            );
+        });
+    };
+
+    syncScopedBulkActions(
+        window.location.href
+    );
+
+    document.addEventListener(
+        "click",
+        (event) => {
+            const filterLink = (
+                event.target.closest(
+                    "#candidate-source-filter a"
+                )
+            );
+
+            if (!filterLink) {
+                return;
+            }
+
+            syncScopedBulkActions(
+                filterLink.href
+            );
+        }
+    );
+
+    window.addEventListener(
+        "popstate",
+        () => {
+            syncScopedBulkActions(
+                window.location.href
+            );
+        }
+    );
+
+    document.addEventListener(
+        "submit",
+        (event) => {
+            const form = event.target;
+            const action = getScopedBulkAction(
+                form
+            );
+
+            if (!action) {
+                return;
+            }
+
+            syncScopedBulkActions(
+                window.location.href
+            );
+
+            if (
+                !window.confirm(
+                    form.dataset.scopedBulkConfirm
+                )
+            ) {
+                event.preventDefault();
+            }
+        },
+        true
+    );
+
+
 })();

@@ -32,7 +32,7 @@
                     <h4 class="mb-1">Bulk Import Job Boards</h4>
 
                     <p class="helper-text mb-0">
-                        Paste one Greenhouse, Lever, Ashby, or Workday board URL per line.
+                        Paste one supported ATS board URL per line.
                     </p>
                 </div>
 
@@ -74,7 +74,9 @@
                             "https://job-boards.greenhouse.io/remotecom\n"
                             "https://jobs.ashbyhq.com/Ashby\n"
                             "https://nvidia.wd5.myworkdayjobs.com/"
-                            "NVIDIAExternalCareerSite"
+                            "NVIDIAExternalCareerSite\n"
+                            "https://transperfect.recruitee.com/"
+                            "o/software-engineer"
                         )
                     ) }}
 
@@ -168,7 +170,64 @@
         </div>
     </div>
 
-    <div class="card">
+    <div
+        id="candidate-source-filter"
+        class="mb-3"
+    >
+        <div
+            class="d-flex flex-wrap align-items-center gap-2"
+            aria-label="Filter discovery queue by source"
+        >
+            <span class="helper-text me-1">
+                Filter by source:
+            </span>
+
+            <a
+                href="{{ url_for('job_source_candidates') }}"
+                class="btn btn-sm {% if not selected_source %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+            >
+                All
+                <span class="badge bg-dark ms-1">
+                    {{ candidate_total }}
+                </span>
+            </a>
+
+            {% for source_type, source_count in source_filters %}
+                <a
+                    href="{{ url_for(
+                        'job_source_candidates',
+                        source=source_type
+                    ) }}"
+                    class="btn btn-sm {% if selected_source == source_type %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                >
+                    {{ source_type|replace('_', ' ')|title }}
+                    <span class="badge bg-dark ms-1">
+                        {{ source_count }}
+                    </span>
+                </a>
+            {% endfor %}
+        </div>
+
+        {% if selected_source %}
+            <p class="helper-text mt-2 mb-0">
+                Showing
+                <strong>{{ candidates|length }}</strong>
+                candidate{% if candidates|length != 1 %}s{% endif %}
+                from
+                <strong>
+                    {{ selected_source|replace('_', ' ')|title }}
+                </strong>.
+                <a href="{{ url_for('job_source_candidates') }}">
+                    Show all sources
+                </a>
+            </p>
+        {% endif %}
+    </div>
+
+    <div
+        id="candidate-results-card"
+        class="card"
+    >
         <div class="card-body">
 
             {% if candidates %}

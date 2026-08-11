@@ -619,7 +619,16 @@ def job_source_candidates():
 
         return redirect(url_for("job_source_candidates"))
 
-    candidates = (
+    selected_source = (
+        request.args.get(
+            "source",
+            ""
+        )
+        .strip()
+        .lower()
+    )
+
+    candidate_query = (
         JobSourceCandidate.query
         .filter(
             JobSourceCandidate.validation_status.notin_([
@@ -627,6 +636,61 @@ def job_source_candidates():
                 "dismissed"
             ])
         )
+    )
+
+    source_counts = {}
+
+    source_type_rows = (
+        candidate_query
+        .with_entities(
+            JobSourceCandidate.source_type
+        )
+        .all()
+    )
+
+    for source_type_row in source_type_rows:
+        source_type = str(
+            source_type_row[0]
+            or ""
+        ).strip().lower()
+
+        if not source_type:
+            continue
+
+        source_counts[source_type] = (
+            source_counts.get(
+                source_type,
+                0
+            )
+            + 1
+        )
+
+    source_filters = sorted(
+        source_counts.items(),
+        key=lambda item: item[0]
+    )
+
+    candidate_total = sum(
+        source_counts.values()
+    )
+
+    if (
+        selected_source
+        and selected_source
+        not in source_counts
+    ):
+        selected_source = ""
+
+    if selected_source:
+        candidate_query = (
+            candidate_query.filter(
+                JobSourceCandidate.source_type
+                == selected_source
+            )
+        )
+
+    candidates = (
+        candidate_query
         .order_by(
             JobSourceCandidate.discovered_at.desc()
         )
@@ -636,7 +700,10 @@ def job_source_candidates():
     return render_template(
         "job_source_candidates.html",
         form=form,
-        candidates=candidates
+        candidates=candidates,
+        source_filters=source_filters,
+        selected_source=selected_source,
+        candidate_total=candidate_total
     )
 
 
@@ -737,9 +804,25 @@ def approve_all_valid_job_sources():
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
-    candidates = JobSourceCandidate.query.filter_by(
-        validation_status="valid"
-    ).all()
+    selected_source = (
+        request.form.get("source", "")
+        .strip()
+        .lower()
+    )
+
+    candidates_query = (
+        JobSourceCandidate.query.filter_by(
+            validation_status="valid"
+        )
+    )
+
+    if selected_source:
+        candidates_query = candidates_query.filter(
+            JobSourceCandidate.source_type
+            == selected_source
+        )
+
+    candidates = candidates_query.all()
 
     approved_count = 0
     skipped_count = 0
@@ -767,20 +850,32 @@ def approve_all_valid_job_sources():
         )
 
         db.session.add(source)
-
         candidate.validation_status = "approved"
         approved_count += 1
 
     db.session.commit()
 
+    scope_label = (
+        selected_source.replace("_", " ").title()
+        if selected_source
+        else "All Sources"
+    )
+
     flash(
-        f"{approved_count} sources approved. "
+        f"{approved_count} sources approved for {scope_label}. "
         f"{skipped_count} already existed.",
         "success"
     )
 
     return redirect(
-        url_for("job_source_candidates")
+        url_for(
+            "job_source_candidates",
+            **(
+                {"source": selected_source}
+                if selected_source
+                else {}
+            )
+        )
     )
 
 
@@ -971,7 +1066,13 @@ def cleanup_invalid_job_source_candidates():
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
-    invalid_candidates = (
+    selected_source = (
+        request.form.get("source", "")
+        .strip()
+        .lower()
+    )
+
+    invalid_query = (
         JobSourceCandidate.query
         .filter(
             JobSourceCandidate.validation_status.in_([
@@ -979,9 +1080,15 @@ def cleanup_invalid_job_source_candidates():
                 "rejected"
             ])
         )
-        .all()
     )
 
+    if selected_source:
+        invalid_query = invalid_query.filter(
+            JobSourceCandidate.source_type
+            == selected_source
+        )
+
+    invalid_candidates = invalid_query.all()
     dismissed_count = len(invalid_candidates)
 
     for candidate in invalid_candidates:
@@ -989,14 +1096,27 @@ def cleanup_invalid_job_source_candidates():
 
     db.session.commit()
 
+    scope_label = (
+        selected_source.replace("_", " ").title()
+        if selected_source
+        else "All Sources"
+    )
+
     flash(
         f"{dismissed_count} invalid candidates cleared "
-        f"and blocked from future discovery.",
+        f"for {scope_label} and blocked from future discovery.",
         "success"
     )
 
     return redirect(
-        url_for("job_source_candidates")
+        url_for(
+            "job_source_candidates",
+            **(
+                {"source": selected_source}
+                if selected_source
+                else {}
+            )
+        )
     )
 
 
@@ -1007,10 +1127,25 @@ def cleanup_approved_job_source_candidates():
         flash("Administrator access is required.", "danger")
         return redirect(url_for("dashboard"))
 
-    approved_candidates = JobSourceCandidate.query.filter_by(
-        validation_status="approved"
-    ).all()
+    selected_source = (
+        request.form.get("source", "")
+        .strip()
+        .lower()
+    )
 
+    approved_query = (
+        JobSourceCandidate.query.filter_by(
+            validation_status="approved"
+        )
+    )
+
+    if selected_source:
+        approved_query = approved_query.filter(
+            JobSourceCandidate.source_type
+            == selected_source
+        )
+
+    approved_candidates = approved_query.all()
     deleted_count = len(approved_candidates)
 
     for candidate in approved_candidates:
@@ -1018,12 +1153,28 @@ def cleanup_approved_job_source_candidates():
 
     db.session.commit()
 
+    scope_label = (
+        selected_source.replace("_", " ").title()
+        if selected_source
+        else "All Sources"
+    )
+
     flash(
-        f"{deleted_count} approved candidates removed from the queue.",
+        f"{deleted_count} approved candidates removed "
+        f"from the queue for {scope_label}.",
         "success"
     )
 
-    return redirect(url_for("job_source_candidates"))
+    return redirect(
+        url_for(
+            "job_source_candidates",
+            **(
+                {"source": selected_source}
+                if selected_source
+                else {}
+            )
+        )
+    )
 
 
 @app.route("/applications/new", methods=["GET", "POST"])
