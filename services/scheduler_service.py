@@ -22,7 +22,11 @@ from services.job_sources.job_match_service import (
     collect_match_diagnostics,
     format_match_diagnostics,
 )
-from services.job_sources.utils import build_job_fingerprint
+from services.job_sources.utils import (
+    build_job_fingerprint,
+    cross_source_jobs_match,
+    source_dedupe_family,
+)
 from services.job_sources.discovery.common_crawl_discovery import (
     run_common_crawl_discovery,
 )
@@ -458,6 +462,29 @@ def save_discovered_jobs(
                 )
                 .first()
             )
+
+        if existing_job is None:
+            family = source_dedupe_family(
+                source
+            )
+
+            if family is not None:
+                candidate_jobs = (
+                    DiscoveredJob.query
+                    .filter(
+                        DiscoveredJob.user_id
+                        == profile.user_id
+                    )
+                    .all()
+                )
+
+                for candidate in candidate_jobs:
+                    if cross_source_jobs_match(
+                        candidate,
+                        job,
+                    ):
+                        existing_job = candidate
+                        break
 
         if existing_job is None:
             existing_job = (
