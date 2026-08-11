@@ -414,6 +414,16 @@ def save_discovered_jobs(
         if not posting_url:
             continue
 
+        source = str(
+            job.get("source")
+            or "Unknown"
+        ).strip() or "Unknown"
+
+        external_id = str(
+            job.get("external_id")
+            or ""
+        ).strip() or None
+
         fingerprint = (
             build_job_fingerprint(
                 job.get("company_name"),
@@ -433,21 +443,38 @@ def save_discovered_jobs(
             f"{canonical_posting_url}/",
         }
 
-        existing_job = (
-            DiscoveredJob.query
-            .filter(
-                DiscoveredJob.user_id
-                == profile.user_id,
-                db.or_(
-                    DiscoveredJob.fingerprint
-                    == fingerprint,
-                    DiscoveredJob.posting_url.in_(
-                        posting_url_variants
-                    ),
-                ),
+        existing_job = None
+
+        if external_id:
+            existing_job = (
+                DiscoveredJob.query
+                .filter(
+                    DiscoveredJob.user_id
+                    == profile.user_id,
+                    DiscoveredJob.source
+                    == source,
+                    DiscoveredJob.external_id
+                    == external_id,
+                )
+                .first()
             )
-            .first()
-        )
+
+        if existing_job is None:
+            existing_job = (
+                DiscoveredJob.query
+                .filter(
+                    DiscoveredJob.user_id
+                    == profile.user_id,
+                    db.or_(
+                        DiscoveredJob.fingerprint
+                        == fingerprint,
+                        DiscoveredJob.posting_url.in_(
+                            posting_url_variants
+                        ),
+                    ),
+                )
+                .first()
+            )
 
         if existing_job:
             if (
@@ -464,13 +491,8 @@ def save_discovered_jobs(
         discovered_job = DiscoveredJob(
             user_id=profile.user_id,
             search_profile_id=profile.id,
-            source=(
-                job.get("source")
-                or "Unknown"
-            ),
-            external_id=job.get(
-                "external_id"
-            ),
+            source=source,
+            external_id=external_id,
             company_name=(
                 job.get("company_name")
                 or "Unknown Company"
