@@ -107,6 +107,7 @@ GLOBAL_SOURCE_TYPES = [
     "the_muse",
     "python_org",
     "hacker_news_jobs",
+    "cncf_gitjobs",
 ]
 
 

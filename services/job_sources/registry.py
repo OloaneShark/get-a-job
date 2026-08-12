@@ -18,6 +18,7 @@ from services.job_sources.usajobs import USAJobsJobSource
 from services.job_sources.the_muse import TheMuseJobSource
 from services.job_sources.python_org import PythonOrgJobSource
 from services.job_sources.hacker_news_jobs import HackerNewsJobsSource
+from services.job_sources.cncf_gitjobs import CNCFGitJobsSource
 
 
 SOURCE_REGISTRY = {
@@ -40,6 +41,7 @@ SOURCE_REGISTRY = {
     "the_muse": TheMuseJobSource,
     "python_org": PythonOrgJobSource,
     "hacker_news_jobs": HackerNewsJobsSource,
+    "cncf_gitjobs": CNCFGitJobsSource,
 }
 
 
