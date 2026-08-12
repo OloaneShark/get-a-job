@@ -25,7 +25,7 @@ from services.job_sources.job_match_service import (
 from services.job_sources.utils import (
     build_job_fingerprint,
     cross_source_jobs_match,
-    source_dedupe_family,
+    normalize_identity_text,
 )
 from services.job_sources.discovery.common_crawl_discovery import (
     run_common_crawl_discovery,
@@ -412,6 +412,106 @@ def save_discovered_jobs(
 ):
     saved_count = 0
 
+    existing_jobs = (
+        DiscoveredJob.query
+        .filter(
+            DiscoveredJob.user_id
+            == profile.user_id
+        )
+        .all()
+    )
+
+    by_source_external = {}
+    by_fingerprint = {}
+    by_posting_url = {}
+    by_company = {}
+
+    def canonical_posting_url(value):
+        return (
+            str(value or "")
+            .strip()
+            .rstrip("/")
+        )
+
+    def index_job(indexed_job):
+        indexed_source = str(
+            getattr(
+                indexed_job,
+                "source",
+                None,
+            )
+            or "Unknown"
+        ).strip() or "Unknown"
+
+        indexed_external_id = str(
+            getattr(
+                indexed_job,
+                "external_id",
+                None,
+            )
+            or ""
+        ).strip()
+
+        if indexed_external_id:
+            by_source_external[
+                (
+                    indexed_source,
+                    indexed_external_id,
+                )
+            ] = indexed_job
+
+        indexed_fingerprint = str(
+            getattr(
+                indexed_job,
+                "fingerprint",
+                None,
+            )
+            or ""
+        ).strip()
+
+        if indexed_fingerprint:
+            by_fingerprint[
+                indexed_fingerprint
+            ] = indexed_job
+
+        indexed_posting_url = (
+            canonical_posting_url(
+                getattr(
+                    indexed_job,
+                    "posting_url",
+                    None,
+                )
+            )
+        )
+
+        if indexed_posting_url:
+            by_posting_url[
+                indexed_posting_url
+            ] = indexed_job
+
+        company_identity = (
+            normalize_identity_text(
+                getattr(
+                    indexed_job,
+                    "company_name",
+                    None,
+                )
+            )
+        )
+
+        if company_identity:
+            by_company.setdefault(
+                company_identity,
+                [],
+            ).append(
+                indexed_job
+            )
+
+    for existing_job in existing_jobs:
+        index_job(
+            existing_job
+        )
+
     for job in jobs:
         posting_url = job.get(
             "posting_url"
@@ -439,70 +539,54 @@ def save_discovered_jobs(
             )
         )
 
-        canonical_posting_url = (
-            str(posting_url)
-            .strip()
-            .rstrip("/")
+        canonical_url = (
+            canonical_posting_url(
+                posting_url
+            )
         )
-        posting_url_variants = {
-            canonical_posting_url,
-            f"{canonical_posting_url}/",
-        }
 
         existing_job = None
 
         if external_id:
             existing_job = (
-                DiscoveredJob.query
-                .filter(
-                    DiscoveredJob.user_id
-                    == profile.user_id,
-                    DiscoveredJob.source
-                    == source,
-                    DiscoveredJob.external_id
-                    == external_id,
+                by_source_external.get(
+                    (
+                        source,
+                        external_id,
+                    )
                 )
-                .first()
             )
 
         if existing_job is None:
-            family = source_dedupe_family(
-                source
+            company_identity = (
+                normalize_identity_text(
+                    job.get(
+                        "company_name"
+                    )
+                )
             )
 
-            if family is not None:
-                candidate_jobs = (
-                    DiscoveredJob.query
-                    .filter(
-                        DiscoveredJob.user_id
-                        == profile.user_id
-                    )
-                    .all()
+            for candidate in (
+                by_company.get(
+                    company_identity,
+                    []
                 )
-
-                for candidate in candidate_jobs:
-                    if cross_source_jobs_match(
-                        candidate,
-                        job,
-                    ):
-                        existing_job = candidate
-                        break
+            ):
+                if cross_source_jobs_match(
+                    candidate,
+                    job,
+                ):
+                    existing_job = candidate
+                    break
 
         if existing_job is None:
             existing_job = (
-                DiscoveredJob.query
-                .filter(
-                    DiscoveredJob.user_id
-                    == profile.user_id,
-                    db.or_(
-                        DiscoveredJob.fingerprint
-                        == fingerprint,
-                        DiscoveredJob.posting_url.in_(
-                            posting_url_variants
-                        ),
-                    ),
+                by_fingerprint.get(
+                    fingerprint
                 )
-                .first()
+                or by_posting_url.get(
+                    canonical_url
+                )
             )
 
         if existing_job:
@@ -567,6 +651,9 @@ def save_discovered_jobs(
         )
 
         db.session.add(
+            discovered_job
+        )
+        index_job(
             discovered_job
         )
         saved_count += 1
