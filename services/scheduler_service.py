@@ -109,6 +109,7 @@ GLOBAL_SOURCE_TYPES = [
     "hacker_news_jobs",
     "cncf_gitjobs",
     "remote_first_jobs",
+    "y_combinator",
 ]
 
 
