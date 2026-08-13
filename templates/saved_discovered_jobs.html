@@ -87,6 +87,40 @@
                                     Apply
                                 </a>
 
+                                {% set applied_application_id = applied_application_by_job_id.get(job.id) %}
+
+                                {% if applied_application_id %}
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-success"
+                                        disabled
+                                    >
+                                        ✓ Applied
+                                    </button>
+                                {% else %}
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for(
+                                            'mark_discovered_job_applied',
+                                            job_id=job.id
+                                        ) }}"
+                                        class="saved-job-mark-applied-form"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+
+                                        <button
+                                            type="submit"
+                                            class="btn btn-outline-success"
+                                        >
+                                            Mark Applied
+                                        </button>
+                                    </form>
+                                {% endif %}
+
                                 <form
                                     method="POST"
                                     action="{{ url_for(
@@ -152,5 +186,110 @@
     {% endif %}
 
 </div>
+
+<script>
+document.addEventListener("submit", async function (event) {
+    const form = event.target.closest(
+        ".saved-job-mark-applied-form"
+    );
+
+    if (!form) {
+        return;
+    }
+
+    event.preventDefault();
+
+    const button = form.querySelector(
+        'button[type="submit"]'
+    );
+    const originalText = button.textContent;
+
+    button.disabled = true;
+    button.textContent = "Saving...";
+
+    try {
+        const response = await fetch(
+            form.action,
+            {
+                method: "POST",
+                body: new FormData(form),
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json"
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(
+                data.message
+                || "Could not mark job as applied."
+            );
+        }
+
+        button.textContent = "✓ Applied";
+        button.className = "btn btn-outline-success";
+        button.disabled = true;
+
+        let message = document.getElementById(
+            "saved-job-action-message"
+        );
+
+        if (!message) {
+            message = document.createElement("div");
+            message.id = "saved-job-action-message";
+
+            const header = document.querySelector(
+                ".form-page > .d-flex"
+            );
+
+            if (header) {
+                header.insertAdjacentElement(
+                    "afterend",
+                    message
+                );
+            }
+        }
+
+        message.className = (
+            "alert mt-3 "
+            + (
+                data.created === false
+                ? "alert-info"
+                : "alert-success"
+            )
+        );
+        message.textContent = data.message;
+    } catch (error) {
+        button.disabled = false;
+        button.textContent = originalText;
+
+        let message = document.getElementById(
+            "saved-job-action-message"
+        );
+
+        if (!message) {
+            message = document.createElement("div");
+            message.id = "saved-job-action-message";
+
+            const header = document.querySelector(
+                ".form-page > .d-flex"
+            );
+
+            if (header) {
+                header.insertAdjacentElement(
+                    "afterend",
+                    message
+                );
+            }
+        }
+
+        message.className = "alert alert-danger mt-3";
+        message.textContent = error.message;
+    }
+});
+</script>
 
 {% endblock %}

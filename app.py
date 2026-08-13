@@ -2951,9 +2951,53 @@ def saved_discovered_jobs():
         .all()
     )
 
+    job_url_by_id = {}
+    job_url_variants = set()
+
+    for job in jobs:
+        canonical_url = canonical_job_posting_url(
+            job.posting_url
+        )
+
+        if not canonical_url:
+            continue
+
+        job_url_by_id[job.id] = canonical_url
+        job_url_variants.add(canonical_url)
+        job_url_variants.add(f"{canonical_url}/")
+
+    applied_by_url = {}
+
+    if job_url_variants:
+        existing_applications = (
+            JobApplication.query
+            .filter(
+                JobApplication.user_id == current_user.id,
+                JobApplication.job_posting_url.in_(job_url_variants),
+            )
+            .all()
+        )
+
+        for application in existing_applications:
+            application_url = canonical_job_posting_url(
+                application.job_posting_url
+            )
+
+            if application_url:
+                applied_by_url[application_url] = application.id
+
+    applied_application_by_job_id = {
+        job_id: applied_by_url[canonical_url]
+        for job_id, canonical_url in job_url_by_id.items()
+        if canonical_url in applied_by_url
+    }
+
     return render_template(
         "saved_discovered_jobs.html",
         jobs=jobs,
+        applied_application_by_job_id=(
+            applied_application_by_job_id
+        ),
     )
 
 
