@@ -148,6 +148,15 @@ def get_latest_resume_for_user(user_id):
     )
 
 
+
+def canonical_job_posting_url(value):
+    return (
+        str(value or "")
+        .strip()
+        .rstrip("/")
+    )
+
+
 def discovered_job_action_response(
     job,
     action,
@@ -1260,7 +1269,7 @@ def edit_application(application_id):
         application.recruiter_email = form.recruiter_email.data
         application.status = form.status.data
         application.salary = form.salary.data
-        application.location = form.location.data,
+        application.location = form.location.data
         application.visa_sponsorship = form.visa_sponsorship.data
         application.notes = encrypt_text(form.notes.data)
         application.legitimacy_score = score
@@ -3012,12 +3021,291 @@ def discovered_jobs():
         )
     )
 
+    page_jobs = pagination.items
+
+    job_url_by_id = {}
+    job_url_variants = set()
+
+    for job in page_jobs:
+        canonical_url = canonical_job_posting_url(
+            job.posting_url
+        )
+
+        if not canonical_url:
+            continue
+
+        job_url_by_id[job.id] = canonical_url
+        job_url_variants.add(canonical_url)
+        job_url_variants.add(
+            f"{canonical_url}/"
+        )
+
+    applied_by_url = {}
+
+    if job_url_variants:
+        existing_applications = (
+            JobApplication.query
+            .filter(
+                JobApplication.user_id
+                == current_user.id,
+                JobApplication.job_posting_url.in_(
+                    job_url_variants
+                ),
+            )
+            .all()
+        )
+
+        for application in existing_applications:
+            application_url = (
+                canonical_job_posting_url(
+                    application.job_posting_url
+                )
+            )
+
+            if application_url:
+                applied_by_url[
+                    application_url
+                ] = application.id
+
+    applied_application_by_job_id = {
+        job_id: applied_by_url[canonical_url]
+        for job_id, canonical_url
+        in job_url_by_id.items()
+        if canonical_url in applied_by_url
+    }
+
     return render_template(
         "discovered_jobs.html",
-        jobs=pagination.items,
+        jobs=page_jobs,
         pagination=pagination,
         profiles=profiles,
         selected_profile_id=selected_profile_id,
+        applied_application_by_job_id=(
+            applied_application_by_job_id
+        ),
+    )
+
+
+
+@app.route(
+    "/discovered-jobs/<int:job_id>/mark-applied",
+    methods=["POST"],
+)
+@login_required
+def mark_discovered_job_applied(job_id):
+    job = DiscoveredJob.query.filter_by(
+        id=job_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    posting_url = canonical_job_posting_url(
+        job.posting_url
+    )
+
+    if not posting_url:
+        message = (
+            "This discovered job does not have "
+            "a usable posting URL."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": False,
+                "job_id": job.id,
+                "action": "applied",
+                "message": message,
+            }), 400
+
+        flash(message, "danger")
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    posting_url_variants = {
+        posting_url,
+        f"{posting_url}/",
+    }
+
+    existing_application = (
+        JobApplication.query
+        .filter(
+            JobApplication.user_id
+            == current_user.id,
+            JobApplication.job_posting_url.in_(
+                posting_url_variants
+            ),
+        )
+        .first()
+    )
+
+    if existing_application is not None:
+        message = (
+            "This job is already in Applications."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": True,
+                "job_id": job.id,
+                "action": "applied",
+                "application_id": (
+                    existing_application.id
+                ),
+                "created": False,
+                "message": message,
+            })
+
+        flash(message, "info")
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    if len(posting_url) > 255:
+        message = (
+            "This posting URL is too long for "
+            "the current application tracker. "
+            "No application was created."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": False,
+                "job_id": job.id,
+                "action": "applied",
+                "message": message,
+            }), 400
+
+        flash(message, "warning")
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    recruiter_email = (
+        str(job.recruiter_email or "").strip()
+        or None
+    )
+
+    if (
+        recruiter_email
+        and len(recruiter_email) > 120
+    ):
+        recruiter_email = None
+
+    application = JobApplication(
+        company_name=str(
+            job.company_name
+            or "Unknown Company"
+        )[:100],
+        position_title=str(
+            job.position_title
+            or "Unknown Position"
+        )[:100],
+        job_posting_url=posting_url,
+        job_description=(
+            job.job_description
+            or ""
+        ),
+        recruiter_email=recruiter_email,
+        status="Applied",
+        salary=(
+            str(job.salary)[:50]
+            if job.salary
+            else None
+        ),
+        location=(
+            str(job.location)[:100]
+            if job.location
+            else None
+        ),
+        visa_sponsorship=str(
+            job.visa_sponsorship
+            or "Unknown"
+        )[:20],
+        notes=encrypt_text(""),
+        user_id=current_user.id,
+    )
+
+    try:
+        db.session.add(application)
+        db.session.flush()
+
+        db.session.add(
+            ApplicationHistory(
+                status="Applied",
+                note=(
+                    "Application created from "
+                    "discovered job"
+                ),
+                application_id=application.id,
+            )
+        )
+
+        db.session.commit()
+
+    except Exception as error:
+        db.session.rollback()
+        print(
+            "DISCOVERED JOB MARK APPLIED ERROR:",
+            repr(error),
+        )
+
+        message = (
+            "The application could not be "
+            "created. Please try again."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": False,
+                "job_id": job.id,
+                "action": "applied",
+                "message": message,
+            }), 500
+
+        flash(message, "danger")
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    log_action(
+        current_user.id,
+        (
+            "Marked discovered job as applied: "
+            f"{application.company_name} - "
+            f"{application.position_title}"
+        ),
+    )
+
+    message = "Added to Applications."
+
+    if request.headers.get(
+        "X-Requested-With"
+    ) == "XMLHttpRequest":
+        return jsonify({
+            "success": True,
+            "job_id": job.id,
+            "action": "applied",
+            "application_id": application.id,
+            "created": True,
+            "message": message,
+        })
+
+    flash(message, "success")
+    return redirect(
+        request.referrer
+        or url_for("discovered_jobs")
     )
 
 

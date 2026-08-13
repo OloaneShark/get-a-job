@@ -139,6 +139,48 @@
                                         Apply
                                     </a>
 
+
+                                    {% set applied_application_id = (
+                                        applied_application_by_job_id.get(
+                                            job.id
+                                        )
+                                    ) %}
+
+                                    {% if applied_application_id %}
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline-success"
+                                            disabled
+                                        >
+                                            ✓ Applied
+                                        </button>
+                                    {% else %}
+                                        <form
+                                            class="job-action-form"
+                                            method="POST"
+                                            action="{{
+                                                url_for(
+                                                    'mark_discovered_job_applied',
+                                                    job_id=job.id
+                                                )
+                                            }}"
+                                            data-action="applied"
+                                        >
+                                            <input
+                                                type="hidden"
+                                                name="csrf_token"
+                                                value="{{ csrf_token() }}"
+                                            >
+
+                                            <button
+                                                type="submit"
+                                                class="btn btn-outline-success"
+                                            >
+                                                Mark Applied
+                                            </button>
+                                        </form>
+                                    {% endif %}
+
                                     <form
                                         class="job-action-form"
                                         method="POST"
@@ -463,6 +505,23 @@ document.addEventListener(
                     showMessage(
                         data.message,
                         "info"
+                    );
+
+                    return;
+                }
+
+
+                if (action === "applied") {
+                    button.textContent = "✓ Applied";
+                    button.className =
+                        "btn btn-outline-success";
+                    button.disabled = true;
+
+                    showMessage(
+                        data.message,
+                        data.created === false
+                            ? "info"
+                            : "success"
                     );
 
                     return;

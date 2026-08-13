@@ -98,8 +98,16 @@ class JobApplicationForm(FlaskForm):
         }
     )
     recruiter_email = StringField("Recruiter Email")
-    follow_up_date = DateField("Follow-Up Date", format="%Y-%m-%d")
-    last_contacted_date = DateField("Last Contacted Date", format="%Y-%m-%d")
+    follow_up_date = DateField(
+        "Follow-Up Date",
+        format="%Y-%m-%d",
+        validators=[Optional()],
+    )
+    last_contacted_date = DateField(
+        "Last Contacted Date",
+        format="%Y-%m-%d",
+        validators=[Optional()],
+    )
     
     status = SelectField(
         "Status",
@@ -118,6 +126,13 @@ class JobApplicationForm(FlaskForm):
     )
     
     salary = StringField("Salary")
+    location = StringField(
+        "Location",
+        validators=[
+            Optional(),
+            Length(max=100),
+        ],
+    )
     visa_sponsorship = RadioField(
         "Visa Sponsorship",
         choices=[
