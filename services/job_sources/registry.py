@@ -23,6 +23,7 @@ from services.job_sources.remote_first_jobs import RemoteFirstJobsSource
 from services.job_sources.y_combinator import YCombinatorJobSource
 from services.job_sources.ai_dev_jobs import AIDevJobsSource
 from services.job_sources.green_japan import GreenJapanJobSource
+from services.job_sources.bamboohr import BambooHRJobSource
 
 
 SOURCE_REGISTRY = {
@@ -50,6 +51,7 @@ SOURCE_REGISTRY = {
     "y_combinator": YCombinatorJobSource,
     "ai_dev_jobs": AIDevJobsSource,
     "green_japan": GreenJapanJobSource,
+    "bamboohr": BambooHRJobSource,
 }
 
 

@@ -406,7 +406,8 @@ class JobSourceCompanyForm(FlaskForm):
             ("greenhouse", "Greenhouse"),
             ("lever", "Lever"),
             ("ashby", "Ashby"),
-            ("workday", "Workday")
+            ("workday", "Workday"),
+            ("bamboohr", "BambooHR")
         ],
         validators=[DataRequired()]
     )
@@ -433,7 +434,8 @@ class JobSourceDiscoveryForm(FlaskForm):
                 "https://boards.greenhouse.io/remotecom\n"
                 "https://jobs.ashbyhq.com/example\n"
                 "https://nvidia.wd5.myworkdayjobs.com/"
-                "NVIDIAExternalCareerSite"
+                "NVIDIAExternalCareerSite\n"
+                "https://soundstripe.bamboohr.com/careers"
             )
         }
     )

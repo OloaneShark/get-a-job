@@ -1232,7 +1232,7 @@ def start_scheduler(app):
     scheduler.add_job(
         process_active_search_profiles,
         "interval",
-        hours=1,
+        hours=6,
         args=[app],
         id="process_active_search_profiles",
         replace_existing=True,
