@@ -21,6 +21,7 @@ from services.job_sources.hacker_news_jobs import HackerNewsJobsSource
 from services.job_sources.cncf_gitjobs import CNCFGitJobsSource
 from services.job_sources.remote_first_jobs import RemoteFirstJobsSource
 from services.job_sources.y_combinator import YCombinatorJobSource
+from services.job_sources.ai_dev_jobs import AIDevJobsSource
 
 
 SOURCE_REGISTRY = {
@@ -46,6 +47,7 @@ SOURCE_REGISTRY = {
     "cncf_gitjobs": CNCFGitJobsSource,
     "remote_first_jobs": RemoteFirstJobsSource,
     "y_combinator": YCombinatorJobSource,
+    "ai_dev_jobs": AIDevJobsSource,
 }
 
 

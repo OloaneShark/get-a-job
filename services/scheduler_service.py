@@ -110,6 +110,7 @@ GLOBAL_SOURCE_TYPES = [
     "cncf_gitjobs",
     "remote_first_jobs",
     "y_combinator",
+    "ai_dev_jobs",
 ]
 
 
