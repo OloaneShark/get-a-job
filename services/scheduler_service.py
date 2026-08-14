@@ -111,6 +111,7 @@ GLOBAL_SOURCE_TYPES = [
     "remote_first_jobs",
     "y_combinator",
     "ai_dev_jobs",
+    "green_japan",
 ]
 
 
