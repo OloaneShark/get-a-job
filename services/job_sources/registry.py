@@ -24,6 +24,7 @@ from services.job_sources.y_combinator import YCombinatorJobSource
 from services.job_sources.ai_dev_jobs import AIDevJobsSource
 from services.job_sources.green_japan import GreenJapanJobSource
 from services.job_sources.bamboohr import BambooHRJobSource
+from services.job_sources.workable import WorkableJobSource
 
 
 SOURCE_REGISTRY = {
@@ -52,6 +53,7 @@ SOURCE_REGISTRY = {
     "ai_dev_jobs": AIDevJobsSource,
     "green_japan": GreenJapanJobSource,
     "bamboohr": BambooHRJobSource,
+    "workable": WorkableJobSource,
 }
 
 

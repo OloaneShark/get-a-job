@@ -6,6 +6,7 @@ from services.job_sources.source_utils import (
     extract_greenhouse_board_token,
     extract_lever_company_slug,
     extract_bamboohr_company_subdomain,
+    extract_workable_account_subdomain,
 )
 from services.job_sources.workday_crawler import (
     WorkdayCrawler,
@@ -79,8 +80,21 @@ def detect_source_type(url):
             )
         )
 
+    if (
+        hostname == "workable.com"
+        or hostname.endswith(
+            ".workable.com"
+        )
+    ):
+        return (
+            "workable",
+            extract_workable_account_subdomain(
+                cleaned_url
+            )
+        )
+
     raise ValueError(
         "Unsupported job-board URL. "
-        "Currently supported: Greenhouse, Lever, Ashby, Workday, Recruitee, and BambooHR."
+        "Currently supported: Greenhouse, Lever, Ashby, Workday, Recruitee, BambooHR, and Workable."
     )
     

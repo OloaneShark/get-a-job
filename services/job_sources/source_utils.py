@@ -24,6 +24,17 @@ BAMBOOHR_RESERVED_SUBDOMAINS = {
     "www",
 }
 
+WORKABLE_RESERVED_IDENTIFIERS = {
+    "api",
+    "apply",
+    "docs",
+    "help",
+    "j",
+    "jobs",
+    "support",
+    "www",
+}
+
 
 def extract_greenhouse_board_token(value):
     if not value or not value.strip():
@@ -145,6 +156,86 @@ def extract_bamboohr_company_subdomain(value):
     ):
         raise ValueError(
             "The BambooHR company subdomain contains unsupported characters."
+        )
+
+    return identifier
+
+
+def extract_workable_account_subdomain(value):
+    if not value or not str(value).strip():
+        raise ValueError(
+            "A Workable careers URL or account subdomain is required."
+        )
+
+    cleaned_value = str(value).strip()
+
+    if (
+        "://" not in cleaned_value
+        and (
+            "/" in cleaned_value
+            or ".workable.com" in cleaned_value.lower()
+        )
+    ):
+        cleaned_value = f"https://{cleaned_value}"
+
+    if "://" not in cleaned_value:
+        identifier = cleaned_value.strip("/").lower()
+
+    else:
+        parsed_url = urlparse(cleaned_value)
+        hostname = (parsed_url.hostname or "").lower()
+        path_parts = [
+            part
+            for part in parsed_url.path.split("/")
+            if part
+        ]
+
+        if hostname == "apply.workable.com":
+            if not path_parts:
+                raise ValueError(
+                    "The Workable careers URL does not contain "
+                    "an account subdomain."
+                )
+            identifier = path_parts[0].strip().lower()
+
+        elif hostname in {
+            "workable.com",
+            "www.workable.com",
+        }:
+            if (
+                len(path_parts) >= 3
+                and path_parts[0].lower() == "api"
+                and path_parts[1].lower() == "accounts"
+            ):
+                identifier = path_parts[2].strip().lower()
+            else:
+                raise ValueError(
+                    "This Workable URL does not identify a public account."
+                )
+
+        elif hostname.endswith(".workable.com"):
+            identifier = hostname[:-len(".workable.com")]
+
+        else:
+            raise ValueError(
+                "This does not appear to be a Workable careers URL."
+            )
+
+    if (
+        not identifier
+        or "." in identifier
+        or identifier in WORKABLE_RESERVED_IDENTIFIERS
+    ):
+        raise ValueError(
+            "The Workable URL does not contain a usable account subdomain."
+        )
+
+    if not all(
+        character.isalnum() or character in "-_"
+        for character in identifier
+    ):
+        raise ValueError(
+            "The Workable account subdomain contains unsupported characters."
         )
 
     return identifier

@@ -407,7 +407,8 @@ class JobSourceCompanyForm(FlaskForm):
             ("lever", "Lever"),
             ("ashby", "Ashby"),
             ("workday", "Workday"),
-            ("bamboohr", "BambooHR")
+            ("bamboohr", "BambooHR"),
+            ("workable", "Workable")
         ],
         validators=[DataRequired()]
     )
@@ -435,7 +436,8 @@ class JobSourceDiscoveryForm(FlaskForm):
                 "https://jobs.ashbyhq.com/example\n"
                 "https://nvidia.wd5.myworkdayjobs.com/"
                 "NVIDIAExternalCareerSite\n"
-                "https://soundstripe.bamboohr.com/careers"
+                "https://soundstripe.bamboohr.com/careers\n"
+                "https://apply.workable.com/falcomm/"
             )
         }
     )

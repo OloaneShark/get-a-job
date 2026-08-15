@@ -17,7 +17,10 @@ from services.job_sources.discovery.candidate_service import (
 from services.job_sources.http_client import fetch_response
 from services.job_sources.workday_crawler import WorkdayCrawler
 from services.job_sources.recruitee import RecruiteeJobSource
-from services.job_sources.source_utils import extract_bamboohr_company_subdomain
+from services.job_sources.source_utils import (
+    extract_bamboohr_company_subdomain,
+    extract_workable_account_subdomain,
+)
 
 
 COMMON_CRAWL_COLLECTIONS_URL = (
@@ -54,6 +57,9 @@ DISCOVERY_PATTERNS = {
     ),
     "bamboohr": (
         "*.bamboohr.com/careers*",
+    ),
+    "workable": (
+        "apply.workable.com/*",
     ),
 }
 
@@ -609,6 +615,34 @@ def normalize_board_record(url):
             "key": (
                 "workday",
                 canonical_url.lower(),
+            ),
+        }
+
+    if hostname == "apply.workable.com":
+        try:
+            board_identifier = (
+                extract_workable_account_subdomain(
+                    url
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        normalized_url = (
+            "https://apply.workable.com/"
+            f"{board_identifier}/"
+        )
+
+        return {
+            "source_type": "workable",
+            "source_identifier": board_identifier,
+            "url": normalized_url,
+            "key": (
+                "workable",
+                board_identifier.lower(),
             ),
         }
 
