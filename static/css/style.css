@@ -102,17 +102,37 @@ body.theme-light {
 }
 
 .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: .16em;
+
+    margin-bottom: 28px;
+
     font-size: 1.35rem;
     font-weight: 900;
-    letter-spacing: .12em;
-    color: #ffffff;
-    margin-bottom: 28px;
-    text-shadow: 0 0 14px rgba(0, 229, 255, .45);
+    letter-spacing: .08em;
+    white-space: nowrap;
 }
 
-.sidebar-brand span {
-    color: var(--neon-pink);
-    text-shadow: 0 0 12px rgba(255, 43, 214, .8);
+.brand-job {
+    color: #ffffff;
+    text-shadow:
+        0 0 8px rgba(0, 229, 255, .65),
+        0 0 16px rgba(0, 229, 255, .25);
+}
+
+.brand-finitum {
+    background: linear-gradient(
+        90deg,
+        var(--neon-blue) 0%,
+        var(--neon-purple) 55%,
+        var(--neon-pink) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+
+    filter: drop-shadow(0 0 7px rgba(157, 78, 221, .55));
 }
 
 .sidebar-nav {
