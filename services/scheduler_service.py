@@ -112,6 +112,7 @@ GLOBAL_SOURCE_TYPES = [
     "y_combinator",
     "ai_dev_jobs",
     "green_japan",
+    "amazon_jobs",
 ]
 
 
