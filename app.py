@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from io import StringIO
 from werkzeug.utils import secure_filename
+from authlib.integrations.flask_client import OAuth
 from flask import (
     Flask,
     render_template,
@@ -119,18 +120,55 @@ load_dotenv()
 app = Flask(__name__)
 csrf = CSRFProtect(app)
 
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-key")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+app.config["SECRET_KEY"] = os.getenv(
+    "SECRET_KEY",
+    "dev-secret-key"
+)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL"
+)
+
+app.config["GOOGLE_CLIENT_ID"] = os.getenv(
+    "GOOGLE_CLIENT_ID"
+)
+
+app.config["GOOGLE_CLIENT_SECRET"] = os.getenv(
+    "GOOGLE_CLIENT_SECRET"
+)
+
+app.config["GOOGLE_REDIRECT_URI"] = os.getenv(
+    "GOOGLE_REDIRECT_URI"
+)
+
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "pool_pre_ping": True,
     "pool_recycle": 300,
     "pool_size": 3,
     "max_overflow": 2,
 }
+
 app.config["UPLOAD_FOLDER"] = "uploads"
 
+
 if not app.config["SQLALCHEMY_DATABASE_URI"]:
-    raise RuntimeError("DATABASE_URL is not set.")
+    raise RuntimeError(
+        "DATABASE_URL is not set."
+    )
+
+oauth = OAuth(app)
+
+oauth.register(
+    name="google",
+    server_metadata_url=(
+        "https://accounts.google.com/"
+        ".well-known/openid-configuration"
+    ),
+    client_kwargs={
+        "scope": "openid profile email"
+    }
+)
+
 
 db.init_app(app)
 
@@ -146,7 +184,6 @@ def get_latest_resume_for_user(user_id):
         .order_by(Resume.uploaded_at.desc())
         .first()
     )
-
 
 
 def canonical_job_posting_url(value):
@@ -196,7 +233,7 @@ def discovered_job_action_response(
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 @app.context_processor
@@ -270,6 +307,39 @@ def register():
     return render_template("register.html", form=form)
 
 
+def generate_google_username(email):
+    email_prefix = email.split("@", 1)[0]
+
+    base = "".join(
+        character
+        for character in email_prefix
+        if character.isalnum()
+        or character == "_"
+    )
+
+    if not base:
+        base = "google_user"
+
+    base = base[:70]
+
+    candidate = base
+    counter = 1
+
+    while User.query.filter_by(
+        username=candidate
+    ).first():
+        suffix = f"_{counter}"
+
+        candidate = (
+            base[:80 - len(suffix)]
+            + suffix
+        )
+
+        counter += 1
+
+    return candidate
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     form = LoginForm()
@@ -279,9 +349,13 @@ def login():
             email=form.email.data
         ).first()
 
-        if user and bcrypt.checkpw(
-            form.password.data.encode("utf-8"),
-            user.password.encode("utf-8")
+        if (
+            user
+            and user.password
+            and bcrypt.checkpw(
+                form.password.data.encode("utf-8"),
+                user.password.encode("utf-8")
+            )
         ):
             try:
                 user.last_ip = get_client_ip()
@@ -310,6 +384,209 @@ def login():
         flash("Login failed. Check your email and password again.", "danger")
 
     return render_template("login.html", form=form)
+
+
+@app.route("/auth/google")
+def google_login():
+    if current_user.is_authenticated:
+        return redirect(
+            url_for("dashboard")
+        )
+
+    redirect_uri = app.config.get(
+        "GOOGLE_REDIRECT_URI"
+    )
+
+    if not (
+        app.config.get("GOOGLE_CLIENT_ID")
+        and app.config.get(
+            "GOOGLE_CLIENT_SECRET"
+        )
+        and redirect_uri
+    ):
+        flash(
+            "Google sign-in is not configured.",
+            "danger"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    return oauth.google.authorize_redirect(
+        redirect_uri
+    )
+
+
+@app.route("/auth/google/callback")
+def google_callback():
+    if current_user.is_authenticated:
+        return redirect(
+            url_for("dashboard")
+        )
+
+    try:
+        token = (
+            oauth.google
+            .authorize_access_token()
+        )
+
+        userinfo = token.get("userinfo")
+
+    except Exception as error:
+        print(
+            "GOOGLE OAUTH ERROR:",
+            repr(error)
+        )
+
+        flash(
+            "Google sign-in could not be "
+            "completed. Please try again.",
+            "danger"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    if not userinfo:
+        flash(
+            "Google did not return "
+            "account information.",
+            "danger"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    google_sub = str(
+        userinfo.get("sub", "")
+    ).strip()
+
+    email = str(
+        userinfo.get("email", "")
+    ).strip().lower()
+
+    email_verified = (
+        userinfo.get("email_verified")
+        is True
+        or str(
+            userinfo.get(
+                "email_verified",
+                ""
+            )
+        ).lower() == "true"
+    )
+
+    if (
+        not google_sub
+        or not email
+        or not email_verified
+    ):
+        flash(
+            "Google could not verify "
+            "this account.",
+            "danger"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    user = User.query.filter_by(
+        google_sub=google_sub
+    ).first()
+
+    try:
+        if user is None:
+            existing_email_user = (
+                User.query
+                .filter(
+                    db.func.lower(
+                        User.email
+                    )
+                    == email
+                )
+                .first()
+            )
+
+            if existing_email_user:
+                flash(
+                    "An account with that "
+                    "email already exists. "
+                    "Log in with your "
+                    "password first.",
+                    "warning"
+                )
+
+                return redirect(
+                    url_for("login")
+                )
+
+            user = User(
+                username=(
+                    generate_google_username(
+                        email
+                    )
+                ),
+                email=email,
+                password=None,
+                google_sub=google_sub,
+                last_ip=get_client_ip()
+            )
+
+            db.session.add(user)
+            db.session.flush()
+
+            record_security_event(
+                user.id,
+                "registration_google"
+            )
+
+        else:
+            user.last_ip = get_client_ip()
+
+            record_security_event(
+                user.id,
+                "login_google"
+            )
+
+        db.session.commit()
+
+        login_user(user)
+
+        log_action(
+            user.id,
+            "User logged in with Google"
+        )
+
+        flash(
+            "Login successful.",
+            "success"
+        )
+
+        return redirect(
+            url_for("dashboard")
+        )
+
+    except Exception as error:
+        db.session.rollback()
+
+        print(
+            "GOOGLE LOGIN DATABASE ERROR:",
+            repr(error)
+        )
+
+        flash(
+            "Google sign-in could not be "
+            "completed. Please try again.",
+            "danger"
+        )
+
+        return redirect(
+            url_for("login")
+        )
 
 
 @app.route("/logout")

@@ -1,7 +1,6 @@
-
 {% extends "base.html" %}
 
-{% block title %}Login - Get-A-Job{% endblock %}
+{% block title %}Login - JobFinitum{% endblock %}
 
 {% block content %}
 
@@ -32,6 +31,17 @@
 
             {{ form.submit(class="btn btn-primary") }}
         </form>
+
+        <hr class="my-4">
+
+        <div class="d-grid">
+            <a
+                href="{{ url_for('google_login') }}"
+                class="btn btn-outline-light"
+            >
+                Continue with Google
+            </a>
+        </div>
     </div>
 </div>
 

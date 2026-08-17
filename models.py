@@ -35,7 +35,9 @@ class User(db.Model, UserMixin):
     
     username = db.Column( db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
+    password = db.Column(db.String(255), nullable=True)
+
+    google_sub = db.Column(db.String(255), unique=True, nullable=True)
     
     last_ip = db.Column(db.String(45), nullable=True)
     
