@@ -13,6 +13,7 @@ import os
 import bcrypt
 import json
 import csv
+import time
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from io import StringIO
@@ -28,6 +29,7 @@ from flask import (
     Response,
     send_from_directory,
     jsonify,
+    session,
 )
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_wtf.csrf import CSRFProtect
@@ -73,7 +75,15 @@ from forms import (
     JobUrlImportForm,
     JobSearchProfileForm,
     JobSourceCompanyForm,
-    JobSourceDiscoveryForm
+    JobSourceDiscoveryForm,
+    EmailVerificationForm,
+    ResendVerificationForm,
+    ProfileSettingsForm,
+    ChangePasswordForm,
+    TwoFactorSetupForm,
+    TwoFactorChallengeForm,
+    DisableTwoFactorForm,
+    DeleteAccountForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -96,6 +106,26 @@ from services.ai_usage_service import (
 from services.account_security_service import (
     get_client_ip,
     record_security_event
+)
+from services.account_auth_service import (
+    VerificationCooldown,
+    issue_email_verification,
+    verify_email_code,
+    generate_totp_secret,
+    build_totp_setup,
+    verify_totp_secret,
+    verify_user_totp,
+    enable_user_totp,
+    disable_user_totp,
+    replace_recovery_codes,
+    consume_recovery_code
+)
+from services.profile_service import (
+    save_profile_picture,
+    delete_profile_picture
+)
+from services.account_delete_service import (
+    delete_user_account
 )
 from services.scheduler_service import (
     get_automatic_source_discovery_status,
@@ -271,39 +301,67 @@ def home():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+
     form = RegistrationForm()
 
     if form.validate_on_submit():
+        username = form.username.data.strip()
+        email = form.email.data.strip().lower()
+
+        if (
+            User.query
+            .filter(db.func.lower(User.username) == username.lower())
+            .first()
+        ):
+            flash("That username is already in use.", "danger")
+            return render_template("register.html", form=form)
+
+        if (
+            User.query
+            .filter(db.func.lower(User.email) == email)
+            .first()
+        ):
+            flash("An account with that email already exists.", "danger")
+            return render_template("register.html", form=form)
+
         hashed_password = bcrypt.hashpw(
             form.password.data.encode("utf-8"),
             bcrypt.gensalt()
         ).decode("utf-8")
 
         user = User(
-            username=form.username.data,
-            email=form.email.data,
+            username=username,
+            email=email,
             password=hashed_password,
+            email_verified=False,
             last_ip=get_client_ip()
         )
 
         try:
             db.session.add(user)
             db.session.flush()
-
             record_security_event(user.id, "registration")
-
+            issue_email_verification(user, force=True)
             db.session.commit()
 
-            flash("Account successfully created! You can now log in.", "success")
+            session["pending_email_verification_user_id"] = user.id
 
-            return redirect(url_for("home"))
+            flash(
+                "Account created. We sent a 6-digit verification "
+                "code to your email.",
+                "success"
+            )
+            return redirect(url_for("verify_email"))
 
-        except Exception as e:
+        except Exception as error:
             db.session.rollback()
-
-            print("REGISTRATION SECURITY EVENT ERROR:", repr(e))
-
-            flash("The account could not be created. Please try again.", "danger")
+            print("REGISTRATION ERROR:", repr(error))
+            flash(
+                "The account could not be created. Please try again.",
+                "danger"
+            )
 
     return render_template("register.html", form=form)
 
@@ -343,12 +401,18 @@ def generate_google_username(email):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+
     form = LoginForm()
 
     if form.validate_on_submit():
-        user = User.query.filter_by(
-            email=form.email.data
-        ).first()
+        email = form.email.data.strip().lower()
+        user = (
+            User.query
+            .filter(db.func.lower(User.email) == email)
+            .first()
+        )
 
         if (
             user
@@ -358,31 +422,45 @@ def login():
                 user.password.encode("utf-8")
             )
         ):
-            try:
-                user.last_ip = get_client_ip()
+            if not user.email_verified:
+                session["pending_email_verification_user_id"] = user.id
 
-                record_security_event(user.id, "login")
+                try:
+                    issue_email_verification(user)
+                    db.session.commit()
+                    flash(
+                        "Verify your email before logging in. "
+                        "We sent you a new verification code.",
+                        "warning"
+                    )
+                except VerificationCooldown:
+                    db.session.rollback()
+                    flash(
+                        "Verify your email before logging in. "
+                        "Use the code we already sent you.",
+                        "warning"
+                    )
+                except Exception as error:
+                    db.session.rollback()
+                    print("EMAIL VERIFICATION SEND ERROR:", repr(error))
+                    flash(
+                        "Your email is not verified, and a new code "
+                        "could not be sent right now.",
+                        "danger"
+                    )
 
-                db.session.commit()
+                return redirect(url_for("verify_email"))
 
-                login_user(user)
+            return start_user_login(
+                user,
+                "login",
+                "User logged in"
+            )
 
-                log_action(user.id, "User logged in")
-
-                flash("Login successful.", "success")
-
-                return redirect(url_for("dashboard"))
-
-            except Exception as e:
-                db.session.rollback()
-
-                print("LOGIN SECURITY EVENT ERROR:", repr(e))
-
-                flash("Login could not be completed. Please try again.", "danger")
-
-                return render_template("login.html", form=form)
-
-        flash("Login failed. Check your email and password again.", "danger")
+        flash(
+            "Login failed. Check your email and password again.",
+            "danger"
+        )
 
     return render_template("login.html", form=form)
 
@@ -422,178 +500,515 @@ def google_login():
 @app.route("/auth/google/callback")
 def google_callback():
     if current_user.is_authenticated:
-        return redirect(
-            url_for("dashboard")
-        )
+        return redirect(url_for("dashboard"))
 
     try:
-        token = (
-            oauth.google
-            .authorize_access_token()
-        )
-
+        token = oauth.google.authorize_access_token()
         userinfo = token.get("userinfo")
-
     except Exception as error:
-        print(
-            "GOOGLE OAUTH ERROR:",
-            repr(error)
-        )
-
+        print("GOOGLE OAUTH ERROR:", repr(error))
         flash(
-            "Google sign-in could not be "
-            "completed. Please try again.",
+            "Google sign-in could not be completed. Please try again.",
             "danger"
         )
-
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
     if not userinfo:
-        flash(
-            "Google did not return "
-            "account information.",
-            "danger"
-        )
+        flash("Google did not return account information.", "danger")
+        return redirect(url_for("login"))
 
-        return redirect(
-            url_for("login")
-        )
-
-    google_sub = str(
-        userinfo.get("sub", "")
-    ).strip()
-
-    email = str(
-        userinfo.get("email", "")
-    ).strip().lower()
-
+    google_sub = str(userinfo.get("sub", "")).strip()
+    email = str(userinfo.get("email", "")).strip().lower()
     email_verified = (
-        userinfo.get("email_verified")
-        is True
-        or str(
-            userinfo.get(
-                "email_verified",
-                ""
-            )
-        ).lower() == "true"
+        userinfo.get("email_verified") is True
+        or str(userinfo.get("email_verified", "")).lower() == "true"
     )
 
-    if (
-        not google_sub
-        or not email
-        or not email_verified
-    ):
-        flash(
-            "Google could not verify "
-            "this account.",
-            "danger"
-        )
+    if not google_sub or not email or not email_verified:
+        flash("Google could not verify this account.", "danger")
+        return redirect(url_for("login"))
 
-        return redirect(
-            url_for("login")
-        )
-
-    user = User.query.filter_by(
-        google_sub=google_sub
-    ).first()
+    user = User.query.filter_by(google_sub=google_sub).first()
 
     try:
         if user is None:
             existing_email_user = (
                 User.query
-                .filter(
-                    db.func.lower(
-                        User.email
-                    )
-                    == email
-                )
+                .filter(db.func.lower(User.email) == email)
                 .first()
             )
 
             if existing_email_user:
                 flash(
-                    "An account with that "
-                    "email already exists. "
-                    "Log in with your "
-                    "password first.",
+                    "An account with that email already exists. "
+                    "Log in with your password first.",
                     "warning"
                 )
-
-                return redirect(
-                    url_for("login")
-                )
+                return redirect(url_for("login"))
 
             user = User(
-                username=(
-                    generate_google_username(
-                        email
-                    )
-                ),
+                username=generate_google_username(email),
                 email=email,
                 password=None,
                 google_sub=google_sub,
+                email_verified=True,
                 last_ip=get_client_ip()
             )
-
             db.session.add(user)
             db.session.flush()
-
-            record_security_event(
-                user.id,
-                "registration_google"
-            )
-
+            record_security_event(user.id, "registration_google")
         else:
-            user.last_ip = get_client_ip()
-
-            record_security_event(
-                user.id,
-                "login_google"
-            )
+            user.email_verified = True
 
         db.session.commit()
 
-        login_user(user)
-
-        log_action(
-            user.id,
+        return start_user_login(
+            user,
+            "login_google",
             "User logged in with Google"
-        )
-
-        flash(
-            "Login successful.",
-            "success"
-        )
-
-        return redirect(
-            url_for("dashboard")
         )
 
     except Exception as error:
         db.session.rollback()
-
-        print(
-            "GOOGLE LOGIN DATABASE ERROR:",
-            repr(error)
+        print("GOOGLE LOGIN DATABASE ERROR:", repr(error))
+        flash(
+            "Google sign-in could not be completed. Please try again.",
+            "danger"
         )
+        return redirect(url_for("login"))
+
+
+def finish_user_login(user, security_event, audit_message):
+    try:
+        user.last_ip = get_client_ip()
+        record_security_event(user.id, security_event)
+        db.session.commit()
+
+        login_user(user)
+        log_action(user.id, audit_message)
+        flash("Login successful.", "success")
+        return redirect(url_for("dashboard"))
+    except Exception as error:
+        db.session.rollback()
+        print("LOGIN COMPLETION ERROR:", repr(error))
+        flash("Login could not be completed. Please try again.", "danger")
+        return redirect(url_for("login"))
+
+
+def start_user_login(user, security_event, audit_message):
+    if user.two_factor_enabled:
+        session["pending_2fa_user_id"] = user.id
+        session["pending_2fa_security_event"] = security_event
+        session["pending_2fa_audit_message"] = audit_message
+        session["pending_2fa_expires_at"] = time.time() + 600
+        session["pending_2fa_attempts"] = 0
+        return redirect(url_for("two_factor_challenge"))
+
+    return finish_user_login(user, security_event, audit_message)
+
+
+@app.route("/verify-email", methods=["GET", "POST"])
+def verify_email():
+    user_id = session.get("pending_email_verification_user_id")
+    if not user_id:
+        flash(
+            "Start from registration or login to verify an email address.",
+            "warning"
+        )
+        return redirect(url_for("login"))
+
+    user = db.session.get(User, int(user_id))
+    if user is None:
+        session.pop("pending_email_verification_user_id", None)
+        return redirect(url_for("register"))
+
+    if user.email_verified:
+        session.pop("pending_email_verification_user_id", None)
+        flash("Your email is already verified.", "info")
+        return redirect(url_for("login"))
+
+    form = EmailVerificationForm()
+    resend_form = ResendVerificationForm()
+
+    if form.validate_on_submit():
+        ok, message = verify_email_code(user, form.code.data)
+        if ok:
+            record_security_event(user.id, "email_verified")
+            db.session.commit()
+            session.pop("pending_email_verification_user_id", None)
+            flash(message + " You can now log in.", "success")
+            return redirect(url_for("login"))
+
+        db.session.commit()
+        flash(message, "danger")
+
+    return render_template(
+        "verify_email.html",
+        form=form,
+        resend_form=resend_form,
+        email=user.email
+    )
+
+
+@app.route("/verify-email/resend", methods=["POST"])
+def resend_verification_email():
+    form = ResendVerificationForm()
+    if not form.validate_on_submit():
+        return redirect(url_for("verify_email"))
+
+    user_id = session.get("pending_email_verification_user_id")
+    user = db.session.get(User, int(user_id)) if user_id else None
+
+    if user is None:
+        flash("There is no email waiting for verification.", "warning")
+        return redirect(url_for("login"))
+    if user.email_verified:
+        return redirect(url_for("login"))
+
+    try:
+        issue_email_verification(user)
+        db.session.commit()
+        flash("A new verification code was sent.", "success")
+    except VerificationCooldown as error:
+        db.session.rollback()
+        flash(
+            f"Wait {error.seconds_remaining} seconds before requesting "
+            "another code.",
+            "warning"
+        )
+    except Exception as error:
+        db.session.rollback()
+        print("VERIFICATION RESEND ERROR:", repr(error))
+        flash("A new verification code could not be sent.", "danger")
+
+    return redirect(url_for("verify_email"))
+
+
+@app.route("/auth/2fa", methods=["GET", "POST"])
+def two_factor_challenge():
+    user_id = session.get("pending_2fa_user_id")
+    expires_at = session.get("pending_2fa_expires_at", 0)
+
+    if not user_id or time.time() > expires_at:
+        session.pop("pending_2fa_user_id", None)
+        flash(
+            "Your two-step login session expired. Log in again.",
+            "warning"
+        )
+        return redirect(url_for("login"))
+
+    user = db.session.get(User, int(user_id))
+    if user is None:
+        return redirect(url_for("login"))
+
+    form = TwoFactorChallengeForm()
+
+    if form.validate_on_submit():
+        submitted = form.code.data.strip()
+        valid = verify_user_totp(user, submitted)
+        used_recovery = False
+
+        if not valid:
+            used_recovery = consume_recovery_code(user, submitted)
+            valid = used_recovery
+
+        if valid:
+            security_event = session.pop(
+                "pending_2fa_security_event",
+                "login_2fa"
+            )
+            audit_message = session.pop(
+                "pending_2fa_audit_message",
+                "User logged in with two-step verification"
+            )
+            session.pop("pending_2fa_user_id", None)
+            session.pop("pending_2fa_expires_at", None)
+            session.pop("pending_2fa_attempts", None)
+
+            if used_recovery:
+                record_security_event(user.id, "recovery_code_used")
+
+            return finish_user_login(user, security_event, audit_message)
+
+        attempts = session.get("pending_2fa_attempts", 0) + 1
+        session["pending_2fa_attempts"] = attempts
+
+        if attempts >= 8:
+            session.pop("pending_2fa_user_id", None)
+            flash("Too many incorrect codes. Log in again.", "danger")
+            return redirect(url_for("login"))
 
         flash(
-            "Google sign-in could not be "
-            "completed. Please try again.",
+            "That authenticator or recovery code is not valid.",
             "danger"
         )
 
-        return redirect(
-            url_for("login")
+    return render_template("two_factor_challenge.html", form=form)
+
+
+@app.route("/settings")
+@login_required
+def settings():
+    profile_form = ProfileSettingsForm()
+    profile_form.username.data = current_user.username
+
+    return render_template(
+        "settings.html",
+        profile_form=profile_form,
+        password_form=ChangePasswordForm(),
+        disable_2fa_form=DisableTwoFactorForm(),
+        delete_form=DeleteAccountForm()
+    )
+
+
+@app.route("/settings/profile", methods=["POST"])
+@login_required
+def update_profile_settings():
+    form = ProfileSettingsForm()
+
+    if not form.validate_on_submit():
+        for errors in form.errors.values():
+            for error in errors:
+                flash(error, "danger")
+        return redirect(url_for("settings"))
+
+    username = form.username.data.strip()
+    existing_user = (
+        User.query
+        .filter(
+            db.func.lower(User.username) == username.lower(),
+            User.id != current_user.id
         )
+        .first()
+    )
+
+    if existing_user:
+        flash("That username is already in use.", "danger")
+        return redirect(url_for("settings"))
+
+    current_user.username = username
+    upload = form.profile_picture.data
+
+    if upload and getattr(upload, "filename", ""):
+        try:
+            old_filename = current_user.profile_image
+            new_filename = save_profile_picture(upload, current_user.id)
+            current_user.profile_image = new_filename
+            if old_filename and old_filename != new_filename:
+                delete_profile_picture(old_filename)
+        except ValueError as error:
+            flash(str(error), "danger")
+            return redirect(url_for("settings"))
+
+    db.session.commit()
+    log_action(current_user.id, "Updated account profile")
+    flash("Profile updated.", "success")
+    return redirect(url_for("settings"))
+
+
+@app.route("/settings/password", methods=["POST"])
+@login_required
+def update_password_settings():
+    form = ChangePasswordForm()
+
+    if not form.validate_on_submit():
+        for errors in form.errors.values():
+            for error in errors:
+                flash(error, "danger")
+        return redirect(url_for("settings"))
+
+    if current_user.password:
+        if not form.current_password.data:
+            flash("Enter your current password.", "danger")
+            return redirect(url_for("settings"))
+
+        if not bcrypt.checkpw(
+            form.current_password.data.encode("utf-8"),
+            current_user.password.encode("utf-8")
+        ):
+            flash("Your current password is incorrect.", "danger")
+            return redirect(url_for("settings"))
+
+    current_user.password = bcrypt.hashpw(
+        form.new_password.data.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
+
+    record_security_event(current_user.id, "password_changed")
+    db.session.commit()
+    flash("Password updated.", "success")
+    return redirect(url_for("settings"))
+
+
+@app.route("/settings/2fa/setup", methods=["GET", "POST"])
+@login_required
+def setup_two_factor():
+    if current_user.two_factor_enabled:
+        flash("Two-step verification is already enabled.", "info")
+        return redirect(url_for("settings"))
+
+    if not current_user.pending_totp_secret:
+        secret = generate_totp_secret()
+        current_user.pending_totp_secret = encrypt_text(secret)
+        db.session.commit()
+    else:
+        secret = decrypt_text(current_user.pending_totp_secret)
+
+    _, qr_data_uri = build_totp_setup(current_user, secret)
+    form = TwoFactorSetupForm()
+
+    if form.validate_on_submit():
+        if not verify_totp_secret(secret, form.code.data):
+            flash("That authenticator code is not valid.", "danger")
+            return render_template(
+                "two_factor_setup.html",
+                form=form,
+                secret=secret,
+                qr_data_uri=qr_data_uri
+            )
+
+        enable_user_totp(current_user, secret)
+        recovery_codes = replace_recovery_codes(current_user)
+        record_security_event(current_user.id, "two_factor_enabled")
+        db.session.commit()
+
+        return render_template(
+            "recovery_codes.html",
+            recovery_codes=recovery_codes
+        )
+
+    return render_template(
+        "two_factor_setup.html",
+        form=form,
+        secret=secret,
+        qr_data_uri=qr_data_uri
+    )
+
+
+@app.route("/settings/2fa/disable", methods=["POST"])
+@login_required
+def disable_two_factor_settings():
+    form = DisableTwoFactorForm()
+
+    if not form.validate_on_submit():
+        flash("Enter a valid verification code.", "danger")
+        return redirect(url_for("settings"))
+
+    if current_user.password:
+        if not (
+            form.password.data
+            and bcrypt.checkpw(
+                form.password.data.encode("utf-8"),
+                current_user.password.encode("utf-8")
+            )
+        ):
+            flash(
+                "Your password is required to disable two-step verification.",
+                "danger"
+            )
+            return redirect(url_for("settings"))
+
+    code = form.code.data.strip()
+    valid = verify_user_totp(current_user, code)
+    if not valid:
+        valid = consume_recovery_code(current_user, code)
+
+    if not valid:
+        flash(
+            "That authenticator or recovery code is not valid.",
+            "danger"
+        )
+        return redirect(url_for("settings"))
+
+    disable_user_totp(current_user)
+    record_security_event(current_user.id, "two_factor_disabled")
+    db.session.commit()
+
+    flash("Two-step verification disabled.", "success")
+    return redirect(url_for("settings"))
+
+
+@app.route("/settings/delete", methods=["POST"])
+@login_required
+def delete_account_settings():
+    form = DeleteAccountForm()
+
+    if not form.validate_on_submit():
+        flash(
+            'Type "DELETE" and complete the required security fields.',
+            "danger"
+        )
+        return redirect(url_for("settings"))
+
+    if form.confirmation.data.strip().upper() != "DELETE":
+        flash('Type "DELETE" exactly to confirm account deletion.', "danger")
+        return redirect(url_for("settings"))
+
+    if current_user.password:
+        if not (
+            form.password.data
+            and bcrypt.checkpw(
+                form.password.data.encode("utf-8"),
+                current_user.password.encode("utf-8")
+            )
+        ):
+            flash("Your password is required to delete your account.", "danger")
+            return redirect(url_for("settings"))
+
+    if current_user.two_factor_enabled:
+        submitted_2fa = (form.two_factor_code.data or "").strip()
+        valid_2fa = verify_user_totp(current_user, submitted_2fa)
+        if not valid_2fa:
+            valid_2fa = consume_recovery_code(current_user, submitted_2fa)
+        if not valid_2fa:
+            flash(
+                "A valid two-step verification code is required to "
+                "delete your account.",
+                "danger"
+            )
+            return redirect(url_for("settings"))
+
+    user = current_user._get_current_object()
+    profile_image = user.profile_image
+
+    try:
+        delete_user_account(user)
+        db.session.commit()
+        delete_profile_picture(profile_image)
+        logout_user()
+        session.clear()
+
+        flash(
+            "Your JobFinitum account and stored account data were deleted.",
+            "success"
+        )
+        return redirect(url_for("home"))
+
+    except Exception as error:
+        db.session.rollback()
+        print("ACCOUNT DELETE ERROR:", repr(error))
+        flash(
+            "Your account could not be deleted. Nothing was changed.",
+            "danger"
+        )
+        return redirect(url_for("settings"))
 
 
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
+
+    for key in (
+        "pending_2fa_user_id",
+        "pending_2fa_security_event",
+        "pending_2fa_audit_message",
+        "pending_2fa_expires_at",
+        "pending_2fa_attempts",
+        "pending_email_verification_user_id",
+    ):
+        session.pop(key, None)
+
     flash("You have been logged out.", "info")
     return redirect(url_for("home"))
 

@@ -1,0 +1,31 @@
+
+{% extends "base.html" %}
+
+{% block title %}Two-Step Verification - JobFinitum{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card p-4">
+            <h2>Two-step verification</h2>
+            <p class="text-muted">
+                Enter the current code from your authenticator app,
+                or use one of your recovery codes.
+            </p>
+
+            <form method="POST">
+                {{ form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ form.code.label(class="form-label") }}
+                    {{ form.code(
+                        class="form-control",
+                        autocomplete="one-time-code",
+                        autofocus=true
+                    ) }}
+                </div>
+                {{ form.submit(class="btn btn-primary") }}
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

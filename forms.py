@@ -52,7 +52,10 @@ class RegistrationForm(FlaskForm):
     
     password = PasswordField(
         "Password",
-        validators=[DataRequired()]
+        validators=[
+            DataRequired(),
+            Length(min=10, max=128)
+        ]
     )
     
     confirm_password = PasswordField(
@@ -83,6 +86,121 @@ class LoginForm(FlaskForm):
     submit = SubmitField("Login")
     
     
+class EmailVerificationForm(FlaskForm):
+    code = StringField(
+        "Verification code",
+        validators=[
+            DataRequired(),
+            Length(min=6, max=6)
+        ]
+    )
+    submit = SubmitField("Verify Email")
+
+
+class ResendVerificationForm(FlaskForm):
+    submit = SubmitField("Send New Code")
+
+
+class ProfileSettingsForm(FlaskForm):
+    username = StringField(
+        "Username",
+        validators=[
+            DataRequired(),
+            Length(min=3, max=20)
+        ]
+    )
+
+    profile_picture = FileField(
+        "Profile Picture",
+        validators=[
+            FileAllowed(
+                ["jpg", "jpeg", "png", "webp"],
+                "Upload a JPG, PNG, or WebP image."
+            )
+        ]
+    )
+
+    submit = SubmitField("Save Profile")
+
+
+class ChangePasswordForm(FlaskForm):
+    current_password = PasswordField(
+        "Current Password",
+        validators=[Optional()]
+    )
+
+    new_password = PasswordField(
+        "New Password",
+        validators=[
+            DataRequired(),
+            Length(min=10, max=128)
+        ]
+    )
+
+    confirm_password = PasswordField(
+        "Confirm New Password",
+        validators=[
+            DataRequired(),
+            EqualTo("new_password")
+        ]
+    )
+
+    submit = SubmitField("Update Password")
+
+
+class TwoFactorSetupForm(FlaskForm):
+    code = StringField(
+        "6-digit code",
+        validators=[
+            DataRequired(),
+            Length(min=6, max=6)
+        ]
+    )
+    submit = SubmitField("Enable Two-Step Verification")
+
+
+class TwoFactorChallengeForm(FlaskForm):
+    code = StringField(
+        "Authenticator or recovery code",
+        validators=[
+            DataRequired(),
+            Length(min=6, max=32)
+        ]
+    )
+    submit = SubmitField("Verify")
+
+
+class DisableTwoFactorForm(FlaskForm):
+    code = StringField(
+        "Authenticator or recovery code",
+        validators=[
+            DataRequired(),
+            Length(min=6, max=32)
+        ]
+    )
+    password = PasswordField(
+        "Password",
+        validators=[Optional()]
+    )
+    submit = SubmitField("Disable Two-Step Verification")
+
+
+class DeleteAccountForm(FlaskForm):
+    confirmation = StringField(
+        'Type "DELETE" to confirm',
+        validators=[DataRequired()]
+    )
+    password = PasswordField(
+        "Password",
+        validators=[Optional()]
+    )
+    two_factor_code = StringField(
+        "Authenticator or recovery code",
+        validators=[Optional()]
+    )
+    submit = SubmitField("Delete My Account")
+
+
 class JobApplicationForm(FlaskForm):
     company_name = StringField("Company Name", validators=[DataRequired()])
     position_title = StringField("Position Title", validators=[DataRequired()])

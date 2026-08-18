@@ -60,9 +60,34 @@
                 <a href="{{ url_for('discovered_jobs') }}">Discovered Jobs</a>
                 <a href="{{ url_for('saved_discovered_jobs') }}">Saved Jobs</a>
                 <a href="{{ url_for('ignored_discovered_jobs') }}">Ignored Jobs</a>
+
+                <div class="sidebar-section">Account</div>
+                <a href="{{ url_for('settings') }}">Settings</a>
             </nav>
 
             <div class="sidebar-footer">
+
+                <div class="sidebar-user-card">
+                    {% if current_user.profile_image %}
+                        <img
+                            src="{{ url_for(
+                                'static',
+                                filename='profile_pics/' + current_user.profile_image
+                            ) }}"
+                            alt=""
+                            class="sidebar-user-avatar"
+                        >
+                    {% else %}
+                        <div class="sidebar-user-avatar sidebar-user-fallback">
+                            {{ current_user.username[:1]|upper }}
+                        </div>
+                    {% endif %}
+
+                    <div class="sidebar-user-copy">
+                        <strong>{{ current_user.username }}</strong>
+                        <span>{{ current_user.email }}</span>
+                    </div>
+                </div>
 
                 <div class="ai-usage-card">
 

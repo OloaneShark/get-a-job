@@ -1,0 +1,48 @@
+
+{% extends "base.html" %}
+
+{% block title %}Set Up Two-Step Verification - JobFinitum{% endblock %}
+
+{% block content %}
+<div class="page-panel p-4">
+    <h2>Set up two-step verification</h2>
+
+    <p>
+        Scan this QR code with Google Authenticator,
+        Microsoft Authenticator, 1Password, Bitwarden,
+        or another TOTP-compatible authenticator.
+    </p>
+
+    <div class="totp-setup-grid">
+        <div class="totp-qr-card">
+            <img
+                src="{{ qr_data_uri }}"
+                alt="JobFinitum authenticator QR code"
+                class="totp-qr-image"
+            >
+        </div>
+
+        <div>
+            <p class="mb-2">If you cannot scan it, enter this secret manually:</p>
+            <code class="totp-secret">{{ secret }}</code>
+
+            <form method="POST" class="mt-4">
+                {{ form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ form.code.label(class="form-label") }}
+                    {{ form.code(
+                        class="form-control",
+                        inputmode="numeric",
+                        autocomplete="one-time-code",
+                        maxlength="6"
+                    ) }}
+                </div>
+                {{ form.submit(class="btn btn-primary") }}
+                <a href="{{ url_for('settings') }}" class="btn btn-secondary">
+                    Cancel
+                </a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,25 @@
+
+{% extends "base.html" %}
+
+{% block title %}Recovery Codes - JobFinitum{% endblock %}
+
+{% block content %}
+<div class="page-panel p-4">
+    <h2>Save your recovery codes</h2>
+
+    <div class="alert alert-warning">
+        These codes are shown only now. Store them somewhere safe.
+        Each code works once if you lose access to your authenticator app.
+    </div>
+
+    <div class="recovery-code-grid">
+        {% for code in recovery_codes %}
+            <code>{{ code }}</code>
+        {% endfor %}
+    </div>
+
+    <a href="{{ url_for('settings') }}" class="btn btn-primary mt-4">
+        I saved my recovery codes
+    </a>
+</div>
+{% endblock %}

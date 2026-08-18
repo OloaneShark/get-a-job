@@ -1,0 +1,179 @@
+
+{% extends "base.html" %}
+
+{% block title %}Settings - JobFinitum{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+    <div class="settings-header">
+        <div class="settings-eyebrow">ACCOUNT</div>
+        <h1>Settings</h1>
+        <p>
+            Manage your JobFinitum profile, sign-in methods,
+            and account security.
+        </p>
+    </div>
+
+    <section class="settings-card">
+        <h3>Profile</h3>
+        <div class="profile-settings-layout">
+            <div class="settings-avatar-wrap">
+                {% if current_user.profile_image %}
+                    <img
+                        class="settings-avatar"
+                        src="{{ url_for(
+                            'static',
+                            filename='profile_pics/' + current_user.profile_image
+                        ) }}"
+                        alt="Profile picture"
+                    >
+                {% else %}
+                    <div class="settings-avatar settings-avatar-fallback">
+                        {{ current_user.username[:1]|upper }}
+                    </div>
+                {% endif %}
+            </div>
+
+            <form
+                method="POST"
+                action="{{ url_for('update_profile_settings') }}"
+                enctype="multipart/form-data"
+                class="settings-form"
+            >
+                {{ profile_form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ profile_form.username.label(class="form-label") }}
+                    {{ profile_form.username(class="form-control") }}
+                </div>
+                <div class="mb-3">
+                    {{ profile_form.profile_picture.label(class="form-label") }}
+                    {{ profile_form.profile_picture(class="form-control") }}
+                    <div class="form-text">JPG, PNG, or WebP. Maximum 3 MB.</div>
+                </div>
+                {{ profile_form.submit(class="btn btn-primary") }}
+            </form>
+        </div>
+    </section>
+
+    <section class="settings-card">
+        <h3>Email & sign-in</h3>
+        <div class="settings-row">
+            <div>
+                <strong>{{ current_user.email }}</strong>
+                {% if current_user.email_verified %}
+                    <span class="security-badge security-good">Verified</span>
+                {% else %}
+                    <span class="security-badge security-warning">Not verified</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="settings-row">
+            <span>Password sign-in</span>
+            <strong>{{ "Enabled" if current_user.password else "Not set" }}</strong>
+        </div>
+        <div class="settings-row">
+            <span>Google sign-in</span>
+            <strong>{{ "Connected" if current_user.google_sub else "Not connected" }}</strong>
+        </div>
+    </section>
+
+    <section class="settings-card">
+        <h3>Password</h3>
+        <form
+            method="POST"
+            action="{{ url_for('update_password_settings') }}"
+            class="settings-form"
+        >
+            {{ password_form.hidden_tag() }}
+            {% if current_user.password %}
+                <div class="mb-3">
+                    {{ password_form.current_password.label(class="form-label") }}
+                    {{ password_form.current_password(class="form-control") }}
+                </div>
+            {% endif %}
+            <div class="mb-3">
+                {{ password_form.new_password.label(class="form-label") }}
+                {{ password_form.new_password(class="form-control") }}
+            </div>
+            <div class="mb-3">
+                {{ password_form.confirm_password.label(class="form-label") }}
+                {{ password_form.confirm_password(class="form-control") }}
+            </div>
+            {{ password_form.submit(class="btn btn-primary") }}
+        </form>
+    </section>
+
+    <section class="settings-card">
+        <h3>Two-step verification</h3>
+        {% if current_user.two_factor_enabled %}
+            <div class="settings-row">
+                <div>
+                    <strong>Authenticator app enabled</strong>
+                    <p class="mb-0">
+                        JobFinitum will require an authenticator or recovery
+                        code after your primary sign-in.
+                    </p>
+                </div>
+                <span class="security-badge security-good">Enabled</span>
+            </div>
+
+            <form
+                method="POST"
+                action="{{ url_for('disable_two_factor_settings') }}"
+                class="settings-form mt-3"
+            >
+                {{ disable_2fa_form.hidden_tag() }}
+                <div class="mb-3">
+                    {{ disable_2fa_form.code.label(class="form-label") }}
+                    {{ disable_2fa_form.code(class="form-control") }}
+                </div>
+                {% if current_user.password %}
+                    <div class="mb-3">
+                        {{ disable_2fa_form.password.label(class="form-label") }}
+                        {{ disable_2fa_form.password(class="form-control") }}
+                    </div>
+                {% endif %}
+                {{ disable_2fa_form.submit(class="btn btn-warning") }}
+            </form>
+        {% else %}
+            <p>Add an authenticator app as a second factor for your account.</p>
+            <a href="{{ url_for('setup_two_factor') }}" class="btn btn-primary">
+                Set Up Authenticator
+            </a>
+        {% endif %}
+    </section>
+
+    <section class="settings-card danger-zone">
+        <h3>Delete account</h3>
+        <p>
+            Permanently delete your JobFinitum account and user-owned
+            application data. This cannot be undone.
+        </p>
+
+        <form
+            method="POST"
+            action="{{ url_for('delete_account_settings') }}"
+            class="settings-form"
+        >
+            {{ delete_form.hidden_tag() }}
+            <div class="mb-3">
+                {{ delete_form.confirmation.label(class="form-label") }}
+                {{ delete_form.confirmation(class="form-control") }}
+            </div>
+            {% if current_user.password %}
+                <div class="mb-3">
+                    {{ delete_form.password.label(class="form-label") }}
+                    {{ delete_form.password(class="form-control") }}
+                </div>
+            {% endif %}
+            {% if current_user.two_factor_enabled %}
+                <div class="mb-3">
+                    {{ delete_form.two_factor_code.label(class="form-label") }}
+                    {{ delete_form.two_factor_code(class="form-control") }}
+                </div>
+            {% endif %}
+            {{ delete_form.submit(class="btn btn-danger") }}
+        </form>
+    </section>
+</div>
+{% endblock %}

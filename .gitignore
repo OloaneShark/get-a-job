@@ -23,3 +23,7 @@ instance/
 # OS files
 .DS_Store
 Thumbs.db
+
+# User profile pictures
+static/profile_pics/*
+!static/profile_pics/.gitkeep

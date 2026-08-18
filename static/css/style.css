@@ -1807,3 +1807,231 @@ body.theme-light .quick-action-link.complete {
     box-shadow: 0 0 16px rgba(0, 217, 255, 0.45);
 }
 
+
+
+/* ===========================
+   Account Settings / Security
+=========================== */
+
+.sidebar-user-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(0, 229, 255, .18);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .03);
+}
+
+.sidebar-user-avatar {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid rgba(0, 229, 255, .35);
+}
+
+.sidebar-user-fallback {
+    display: grid;
+    place-items: center;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--neon-blue), var(--neon-purple));
+    color: #ffffff;
+}
+
+.sidebar-user-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-user-copy strong,
+.sidebar-user-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-user-copy span {
+    font-size: .72rem;
+    opacity: .68;
+}
+
+.settings-page {
+    width: 100%;
+    max-width: 980px;
+}
+
+.settings-header {
+    margin-bottom: 24px;
+}
+
+.settings-eyebrow {
+    color: var(--neon-pink);
+    font-size: .75rem;
+    font-weight: 800;
+    letter-spacing: .14em;
+}
+
+.settings-card {
+    padding: 26px;
+    margin-bottom: 22px;
+    border-radius: 18px;
+}
+
+body.theme-dark .settings-card {
+    background: rgba(21, 27, 46, .78);
+    border: 1px solid rgba(0, 229, 255, .22);
+    box-shadow: 0 0 24px rgba(0, 229, 255, .08);
+}
+
+body.theme-light .settings-card {
+    background: #ffffff;
+    border: 1px solid var(--light-border);
+    box-shadow: 0 6px 22px rgba(17, 24, 39, .06);
+}
+
+.settings-card h3 {
+    margin-bottom: 18px;
+}
+
+.settings-form {
+    max-width: 640px;
+}
+
+.profile-settings-layout {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+}
+
+.settings-avatar-wrap {
+    display: flex;
+    justify-content: center;
+}
+
+.settings-avatar {
+    width: 112px;
+    height: 112px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid rgba(0, 229, 255, .4);
+    box-shadow: 0 0 18px rgba(0, 229, 255, .16);
+}
+
+.settings-avatar-fallback {
+    display: grid;
+    place-items: center;
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: #ffffff;
+    background: linear-gradient(
+        135deg,
+        var(--neon-blue),
+        var(--neon-purple),
+        var(--neon-pink)
+    );
+}
+
+.settings-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 18px;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(148, 163, 184, .18);
+}
+
+.settings-row:last-child {
+    border-bottom: 0;
+}
+
+.security-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: .75rem;
+    font-weight: 800;
+}
+
+.security-good {
+    background: rgba(0, 255, 157, .16);
+    border: 1px solid rgba(0, 255, 157, .35);
+}
+
+.security-warning {
+    background: rgba(255, 193, 7, .14);
+    border: 1px solid rgba(255, 193, 7, .35);
+}
+
+.danger-zone {
+    border-color: rgba(255, 51, 102, .42) !important;
+}
+
+.totp-setup-grid {
+    display: grid;
+    grid-template-columns: 270px minmax(0, 1fr);
+    gap: 30px;
+    align-items: start;
+    margin-top: 24px;
+}
+
+.totp-qr-card {
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 16px;
+}
+
+.totp-qr-image {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.totp-secret {
+    display: inline-block;
+    max-width: 100%;
+    padding: 10px 12px;
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.recovery-code-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 620px;
+}
+
+.recovery-code-grid code {
+    display: block;
+    padding: 12px;
+    text-align: center;
+    border: 1px solid rgba(0, 229, 255, .22);
+    border-radius: 10px;
+    user-select: all;
+}
+
+@media (max-width: 720px) {
+    .profile-settings-layout,
+    .totp-setup-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .recovery-code-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* JobFinitum readable muted text */
+body.theme-dark .text-muted {
+    color: #aeb9d1 !important;
+}
+
+body.theme-light .text-muted {
+    color: #64748b !important;
+}

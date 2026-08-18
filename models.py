@@ -39,6 +39,33 @@ class User(db.Model, UserMixin):
 
     google_sub = db.Column(db.String(255), unique=True, nullable=True)
     
+    email_verified = db.Column(
+        db.Boolean,
+        default=False,
+        nullable=False
+    )
+
+    profile_image = db.Column(
+        db.String(255),
+        nullable=True
+    )
+
+    two_factor_enabled = db.Column(
+        db.Boolean,
+        default=False,
+        nullable=False
+    )
+
+    totp_secret = db.Column(
+        db.Text,
+        nullable=True
+    )
+
+    pending_totp_secret = db.Column(
+        db.Text,
+        nullable=True
+    )
+
     last_ip = db.Column(db.String(45), nullable=True)
     
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
@@ -57,10 +84,92 @@ class User(db.Model, UserMixin):
     
     job_search_profiles = db.relationship("JobSearchProfile", backref="owner", lazy=True, cascade="all, delete-orphan")
     
+    email_verification_codes = db.relationship(
+        "EmailVerificationCode",
+        backref="user",
+        lazy=True,
+        cascade="all, delete-orphan"
+    )
+
+    two_factor_recovery_codes = db.relationship(
+        "TwoFactorRecoveryCode",
+        backref="user",
+        lazy=True,
+        cascade="all, delete-orphan"
+    )
+
     def __repr__(self):
         return f"<User {self.username}>"
     
     
+class EmailVerificationCode(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False,
+        index=True
+    )
+
+    code_hash = db.Column(
+        db.String(64),
+        nullable=False
+    )
+
+    attempts = db.Column(
+        db.Integer,
+        default=0,
+        nullable=False
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+        index=True
+    )
+
+    expires_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        index=True
+    )
+
+    consumed_at = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+
+
+class TwoFactorRecoveryCode(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id"),
+        nullable=False,
+        index=True
+    )
+
+    code_hash = db.Column(
+        db.String(64),
+        nullable=False,
+        index=True
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    used_at = db.Column(
+        db.DateTime,
+        nullable=True
+    )
+
+
 class JobApplication(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
