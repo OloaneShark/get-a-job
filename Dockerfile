@@ -11,4 +11,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "python migrate_account_security.py && exec gunicorn --bind 0.0.0.0:5000 app:app"]
+CMD ["sh", "-c", "python migrate_account_security.py && python migrate_shared_job_cache.py && exec gunicorn --bind 0.0.0.0:5000 app:app"]

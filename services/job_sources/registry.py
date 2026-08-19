@@ -26,6 +26,7 @@ from services.job_sources.green_japan import GreenJapanJobSource
 from services.job_sources.bamboohr import BambooHRJobSource
 from services.job_sources.workable import WorkableJobSource
 from services.job_sources.amazon_jobs import AmazonJobsSource
+from services.job_sources.apple_jobs import AppleJobsSource
 
 
 SOURCE_REGISTRY = {
@@ -56,6 +57,7 @@ SOURCE_REGISTRY = {
     "bamboohr": BambooHRJobSource,
     "workable": WorkableJobSource,
     "amazon_jobs": AmazonJobsSource,
+    "apple_jobs": AppleJobsSource,
 }
 
 

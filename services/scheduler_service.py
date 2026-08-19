@@ -21,6 +21,26 @@ from services.job_sources.registry import create_source
 from services.job_sources.job_match_service import (
     collect_match_diagnostics,
     format_match_diagnostics,
+    job_matches_profile,
+)
+from services.job_sources.shared_job_cache import (
+    build_profile_signature,
+    cache_state_is_fresh,
+    load_source_cache_bundle,
+    prepared_job_list,
+    purge_expired_cached_jobs,
+    record_source_cache_failure,
+    source_refresh_interval,
+    upsert_cached_source_jobs,
+)
+from services.job_sources.configured_source_cache import (
+    CONFIGURED_SOURCE_REFRESH_INTERVAL,
+    CONFIGURED_SOURCE_REFRESH_WORKERS,
+    configured_cache_namespace,
+    configured_cache_signature,
+    iter_configured_source_refreshes,
+    load_configured_cache_bundles,
+    prune_missing_configured_jobs,
 )
 from services.job_sources.utils import (
     build_job_fingerprint,
@@ -113,6 +133,7 @@ GLOBAL_SOURCE_TYPES = [
     "ai_dev_jobs",
     "green_japan",
     "amazon_jobs",
+    "apple_jobs",
 ]
 
 
@@ -675,14 +696,208 @@ def create_global_sources():
     }
 
 
+def persist_global_source_cache(
+    source,
+    jobs,
+    profile_signature,
+    cache_scope,
+):
+    source_type = (
+        source.source_type
+        or ""
+    ).strip().lower()
+
+    def persist():
+        return upsert_cached_source_jobs(
+            source_type=source_type,
+            source_name=(
+                source.source_name
+            ),
+            jobs=jobs,
+            profile_signature=(
+                profile_signature
+            ),
+            cache_scope=(
+                cache_scope
+            ),
+        )
+
+    stats = run_database_transaction(
+        (
+            "persist shared job cache for "
+            f"{source_type}"
+        ),
+        persist,
+    )
+
+    print(
+        "GLOBAL SOURCE DB CACHE WRITE | "
+        f"Source: {source.source_name} | "
+        f"Received: {stats['received']} | "
+        f"Created: {stats['created']} | "
+        f"Updated: {stats['updated']} | "
+        f"Active: {stats['active']} | "
+        f"Expired skipped: "
+        f"{stats['skipped_expired']} | "
+        f"Invalid skipped: "
+        f"{stats['skipped_invalid']} | "
+        f"Retention: "
+        f"{stats['retention_days']} days"
+    )
+
+    return stats
+
+
+def record_global_source_cache_failure(
+    source,
+    error,
+):
+    def persist():
+        record_source_cache_failure(
+            source_type=(
+                source.source_type
+            ),
+            source_name=(
+                source.source_name
+            ),
+            error=error,
+        )
+
+    try:
+        run_database_transaction(
+            (
+                "record shared job cache "
+                f"failure for "
+                f"{source.source_type}"
+            ),
+            persist,
+        )
+
+    except Exception as cache_error:
+        print(
+            "GLOBAL SOURCE DB CACHE "
+            "FAILURE STATUS ERROR | "
+            f"Source: "
+            f"{source.source_name} | "
+            f"Error: {cache_error}"
+        )
+
+
+def load_global_source_cache(
+    source,
+):
+    def load():
+        return load_source_cache_bundle(
+            source.source_type
+        )
+
+    return run_database_transaction(
+        (
+            "load shared job cache for "
+            f"{source.source_type}"
+        ),
+        load,
+    )
+
+
 def prepare_global_sources(
     profiles,
     global_sources,
 ):
+    profile_signature = (
+        build_profile_signature(
+            profiles
+        )
+    )
+
+    def purge():
+        return (
+            purge_expired_cached_jobs()
+        )
+
+    purged_count = (
+        run_database_transaction(
+            "purge expired shared job cache",
+            purge,
+        )
+    )
+
+    if purged_count:
+        print(
+            "GLOBAL SOURCE DB CACHE PURGE | "
+            f"Removed: {purged_count}"
+        )
+
     for source_type in GLOBAL_SOURCE_TYPES:
         source = global_sources[
             source_type
         ]
+
+        # Per-run state lives on the source instance so the existing
+        # scheduler call graph does not need a separate global object.
+        source._db_cache_profile_signature = (
+            profile_signature
+        )
+        source._db_cache_mode = (
+            "network"
+        )
+        source._db_cached_jobs = []
+        source._db_cache_accumulator = {}
+        source._db_cache_errors = []
+
+        refresh_interval = (
+            source_refresh_interval(
+                source
+            )
+        )
+
+        try:
+            (
+                cache_state,
+                cached_jobs,
+            ) = load_global_source_cache(
+                source
+            )
+
+        except Exception as error:
+            cache_state = None
+            cached_jobs = []
+
+            print(
+                "GLOBAL SOURCE DB CACHE "
+                "LOAD ERROR | "
+                f"Source: "
+                f"{source.source_name} | "
+                f"Error: {error}"
+            )
+
+        if cache_state_is_fresh(
+            cache_state,
+            profile_signature=(
+                profile_signature
+            ),
+            refresh_interval=(
+                refresh_interval
+            ),
+        ):
+            source._db_cache_mode = (
+                "database"
+            )
+            source._db_cached_jobs = list(
+                cached_jobs
+            )
+
+            print(
+                "GLOBAL SOURCE DB CACHE HIT | "
+                f"Source: "
+                f"{source.source_name} | "
+                f"Jobs: "
+                f"{len(cached_jobs)} | "
+                f"Refresh interval: "
+                f"{refresh_interval}"
+            )
+            continue
+
         prepare = getattr(
             source,
             "prepare",
@@ -690,6 +905,14 @@ def prepare_global_sources(
         )
 
         if not callable(prepare):
+            print(
+                "GLOBAL SOURCE DB CACHE MISS | "
+                f"Source: "
+                f"{source.source_name} | "
+                "No shared prepare() method; "
+                "this refresh will collect the "
+                "union of profile matches."
+            )
             continue
 
         try:
@@ -700,9 +923,46 @@ def prepare_global_sources(
                 f"for {len(profiles)} "
                 "active profiles."
             )
-            prepare(profiles)
+
+            prepare_result = (
+                prepare(profiles)
+            )
+
+            prepared_jobs = (
+                prepared_job_list(
+                    source,
+                    prepare_result,
+                )
+            )
+
+            if prepared_jobs is None:
+                print(
+                    "GLOBAL SOURCE DB CACHE "
+                    "PREPARE FALLBACK | "
+                    f"Source: "
+                    f"{source.source_name} | "
+                    "prepare() did not expose a "
+                    "normalized job list; profile "
+                    "matches will seed the cache."
+                )
+                continue
+
+            persist_global_source_cache(
+                source,
+                prepared_jobs,
+                profile_signature,
+                "prepared_feed",
+            )
+
+            source._db_cache_mode = (
+                "prepared"
+            )
 
         except Exception as error:
+            source._db_cache_errors.append(
+                str(error)
+            )
+
             # Keep the scheduler alive. The source's search()
             # method may retry for an individual profile, and
             # the failure will still be recorded normally.
@@ -713,30 +973,573 @@ def prepare_global_sources(
             )
 
 
+def finalize_global_source_db_cache(
+    global_sources,
+):
+    for source_type in GLOBAL_SOURCE_TYPES:
+        source = global_sources[
+            source_type
+        ]
+
+        mode = getattr(
+            source,
+            "_db_cache_mode",
+            None,
+        )
+
+        if mode in {
+            "database",
+            "prepared",
+        }:
+            continue
+
+        errors = list(
+            getattr(
+                source,
+                "_db_cache_errors",
+                [],
+            )
+            or []
+        )
+
+        if errors:
+            record_global_source_cache_failure(
+                source,
+                "\n".join(
+                    errors
+                ),
+            )
+            continue
+
+        accumulator = getattr(
+            source,
+            "_db_cache_accumulator",
+            {},
+        )
+
+        jobs = list(
+            accumulator.values()
+        )
+
+        try:
+            persist_global_source_cache(
+                source,
+                jobs,
+                getattr(
+                    source,
+                    "_db_cache_profile_signature",
+                    None,
+                ),
+                "matched_union",
+            )
+
+        except Exception as error:
+            record_global_source_cache_failure(
+                source,
+                error,
+            )
+
+            print(
+                "GLOBAL SOURCE DB CACHE "
+                "FINALIZE ERROR | "
+                f"Source: "
+                f"{source.source_name} | "
+                f"Error: {error}"
+            )
+
+
+
+def prepare_configured_source_caches(
+    profiles,
+    source_configs,
+):
+    if not source_configs:
+        return {}
+
+    profile_signature = (
+        build_profile_signature(
+            profiles
+        )
+    )
+
+    config_by_id = {
+        source_config.id: source_config
+        for source_config
+        in source_configs
+    }
+
+    namespace_by_id = {
+        source_config.id: (
+            configured_cache_namespace(
+                source_config
+            )
+        )
+        for source_config
+        in source_configs
+    }
+
+    signature_by_id = {
+        source_config.id: (
+            configured_cache_signature(
+                source_config,
+                profile_signature,
+            )
+        )
+        for source_config
+        in source_configs
+    }
+
+    namespaces = list(
+        namespace_by_id.values()
+    )
+
+    def load_all():
+        return (
+            load_configured_cache_bundles(
+                namespaces
+            )
+        )
+
+    try:
+        bundles = (
+            run_database_transaction(
+                (
+                    "load configured source "
+                    "cache bundles"
+                ),
+                load_all,
+            )
+        )
+    except Exception as error:
+        print(
+            "CONFIGURED SOURCE DB CACHE "
+            "BULK LOAD ERROR | "
+            f"Error: {error}"
+        )
+
+        bundles = {
+            namespace: {
+                "state": None,
+                "jobs": [],
+            }
+            for namespace
+            in namespaces
+        }
+
+    cache_map = {}
+    refresh_targets = []
+    cache_hits = 0
+
+    for source_config in source_configs:
+        namespace = (
+            namespace_by_id[
+                source_config.id
+            ]
+        )
+        signature = (
+            signature_by_id[
+                source_config.id
+            ]
+        )
+        bundle = (
+            bundles.get(
+                namespace
+            )
+            or {
+                "state": None,
+                "jobs": [],
+            }
+        )
+
+        if cache_state_is_fresh(
+            bundle.get(
+                "state"
+            ),
+            profile_signature=signature,
+            refresh_interval=(
+                CONFIGURED_SOURCE_REFRESH_INTERVAL
+            ),
+        ):
+            cache_hits += 1
+
+            cache_map[
+                source_config.id
+            ] = {
+                "namespace": namespace,
+                "jobs": list(
+                    bundle.get(
+                        "jobs"
+                    )
+                    or []
+                ),
+                "mode": "database",
+                "refresh_error": None,
+            }
+            continue
+
+        refresh_targets.append(
+            source_config
+        )
+
+        cache_map[
+            source_config.id
+        ] = {
+            "namespace": namespace,
+            "jobs": list(
+                bundle.get(
+                    "jobs"
+                )
+                or []
+            ),
+            "mode": (
+                "stale"
+                if bundle.get(
+                    "jobs"
+                )
+                else "missing"
+            ),
+            "refresh_error": None,
+        }
+
+    print(
+        "CONFIGURED SOURCE DB CACHE PLAN | "
+        f"Boards: {len(source_configs)} | "
+        f"Fresh hits: {cache_hits} | "
+        f"Refresh needed: "
+        f"{len(refresh_targets)} | "
+        f"Workers: "
+        f"{CONFIGURED_SOURCE_REFRESH_WORKERS}"
+    )
+
+    if not refresh_targets:
+        return cache_map
+
+    for (
+        source_config,
+        result,
+        refresh_error,
+    ) in iter_configured_source_refreshes(
+        profiles,
+        refresh_targets,
+    ):
+        namespace = (
+            namespace_by_id[
+                source_config.id
+            ]
+        )
+        signature = (
+            signature_by_id[
+                source_config.id
+            ]
+        )
+        existing_entry = (
+            cache_map[
+                source_config.id
+            ]
+        )
+
+        if refresh_error is not None:
+            error_text = str(
+                refresh_error
+            )
+
+            existing_entry[
+                "refresh_error"
+            ] = error_text
+
+            print(
+                "CONFIGURED SOURCE REFRESH "
+                "ERROR | "
+                f"Company: "
+                f"{source_config.company_name} | "
+                f"Source: "
+                f"{source_config.source_type} | "
+                f"Error: {error_text}"
+            )
+
+            def persist_failure():
+                record_source_cache_failure(
+                    source_type=namespace,
+                    source_name=(
+                        (
+                            f"{source_config.source_type}: "
+                            f"{source_config.company_name}"
+                        )[:120]
+                    ),
+                    error=error_text,
+                )
+
+            try:
+                run_database_transaction(
+                    (
+                        "record configured source "
+                        f"cache failure {namespace}"
+                    ),
+                    persist_failure,
+                )
+            except Exception as status_error:
+                print(
+                    "CONFIGURED SOURCE CACHE "
+                    "FAILURE STATUS ERROR | "
+                    f"Namespace: {namespace} | "
+                    f"Error: {status_error}"
+                )
+
+            if existing_entry[
+                "jobs"
+            ]:
+                existing_entry[
+                    "mode"
+                ] = "stale_fallback"
+
+                print(
+                    "CONFIGURED SOURCE STALE "
+                    "FALLBACK | "
+                    f"Company: "
+                    f"{source_config.company_name} | "
+                    f"Jobs: "
+                    f"{len(existing_entry['jobs'])}"
+                )
+            else:
+                existing_entry[
+                    "mode"
+                ] = "failed"
+
+            continue
+
+        jobs = list(
+            result.get(
+                "jobs"
+            )
+            or []
+        )
+        display_name = (
+            result.get(
+                "display_name"
+            )
+            or (
+                f"{source_config.source_type}: "
+                f"{source_config.company_name}"
+            )
+        )[:120]
+        complete_inventory = bool(
+            result.get(
+                "complete_inventory"
+            )
+        )
+
+        def persist_refresh():
+            stats = (
+                upsert_cached_source_jobs(
+                    source_type=namespace,
+                    source_name=display_name,
+                    jobs=jobs,
+                    profile_signature=signature,
+                    cache_scope=(
+                        "configured_board"
+                    ),
+                )
+            )
+
+            pruned = 0
+
+            if complete_inventory:
+                pruned = (
+                    prune_missing_configured_jobs(
+                        namespace,
+                        jobs,
+                    )
+                )
+
+            (
+                cache_state,
+                persisted_jobs,
+            ) = load_source_cache_bundle(
+                namespace
+            )
+
+            return (
+                stats,
+                pruned,
+                persisted_jobs,
+            )
+
+        try:
+            (
+                stats,
+                pruned,
+                persisted_jobs,
+            ) = run_database_transaction(
+                (
+                    "persist configured source "
+                    f"cache {namespace}"
+                ),
+                persist_refresh,
+            )
+
+        except Exception as error:
+            error_text = str(
+                error
+            )
+
+            existing_entry[
+                "refresh_error"
+            ] = error_text
+
+            print(
+                "CONFIGURED SOURCE DB CACHE "
+                "WRITE ERROR | "
+                f"Company: "
+                f"{source_config.company_name} | "
+                f"Source: "
+                f"{source_config.source_type} | "
+                f"Error: {error_text}"
+            )
+
+            if existing_entry[
+                "jobs"
+            ]:
+                existing_entry[
+                    "mode"
+                ] = "stale_fallback"
+            else:
+                existing_entry[
+                    "mode"
+                ] = "failed"
+
+            continue
+
+        cache_map[
+            source_config.id
+        ] = {
+            "namespace": namespace,
+            "jobs": list(
+                persisted_jobs
+            ),
+            "mode": "refreshed",
+            "refresh_error": None,
+        }
+
+        print(
+            "CONFIGURED SOURCE DB CACHE WRITE | "
+            f"Company: "
+            f"{source_config.company_name} | "
+            f"Source: "
+            f"{source_config.source_type} | "
+            f"Received: "
+            f"{stats['received']} | "
+            f"Created: "
+            f"{stats['created']} | "
+            f"Updated: "
+            f"{stats['updated']} | "
+            f"Active: "
+            f"{stats['active']} | "
+            f"Pruned closed/missing: "
+            f"{pruned}"
+        )
+
+    refreshed = sum(
+        1
+        for entry in cache_map.values()
+        if entry.get(
+            "mode"
+        ) == "refreshed"
+    )
+    stale_fallbacks = sum(
+        1
+        for entry in cache_map.values()
+        if entry.get(
+            "mode"
+        ) == "stale_fallback"
+    )
+    failures = sum(
+        1
+        for entry in cache_map.values()
+        if entry.get(
+            "mode"
+        ) == "failed"
+    )
+
+    print(
+        "CONFIGURED SOURCE DB CACHE READY | "
+        f"Fresh hits: {cache_hits} | "
+        f"Refreshed: {refreshed} | "
+        f"Stale fallbacks: "
+        f"{stale_fallbacks} | "
+        f"Failed without cache: "
+        f"{failures}"
+    )
+
+    return cache_map
+
+
 def run_configured_source(
     profile,
     source_config,
+    configured_source_caches,
 ):
     source_type = (
         source_config.source_type
         or ""
     ).strip().lower()
 
-    source = create_source(
-        source_type
+    entry = (
+        configured_source_caches.get(
+            source_config.id
+        )
     )
 
+    if entry is None:
+        raise RuntimeError(
+            "Configured source cache entry "
+            f"is missing for source "
+            f"{source_config.id}."
+        )
+
+    cached_jobs = list(
+        entry.get(
+            "jobs"
+        )
+        or []
+    )
+    mode = (
+        entry.get(
+            "mode"
+        )
+        or "unknown"
+    )
+    refresh_error = entry.get(
+        "refresh_error"
+    )
+
+    if (
+        mode == "failed"
+        and not cached_jobs
+    ):
+        raise RuntimeError(
+            refresh_error
+            or (
+                "Configured source refresh "
+                "failed without a usable cache."
+            )
+        )
+
     print(
-        "JOB SOURCE: checking "
+        "JOB SOURCE: checking cached "
         f"{source_config.company_name} "
-        f"through {source.source_name}."
+        f"through {source_type}."
     )
 
     with collect_match_diagnostics() as diagnostics:
-        jobs = source.search(
-            profile=profile,
-            source_config=source_config,
-        )
+        jobs = [
+            job
+            for job
+            in cached_jobs
+            if job_matches_profile(
+                job,
+                profile,
+            )
+        ]
 
     if should_print_match_summary(
         diagnostics
@@ -745,14 +1548,25 @@ def run_configured_source(
             format_match_diagnostics(
                 profile.name,
                 (
-                    f"{source.source_name}: "
+                    f"{source_type}: "
                     f"{source_config.company_name}"
                 ),
                 diagnostics,
             )
         )
 
+    print(
+        "CONFIGURED SOURCE DB CACHE SEARCH | "
+        f"Company: "
+        f"{source_config.company_name} | "
+        f"Source: {source_type} | "
+        f"Mode: {mode} | "
+        f"Cached: {len(cached_jobs)} | "
+        f"Matched: {len(jobs)}"
+    )
+
     return jobs
+
 
 
 def run_global_source(
@@ -769,10 +1583,80 @@ def run_global_source(
         f"{source.source_name}."
     )
 
+    cache_mode = getattr(
+        source,
+        "_db_cache_mode",
+        None,
+    )
+
     with collect_match_diagnostics() as diagnostics:
-        jobs = source.search(
-            profile=profile,
-            source_config=None,
+        if cache_mode == "database":
+            cached_jobs = getattr(
+                source,
+                "_db_cached_jobs",
+                [],
+            )
+
+            jobs = [
+                job
+                for job
+                in cached_jobs
+                if job_matches_profile(
+                    job,
+                    profile,
+                )
+            ]
+
+        else:
+            jobs = source.search(
+                profile=profile,
+                source_config=None,
+            )
+
+            if cache_mode == "network":
+                accumulator = getattr(
+                    source,
+                    "_db_cache_accumulator",
+                    None,
+                )
+
+                if isinstance(
+                    accumulator,
+                    dict,
+                ):
+                    for job in jobs:
+                        if not isinstance(
+                            job,
+                            dict,
+                        ):
+                            continue
+
+                        cache_key = str(
+                            job.get(
+                                "external_id"
+                            )
+                            or job.get(
+                                "posting_url"
+                            )
+                            or ""
+                        ).strip()
+
+                        if not cache_key:
+                            continue
+
+                        accumulator[
+                            cache_key
+                        ] = job
+
+    if cache_mode == "database":
+        print(
+            "GLOBAL SOURCE DB CACHE SEARCH | "
+            f"Source: "
+            f"{source.source_name} | "
+            f"Profile: {profile.name} | "
+            f"Cached: "
+            f"{len(getattr(source, '_db_cached_jobs', []))} | "
+            f"Matched: {len(jobs)}"
         )
 
     if should_print_match_summary(
@@ -788,11 +1672,11 @@ def run_global_source(
 
     return source, jobs
 
-
 def process_search_profile(
     profile,
     source_configs,
     global_sources,
+    configured_source_caches,
 ):
     all_matching_jobs = []
     source_errors = []
@@ -838,6 +1722,7 @@ def process_search_profile(
                 run_configured_source(
                     profile,
                     source_config,
+                    configured_source_caches,
                 )
             )
             all_matching_jobs.extend(
@@ -904,6 +1789,27 @@ def process_search_profile(
             )
 
         except Exception as error:
+            cache_source = (
+                global_sources.get(
+                    source_type
+                )
+            )
+
+            if cache_source is not None:
+                cache_errors = getattr(
+                    cache_source,
+                    "_db_cache_errors",
+                    None,
+                )
+
+                if isinstance(
+                    cache_errors,
+                    list,
+                ):
+                    cache_errors.append(
+                        str(error)
+                    )
+
             error_message = (
                 f"Global source "
                 f"{source_type}: {error}"
@@ -981,6 +1887,13 @@ def process_active_search_profiles(app):
             global_sources,
         )
 
+        configured_source_caches = (
+            prepare_configured_source_caches(
+                profiles,
+                source_configs,
+            )
+        )
+
         for profile in profiles:
             if not profile.active:
                 continue
@@ -995,6 +1908,7 @@ def process_active_search_profiles(app):
                     profile,
                     source_configs,
                     global_sources,
+                    configured_source_caches,
                 )
 
                 result = persist_profile_results(
@@ -1048,6 +1962,10 @@ def process_active_search_profiles(app):
                     f"({failure_profile_name or profile.name}):",
                     repr(error),
                 )
+
+        finalize_global_source_db_cache(
+            global_sources
+        )
 
 
 def serialize_datetime(value):

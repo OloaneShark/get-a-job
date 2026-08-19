@@ -423,6 +423,151 @@ class DiscoveredJob(db.Model):
     )
     
     
+
+class CachedSourceJob(db.Model):
+    __tablename__ = "cached_source_job"
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True,
+    )
+
+    # This table is intentionally global. It has no user_id.
+    # One normalized source job can be matched against every user.
+    source_type = db.Column(
+        db.String(80),
+        nullable=False,
+        index=True,
+    )
+    source_name = db.Column(
+        db.String(120),
+        nullable=False,
+    )
+    cache_key = db.Column(
+        db.String(64),
+        nullable=False,
+    )
+    external_id = db.Column(
+        db.String(255),
+        nullable=True,
+        index=True,
+    )
+
+    company_name = db.Column(
+        db.String(150),
+        nullable=False,
+        index=True,
+    )
+    position_title = db.Column(
+        db.String(255),
+        nullable=False,
+    )
+    posting_url = db.Column(
+        db.String(1000),
+        nullable=False,
+    )
+
+    # The normalized source job is stored as JSON so every source can
+    # keep its matcher metadata without growing this table by dozens of
+    # source-specific columns.
+    job_payload = db.Column(
+        db.JSON,
+        nullable=False,
+    )
+
+    published_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    first_seen_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    last_seen_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    expires_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "source_type",
+            "cache_key",
+            name=(
+                "uq_cached_source_job_"
+                "source_key"
+            ),
+        ),
+        db.Index(
+            "ix_cached_source_job_"
+            "source_expires",
+            "source_type",
+            "expires_at",
+        ),
+    )
+
+
+class JobSourceCacheState(db.Model):
+    __tablename__ = "job_source_cache_state"
+
+    source_type = db.Column(
+        db.String(80),
+        primary_key=True,
+    )
+    source_name = db.Column(
+        db.String(120),
+        nullable=False,
+    )
+
+    # Some global sources prepare feeds from the combined active
+    # profile set. If those profiles change, the cache must refresh.
+    profile_signature = db.Column(
+        db.String(64),
+        nullable=True,
+        index=True,
+    )
+    cache_scope = db.Column(
+        db.String(30),
+        nullable=True,
+    )
+
+    last_refresh_attempt_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=True,
+    )
+    last_successful_refresh_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+    last_refresh_status = db.Column(
+        db.String(30),
+        nullable=False,
+        default="Never Run",
+    )
+    last_refresh_error = db.Column(
+        db.Text,
+        nullable=True,
+    )
+    cached_job_count = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+    )
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+    )
+
+
 class ApplicationPackage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
 
