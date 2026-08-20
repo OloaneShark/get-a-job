@@ -47,6 +47,30 @@
 
             {% if jobs %}
 
+                <form
+                    id="bulk-discovered-form"
+                    method="POST"
+                    action="{{ url_for('bulk_discovered_jobs') }}"
+                    class="card mb-3"
+                >
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+                        <label class="d-flex align-items-center gap-2 mb-0">
+                            <input id="discovered-select-visible" type="checkbox" class="form-check-input mt-0">
+                            Select visible
+                        </label>
+                        <button type="submit" name="action" value="ignore" class="btn btn-outline-danger btn-sm">
+                            Ignore Selected
+                        </button>
+                        <button type="submit" name="action" value="delete" class="btn btn-danger btn-sm">
+                            Delete Selected
+                        </button>
+                        <span class="helper-text">
+                            Ignore keeps a job hidden. Delete removes your local record, so an active match can be discovered again later.
+                        </span>
+                    </div>
+                </form>
+
                 <div
                     id="discovered-job-list"
                     class="d-grid gap-3"
@@ -60,6 +84,17 @@
                             data-job-id="{{ job.id }}"
                         >
                             <div class="card-body">
+
+                                <div class="d-flex gap-3 align-items-start">
+                                    <input
+                                        class="form-check-input mt-1 discovered-job-checkbox"
+                                        type="checkbox"
+                                        name="job_ids"
+                                        value="{{ job.id }}"
+                                        form="bulk-discovered-form"
+                                        aria-label="Select {{ job.position_title }}"
+                                    >
+                                    <div class="flex-grow-1">
 
                                 <div
                                     class="d-flex justify-content-between
@@ -267,6 +302,9 @@
                                             "%Y-%m-%d %H:%M"
                                         )
                                     }}
+                                </div>
+
+                                    </div>
                                 </div>
 
                             </div>
@@ -563,6 +601,60 @@ document.addEventListener(
                     "danger"
                 );
             }
+        }
+
+        const selectVisible = document.getElementById(
+            "discovered-select-visible"
+        );
+
+        const bulkForm = document.getElementById(
+            "bulk-discovered-form"
+        );
+
+        if (selectVisible) {
+            selectVisible.addEventListener(
+                "change",
+                () => {
+                    document.querySelectorAll(
+                        ".discovered-job-checkbox"
+                    ).forEach(
+                        checkbox => {
+                            checkbox.checked = selectVisible.checked;
+                        }
+                    );
+                }
+            );
+        }
+
+        if (bulkForm) {
+            bulkForm.addEventListener(
+                "submit",
+                event => {
+                    const selected = document.querySelectorAll(
+                        ".discovered-job-checkbox:checked"
+                    );
+
+                    if (selected.length === 0) {
+                        event.preventDefault();
+                        showMessage(
+                            "Select at least one job first.",
+                            "warning"
+                        );
+                        return;
+                    }
+
+                    if (
+                        event.submitter
+                        && event.submitter.value === "delete"
+                        && !window.confirm(
+                            `Delete ${selected.length} selected local job record(s)? `
+                            + "They can be discovered again later."
+                        )
+                    ) {
+                        event.preventDefault();
+                    }
+                }
+            );
         }
 
         document.addEventListener(

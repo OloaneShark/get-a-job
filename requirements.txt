@@ -64,3 +64,4 @@ WTForms==3.2.2
 PyOTP==2.10.0
 qrcode[pil]==8.2
 Pillow==12.3.0
+country-state-city==0.1.0

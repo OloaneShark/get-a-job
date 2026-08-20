@@ -645,7 +645,7 @@ class JobSearchProfile(db.Model):
     maximum_posting_age_days = db.Column(
         db.Integer,
         nullable=False,
-        default=395,
+        default=60,
     )
     matched_jobs = db.relationship(
         "DiscoveredJob",

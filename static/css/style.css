@@ -2035,3 +2035,208 @@ body.theme-dark .text-muted {
 body.theme-light .text-muted {
     color: #64748b !important;
 }
+
+/* ===========================
+   Search Profile UX / Readability
+=========================== */
+
+body.theme-dark .form-text,
+body.theme-dark .helper-text,
+body.theme-dark .text-muted {
+    color: #b8c4d9 !important;
+    opacity: 1 !important;
+}
+
+body.theme-light .form-text,
+body.theme-light .helper-text {
+    color: #5f6b7a !important;
+}
+
+body.theme-dark .form-control::placeholder,
+body.theme-dark textarea::placeholder {
+    color: #7f8ba3;
+    opacity: 1;
+}
+
+.location-picker {
+    padding: 18px;
+    border-radius: 16px;
+    border: 1px solid rgba(0, 229, 255, .22);
+}
+
+body.theme-dark .location-picker {
+    background: rgba(7, 13, 27, .45);
+}
+
+body.theme-light .location-picker {
+    background: #f8fafc;
+    border-color: #d8dce8;
+}
+
+.location-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.location-picker-label {
+    display: block;
+    margin-bottom: 7px;
+    font-size: .85rem;
+    font-weight: 800;
+    letter-spacing: .035em;
+}
+
+body.theme-dark .location-picker-label {
+    color: #dce7f7;
+}
+
+.selected-location-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+}
+
+.selected-location-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 7px 8px 7px 13px;
+    border-radius: 999px;
+    font-weight: 700;
+}
+
+body.theme-dark .selected-location-chip {
+    color: #effbff;
+    background: rgba(0, 229, 255, .10);
+    border: 1px solid rgba(0, 229, 255, .36);
+    box-shadow: 0 0 10px rgba(0, 229, 255, .08);
+}
+
+body.theme-light .selected-location-chip {
+    color: #17324d;
+    background: #e8f7fb;
+    border: 1px solid #9fdfea;
+}
+
+.selected-location-remove {
+    width: 24px;
+    height: 24px;
+    min-height: 24px !important;
+    display: inline-grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+body.theme-dark .selected-location-remove {
+    color: #ffffff;
+    background: rgba(255, 51, 102, .28);
+}
+
+body.theme-light .selected-location-remove {
+    color: #8c1636;
+    background: #ffdce6;
+}
+
+.profile-multiselect {
+    position: relative;
+    border-radius: 14px;
+}
+
+.profile-multiselect > summary {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    padding: 11px 44px 11px 14px;
+    border-radius: 12px;
+    cursor: pointer;
+    list-style: none;
+    font-weight: 700;
+    position: relative;
+}
+
+.profile-multiselect > summary::-webkit-details-marker {
+    display: none;
+}
+
+.profile-multiselect > summary::after {
+    content: "▾";
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+.profile-multiselect[open] > summary::after {
+    content: "▴";
+}
+
+body.theme-dark .profile-multiselect > summary {
+    color: #f5f7ff;
+    background: #0f1628;
+    border: 1px solid rgba(0, 229, 255, .28);
+}
+
+body.theme-light .profile-multiselect > summary {
+    color: #111827;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+}
+
+.profile-multiselect-menu {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 12px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+}
+
+body.theme-dark .profile-multiselect-menu {
+    background: #0d1425;
+    border: 1px solid rgba(0, 229, 255, .22);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, .28);
+}
+
+body.theme-light .profile-multiselect-menu {
+    background: #ffffff;
+    border: 1px solid #d8dce8;
+    box-shadow: 0 14px 32px rgba(17, 24, 39, .10);
+}
+
+.profile-multiselect-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 9px 11px;
+    margin: 0;
+    border-radius: 9px;
+    cursor: pointer;
+    font-weight: 650;
+}
+
+body.theme-dark .profile-multiselect-option:hover {
+    background: rgba(0, 229, 255, .08);
+}
+
+body.theme-light .profile-multiselect-option:hover {
+    background: #f1f5f9;
+}
+
+.profile-multiselect-option input {
+    min-height: auto;
+}
+
+@media (max-width: 800px) {
+    .location-picker-grid,
+    .profile-multiselect-menu {
+        grid-template-columns: 1fr;
+    }
+}

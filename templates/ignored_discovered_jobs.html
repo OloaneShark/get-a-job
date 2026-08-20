@@ -1,13 +1,10 @@
-
 {% extends "base.html" %}
 
 {% block title %}Ignored Jobs{% endblock %}
 
 {% block content %}
-
 <div class="form-page">
-
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
         <div>
             <h2>Ignored Jobs</h2>
             <p class="helper-text mb-0">
@@ -15,90 +12,129 @@
             </p>
         </div>
 
-        <a
-            href="{{ url_for('discovered_jobs') }}"
-            class="btn btn-secondary"
-        >
+        <a href="{{ url_for('discovered_jobs') }}" class="btn btn-secondary">
             Back to Discovered Jobs
         </a>
     </div>
 
     {% if jobs %}
+        <form id="bulk-ignored-form" method="POST"
+              action="{{ url_for('bulk_discovered_jobs') }}" class="card mb-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+                <label class="d-flex align-items-center gap-2 mb-0">
+                    <input id="ignored-select-visible" type="checkbox" class="form-check-input mt-0">
+                    Select all
+                </label>
+
+                <button type="submit" name="action" value="restore"
+                        class="btn btn-success btn-sm">
+                    Restore Selected
+                </button>
+
+                <button type="submit" name="action" value="delete"
+                        class="btn btn-outline-danger btn-sm">
+                    Delete Selected
+                </button>
+
+                <span class="helper-text">
+                    Delete removes your local record. A still-active job can be
+                    discovered again later; Ignore is what keeps it hidden.
+                </span>
+            </div>
+        </form>
 
         <div class="row g-4">
             {% for job in jobs %}
-
                 <div class="col-12">
                     <div class="card">
                         <div class="card-body">
+                            <div class="d-flex gap-3 align-items-start">
+                                <input class="form-check-input mt-1 ignored-job-checkbox"
+                                       type="checkbox" name="job_ids" value="{{ job.id }}"
+                                       form="bulk-ignored-form"
+                                       aria-label="Select {{ job.position_title }}">
 
-                            <h4 class="mb-1">
-                                {{ job.position_title }}
-                            </h4>
+                                <div class="flex-grow-1">
+                                    <h4 class="mb-1">{{ job.position_title }}</h4>
+                                    <p class="mb-1"><strong>{{ job.company_name }}</strong></p>
+                                    <p class="helper-text mb-3">
+                                        {{ job.location or "Location not listed" }} · {{ job.source }}
+                                    </p>
 
-                            <p class="mb-1">
-                                <strong>{{ job.company_name }}</strong>
-                            </p>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <a href="{{ job.posting_url }}" target="_blank"
+                                           rel="noopener noreferrer"
+                                           class="btn btn-outline-primary">
+                                            View Job
+                                        </a>
 
-                            <p class="helper-text mb-3">
-                                {{ job.location or "Location not listed" }}
-                                ·
-                                {{ job.source }}
-                            </p>
-
-                            <div class="d-flex flex-wrap gap-2">
-
-                                <a
-                                    href="{{ job.posting_url }}"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="btn btn-outline-primary"
-                                >
-                                    View Job
-                                </a>
-
-                                <form
-                                    method="POST"
-                                    action="{{ url_for(
-                                        'restore_discovered_job',
-                                        job_id=job.id
-                                    ) }}"
-                                >
-                                    <input
-                                        type="hidden"
-                                        name="csrf_token"
-                                        value="{{ csrf_token() }}"
-                                    >
-
-                                    <button
-                                        type="submit"
-                                        class="btn btn-success"
-                                    >
-                                        Restore
-                                    </button>
-                                </form>
-
+                                        <form method="POST"
+                                              action="{{ url_for(
+                                                  'restore_discovered_job',
+                                                  job_id=job.id
+                                              ) }}">
+                                            <input type="hidden" name="csrf_token"
+                                                   value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-success">
+                                                Restore
+                                            </button>
+                                        </form>
+                                    </div>
+                                </div>
                             </div>
-
                         </div>
                     </div>
                 </div>
-
             {% endfor %}
         </div>
-
     {% else %}
-
         <div class="card">
             <div class="card-body">
-                <p class="helper-text mb-0">
-                    You have not ignored any jobs.
-                </p>
+                <p class="helper-text mb-0">You have not ignored any jobs.</p>
             </div>
         </div>
-
     {% endif %}
-
 </div>
 
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const selectVisible = document.getElementById("ignored-select-visible");
+    const bulkForm = document.getElementById("bulk-ignored-form");
+
+    if (selectVisible) {
+        selectVisible.addEventListener("change", () => {
+            document.querySelectorAll(".ignored-job-checkbox").forEach(
+                checkbox => {
+                    checkbox.checked = selectVisible.checked;
+                }
+            );
+        });
+    }
+
+    if (bulkForm) {
+        bulkForm.addEventListener("submit", event => {
+            const selected = document.querySelectorAll(".ignored-job-checkbox:checked");
+
+            if (selected.length === 0) {
+                event.preventDefault();
+                window.alert("Select at least one job first.");
+                return;
+            }
+
+            if (
+                event.submitter
+                && event.submitter.value === "delete"
+                && !window.confirm(
+                    `Delete ${selected.length} selected local job record(s)? `
+                    + "They may be discovered again later."
+                )
+            ) {
+                event.preventDefault();
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

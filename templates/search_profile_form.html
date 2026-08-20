@@ -1,144 +1,199 @@
-
 {% extends "base.html" %}
 
 {% block title %}Search Profile{% endblock %}
 
 {% block content %}
 
-<div class="form-page">
+<div class="form-page search-profile-page">
 
-    <h2>{{ title }}</h2>
+    <div class="mb-4">
+        <h2 class="mb-1">{{ title }}</h2>
+        <p class="helper-text mb-0">
+            Build a reusable technology-job search with structured filters.
+        </p>
+    </div>
 
-    <form method="POST">
+    <form method="POST" id="search-profile-form">
 
         {{ form.hidden_tag() }}
 
         <div class="mb-3">
             {{ form.name.label(class="form-label") }}
             {{ form.name(class="form-control") }}
-
             {% for error in form.name.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-3">
             {{ form.keywords.label(class="form-label") }}
             {{ form.keywords(class="form-control", rows=5) }}
-
+            <div class="form-text">
+                Enter technology roles and role families. Commas or new lines are supported.
+            </div>
             {% for error in form.keywords.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-4">
-            <label class="form-label">
-                Experience Levels
-            </label>
-
+            <label class="form-label">Experience Levels</label>
             <div class="d-flex flex-wrap gap-2">
                 {% for option in form.experience_levels %}
                     <label class="experience-level-option">
                         {{ option(class="experience-level-checkbox") }}
-
                         <span class="experience-level-button">
                             {{ option.label.text }}
                         </span>
                     </label>
                 {% endfor %}
             </div>
-
             {% for error in form.experience_levels.errors %}
-                <div class="text-danger mt-2">
-                    {{ error }}
-                </div>
-            {% endfor %}
-        </div>
-
-        <div class="mb-3">
-            {{ form.locations.label(class="form-label") }}
-            {{ form.locations(class="form-control", rows=4) }}
-
-            <div class="form-text">
-                These locations apply to Hybrid and On-site jobs,
-                and to location-restricted Remote jobs.
-            </div>
-
-            {% for error in form.locations.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-2">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-4">
-            <label class="form-label">
-                Workplace Types
-            </label>
+            <label class="form-label">Locations</label>
 
+            {{ form.locations(
+                id="locations-field",
+                class="d-none",
+                rows=1
+            ) }}
+
+            <div
+                id="location-picker"
+                class="location-picker"
+                data-countries-url="{{ url_for('location_countries_api') }}"
+                data-states-url="{{ url_for('location_states_api') }}"
+                data-cities-url="{{ url_for('location_cities_api') }}"
+            >
+                <div class="location-picker-grid">
+                    <div>
+                        <label class="location-picker-label" for="location-country">
+                            Country
+                        </label>
+                        <select id="location-country" class="form-select">
+                            <option value="">Choose a country</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="location-picker-label" for="location-state">
+                            State / Region
+                        </label>
+                        <select id="location-state" class="form-select" disabled>
+                            <option value="">Any state / region</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="location-picker-label" for="location-city">
+                            City
+                        </label>
+                        <select id="location-city" class="form-select" disabled>
+                            <option value="">Any city</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                    <button
+                        id="add-location-button"
+                        type="button"
+                        class="btn btn-outline-info"
+                        disabled
+                    >
+                        Add Location
+                    </button>
+                    <span class="form-text m-0">
+                        Choose a country, optionally narrow it to a state/region and city,
+                        then add it to the profile.
+                    </span>
+                </div>
+
+                <div
+                    id="selected-locations"
+                    class="selected-location-list mt-3"
+                    aria-live="polite"
+                ></div>
+            </div>
+
+            <div class="form-text mt-2">
+                These locations apply to Hybrid and On-site jobs, and to
+                location-restricted Remote jobs.
+            </div>
+
+            {% for error in form.locations.errors %}
+                <div class="text-danger mt-1">{{ error }}</div>
+            {% endfor %}
+        </div>
+
+        <div class="mb-4">
+            <label class="form-label">Workplace Types</label>
             <div class="d-flex flex-wrap gap-2">
                 {% for option in form.workplace_types %}
                     <label class="experience-level-option">
                         {{ option(class="experience-level-checkbox") }}
-
                         <span class="experience-level-button">
                             {{ option.label.text }}
                         </span>
                     </label>
                 {% endfor %}
             </div>
-
             <div class="form-text">
                 Choose one or more: Remote, Hybrid, or On-site.
             </div>
-
             {% for error in form.workplace_types.errors %}
-                <div class="text-danger mt-2">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-2">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-3">
             {{ form.remote_scope.label(class="form-label") }}
             {{ form.remote_scope(class="form-select") }}
-
             <div class="form-text">
-                This setting only controls where Remote jobs may
-                be worked from. Hybrid and On-site jobs must match
-                one of the selected locations above.
+                This setting only controls where Remote jobs may be worked from.
+                Hybrid and On-site jobs must match one of the selected locations above.
             </div>
-
             {% for error in form.remote_scope.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
-        <div class="mb-3">
-            {{ form.employment_types.label(class="form-label") }}
-            {{ form.employment_types(class="form-control") }}
+        <div class="mb-4">
+            <label class="form-label">Employment Types</label>
+
+            <details id="employment-type-picker" class="profile-multiselect">
+                <summary id="employment-type-summary">
+                    Choose employment types
+                </summary>
+
+                <div class="profile-multiselect-menu">
+                    {% for option in form.employment_types %}
+                        <label class="profile-multiselect-option">
+                            {{ option(class="employment-type-checkbox") }}
+                            <span>{{ option.label.text }}</span>
+                        </label>
+                    {% endfor %}
+                </div>
+            </details>
+
+            <div class="form-text">
+                Choose Any, or select one or more specific employment types.
+            </div>
 
             {% for error in form.employment_types.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-2">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-3">
             {{ form.visa_preference.label(class="form-label") }}
             {{ form.visa_preference(class="form-select") }}
-
             {% for error in form.visa_preference.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
@@ -147,15 +202,12 @@
             {{ form.overseas_applicant_preference(class="form-select") }}
 
             <div class="form-text">
-                This is separate from visa sponsorship. A company
-                may accept overseas applications without promising
-                immigration sponsorship.
+                This is separate from visa sponsorship. A company may accept
+                overseas applications without promising immigration sponsorship.
             </div>
 
             {% for error in form.overseas_applicant_preference.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
@@ -164,25 +216,20 @@
             {{ form.maximum_posting_age_days(class="form-select") }}
 
             <div class="form-text">
-                Jobs with a known posting date older than this limit
-                are excluded. The largest available window is 13 months.
+                Jobfinitum keeps shared live job listings for at most 60 days
+                from the original posting date when one is known.
             </div>
 
             {% for error in form.maximum_posting_age_days.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
         <div class="mb-3">
             {{ form.minimum_salary.label(class="form-label") }}
             {{ form.minimum_salary(class="form-control") }}
-
             {% for error in form.minimum_salary.errors %}
-                <div class="text-danger mt-1">
-                    {{ error }}
-                </div>
+                <div class="text-danger mt-1">{{ error }}</div>
             {% endfor %}
         </div>
 
@@ -196,5 +243,9 @@
     </form>
 
 </div>
+
+<script
+    src="{{ url_for('static', filename='js/search_profile_form.js') }}"
+></script>
 
 {% endblock %}

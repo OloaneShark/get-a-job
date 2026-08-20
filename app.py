@@ -52,7 +52,8 @@ from models import (
     ApplicationPackage,
     JobSearchProfile,
     JobSourceCompany,
-    JobSourceCandidate
+    JobSourceCandidate,
+    CachedSourceJob
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -137,6 +138,9 @@ from services.job_sources.source_utils import (
     extract_greenhouse_board_token,
     extract_lever_company_slug
 )
+from services.job_sources.utils import (
+    build_job_fingerprint,
+)
 from services.job_sources.workday_crawler import (
     WorkdayCrawler,
 )
@@ -144,6 +148,12 @@ from services.job_sources.discovery.source_discovery import (detect_source_type)
 from services.job_sources.discovery.validation_service import (validate_source_candidate)
 from services.job_sources.discovery.candidate_service import (ingest_source_urls)
 from services.job_sources.discovery.common_crawl_discovery import (run_common_crawl_discovery)
+from services.location_service import (
+    LocationDataUnavailable,
+    get_countries,
+    get_states,
+    get_cities,
+)
 
 load_dotenv()
 
@@ -3356,6 +3366,85 @@ def import_job_url():
     )
 
 
+@app.route("/api/locations/countries")
+@login_required
+def location_countries_api():
+    try:
+        return jsonify({
+            "success": True,
+            "items": get_countries(),
+        })
+    except LocationDataUnavailable as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+            "items": [],
+        }), 503
+
+
+@app.route("/api/locations/states")
+@login_required
+def location_states_api():
+    country_code = (
+        request.args.get("country", "")
+        .strip()
+        .upper()
+    )
+
+    if not country_code:
+        return jsonify({
+            "success": True,
+            "items": [],
+        })
+
+    try:
+        return jsonify({
+            "success": True,
+            "items": get_states(country_code),
+        })
+    except LocationDataUnavailable as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+            "items": [],
+        }), 503
+
+
+@app.route("/api/locations/cities")
+@login_required
+def location_cities_api():
+    country_code = (
+        request.args.get("country", "")
+        .strip()
+        .upper()
+    )
+    state_code = (
+        request.args.get("state", "")
+        .strip()
+    )
+
+    if not country_code or not state_code:
+        return jsonify({
+            "success": True,
+            "items": [],
+        })
+
+    try:
+        return jsonify({
+            "success": True,
+            "items": get_cities(
+                country_code,
+                state_code,
+            ),
+        })
+    except LocationDataUnavailable as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+            "items": [],
+        }), 503
+
+
 @app.route("/search-profiles")
 @login_required
 def search_profiles():
@@ -3387,7 +3476,7 @@ def new_search_profile():
             name=form.name.data,
             keywords=form.keywords.data,
             locations=form.locations.data,
-            employment_types=form.employment_types.data,
+            employment_types=",".join(form.employment_types.data or ["all"]),
             workplace_types=",".join(
                 selected_workplace_types
             ),
@@ -3493,6 +3582,20 @@ def edit_search_profile(profile_id):
             if value.strip()
         ]
 
+        stored_employment_types = [
+            value.strip().lower()
+            for value in (
+                profile.employment_types
+                or "all"
+            ).split(",")
+            if value.strip()
+        ]
+
+        form.employment_types.data = (
+            stored_employment_types
+            or ["all"]
+        )
+
         form.remote_scope.data = (
             profile.remote_scope
             or "any"
@@ -3508,9 +3611,31 @@ def edit_search_profile(profile_id):
             or "any"
         )
 
+        stored_posting_age = min(
+            int(
+                profile.maximum_posting_age_days
+                or 60
+            ),
+            60,
+        )
+
+        allowed_posting_ages = (
+            1,
+            7,
+            14,
+            30,
+            60,
+        )
+
+        selected_posting_age = min(
+            allowed_posting_ages,
+            key=lambda value: abs(
+                value - stored_posting_age
+            ),
+        )
+
         form.maximum_posting_age_days.data = str(
-            profile.maximum_posting_age_days
-            or 395
+            selected_posting_age
         )
 
     if form.validate_on_submit():
@@ -3522,7 +3647,7 @@ def edit_search_profile(profile_id):
         profile.name = form.name.data
         profile.keywords = form.keywords.data
         profile.locations = form.locations.data
-        profile.employment_types = form.employment_types.data
+        profile.employment_types = ",".join(form.employment_types.data or ["all"])
 
         profile.experience_levels = ",".join(
             form.experience_levels.data or []
@@ -4166,6 +4291,866 @@ def restore_discovered_job(job_id):
         request.referrer or url_for("ignored_discovered_jobs")
     )
 
+
+def job_bazaar_search_terms(search_term):
+    normalized = str(
+        search_term or ""
+    ).strip()
+
+    if not normalized:
+        return []
+
+    aliases = {
+        "it": (
+            "IT support",
+            "IT specialist",
+            "IT technician",
+            "information technology",
+            "help desk",
+            "service desk",
+            "desktop support",
+            "technical support",
+            "systems administrator",
+            "system administrator",
+            "support engineer",
+        ),
+        "help desk": (
+            "help desk",
+            "service desk",
+            "desktop support",
+            "technical support",
+            "IT support",
+            "IT specialist",
+            "IT technician",
+        ),
+        "service desk": (
+            "service desk",
+            "help desk",
+            "desktop support",
+            "technical support",
+            "IT support",
+        ),
+    }
+
+    alias_terms = aliases.get(
+        normalized.casefold()
+    )
+
+    if alias_terms is not None:
+        return list(dict.fromkeys(alias_terms))
+
+    return [normalized]
+
+
+def selected_integer_ids(field_name="job_ids"):
+    selected = set()
+
+    for raw_value in request.form.getlist(field_name):
+        try:
+            value = int(raw_value)
+        except (TypeError, ValueError):
+            continue
+
+        if value > 0:
+            selected.add(value)
+
+    return sorted(selected)
+
+
+def cached_source_payload(cached_job):
+    payload = cached_job.job_payload
+
+    if isinstance(payload, dict):
+        return dict(payload)
+
+    return {}
+
+
+def get_or_create_user_job_from_cache(cached_job):
+    payload = cached_source_payload(cached_job)
+
+    posting_url = canonical_job_posting_url(
+        cached_job.posting_url
+        or payload.get("posting_url")
+    )
+
+    if not posting_url:
+        raise ValueError(
+            "This shared job does not have a usable posting URL."
+        )
+
+    company_name = str(
+        cached_job.company_name
+        or payload.get("company_name")
+        or "Unknown Company"
+    ).strip()
+
+    position_title = str(
+        cached_job.position_title
+        or payload.get("position_title")
+        or "Untitled Position"
+    ).strip()
+
+    location = str(
+        payload.get("location")
+        or ""
+    ).strip()
+
+    fingerprint = build_job_fingerprint(
+        company_name,
+        position_title,
+        location,
+        posting_url,
+    )
+
+    discovered_job = (
+        DiscoveredJob.query
+        .filter_by(
+            user_id=current_user.id,
+            fingerprint=fingerprint,
+        )
+        .first()
+    )
+
+    if discovered_job is None:
+        posting_url_variants = {
+            posting_url,
+            f"{posting_url}/",
+        }
+
+        discovered_job = (
+            DiscoveredJob.query
+            .filter(
+                DiscoveredJob.user_id == current_user.id,
+                DiscoveredJob.posting_url.in_(posting_url_variants),
+            )
+            .first()
+        )
+
+    if discovered_job is not None:
+        return discovered_job
+
+    source_name = str(
+        payload.get("source")
+        or cached_job.source_name
+        or "Unknown"
+    ).strip()
+
+    employment_type = str(
+        payload.get("employment_type")
+        or ""
+    ).strip()
+
+    salary = str(
+        payload.get("salary")
+        or ""
+    ).strip()
+
+    visa_sponsorship = str(
+        payload.get("visa_sponsorship")
+        or "Unknown"
+    ).strip()
+
+    apply_url = canonical_job_posting_url(
+        payload.get("apply_url")
+        or posting_url
+    )
+
+    discovered_job = DiscoveredJob(
+        user_id=current_user.id,
+        search_profile_id=None,
+        source=source_name[:80],
+        external_id=(
+            str(
+                payload.get("external_id")
+                or cached_job.external_id
+                or ""
+            )[:255]
+            or None
+        ),
+        company_name=company_name[:150],
+        position_title=position_title[:150],
+        location=location[:150] or None,
+        employment_type=employment_type[:50] or None,
+        salary=salary[:100] or None,
+        visa_sponsorship=visa_sponsorship[:20] or "Unknown",
+        posting_url=posting_url[:1000],
+        apply_url=(
+            apply_url[:1000]
+            if apply_url
+            else posting_url[:1000]
+        ),
+        recruiter_name=(
+            str(payload.get("recruiter_name") or "")[:150]
+            or None
+        ),
+        recruiter_email=(
+            str(payload.get("recruiter_email") or "")[:255]
+            or None
+        ),
+        recruiter_contact_url=(
+            str(payload.get("recruiter_contact_url") or "")[:1000]
+            or None
+        ),
+        recruiter_contact_source=(
+            str(payload.get("recruiter_contact_source") or "")[:100]
+            or None
+        ),
+        job_description=payload.get("job_description") or None,
+        fingerprint=fingerprint,
+    )
+
+    db.session.add(discovered_job)
+
+    return discovered_job
+
+
+def job_bazaar_view(cached_job, user_state_by_url):
+    payload = cached_source_payload(cached_job)
+
+    posting_url = canonical_job_posting_url(
+        cached_job.posting_url
+    )
+
+    user_state = user_state_by_url.get(
+        posting_url
+    )
+
+    return {
+        "id": cached_job.id,
+        "source": (
+            payload.get("source")
+            or cached_job.source_name
+        ),
+        "company_name": cached_job.company_name,
+        "position_title": cached_job.position_title,
+        "location": payload.get("location"),
+        "workplace_type": payload.get("workplace_type"),
+        "employment_type": payload.get("employment_type"),
+        "salary": payload.get("salary"),
+        "posting_url": cached_job.posting_url,
+        "apply_url": (
+            payload.get("apply_url")
+            or cached_job.posting_url
+        ),
+        "published_at": cached_job.published_at,
+        "first_seen_at": cached_job.first_seen_at,
+        "expires_at": cached_job.expires_at,
+        "is_saved": bool(
+            user_state
+            and user_state.is_saved
+        ),
+        "is_ignored": bool(
+            user_state
+            and user_state.is_ignored
+        ),
+        "discovered_job_id": (
+            user_state.id
+            if user_state
+            else None
+        ),
+    }
+
+
+@app.route("/jobs")
+@login_required
+def job_bazaar():
+    page = request.args.get("page", 1, type=int)
+    search_term = request.args.get("q", "").strip()
+    location_filter = request.args.get("location", "").strip()
+    workplace_filter = (
+        request.args.get("workplace", "")
+        .strip()
+        .lower()
+    )
+    employment_filter = (
+        request.args.get("employment", "")
+        .strip()
+        .lower()
+    )
+    source_filter = request.args.get("source", "").strip()
+    sort_order = (
+        request.args.get("sort", "newest")
+        .strip()
+        .lower()
+    )
+
+    if workplace_filter not in {
+        "",
+        "remote",
+        "hybrid",
+        "on-site",
+    }:
+        workplace_filter = ""
+
+    if employment_filter not in {
+        "",
+        "full-time",
+        "part-time",
+        "internship",
+        "contract",
+        "temporary",
+        "freelance",
+    }:
+        employment_filter = ""
+
+    if sort_order not in {
+        "newest",
+        "company",
+        "title",
+        "expiring",
+    }:
+        sort_order = "newest"
+
+    now = datetime.now(timezone.utc)
+
+    ignored_job_exists = db.exists().where(
+        db.and_(
+            DiscoveredJob.user_id == current_user.id,
+            DiscoveredJob.is_ignored.is_(True),
+            db.func.rtrim(
+                DiscoveredJob.posting_url,
+                "/",
+            )
+            == db.func.rtrim(
+                CachedSourceJob.posting_url,
+                "/",
+            ),
+        )
+    )
+
+    query = (
+        CachedSourceJob.query
+        .filter(
+            CachedSourceJob.expires_at > now,
+            ~ignored_job_exists,
+        )
+    )
+
+    payload_text = db.cast(
+        CachedSourceJob.job_payload,
+        db.Text,
+    )
+
+    if search_term:
+        search_clauses = []
+
+        for expanded_term in job_bazaar_search_terms(
+            search_term
+        ):
+            search_pattern = f"%{expanded_term}%"
+
+            search_clauses.extend([
+                CachedSourceJob.position_title.ilike(
+                    search_pattern
+                ),
+                CachedSourceJob.company_name.ilike(
+                    search_pattern
+                ),
+                payload_text.ilike(
+                    search_pattern
+                ),
+            ])
+
+        if search_clauses:
+            query = query.filter(
+                db.or_(*search_clauses)
+            )
+
+    if location_filter:
+        query = query.filter(
+            (
+                CachedSourceJob
+                .job_payload["location"]
+                .as_string()
+            ).ilike(
+                f"%{location_filter}%"
+            )
+        )
+
+    if workplace_filter:
+        query = query.filter(
+            db.func.lower(
+                CachedSourceJob
+                .job_payload["workplace_type"]
+                .as_string()
+            )
+            == workplace_filter
+        )
+
+    if employment_filter:
+        query = query.filter(
+            db.func.lower(
+                CachedSourceJob
+                .job_payload["employment_type"]
+                .as_string()
+            )
+            == employment_filter
+        )
+
+    if source_filter:
+        source_pattern = f"%{source_filter}%"
+
+        query = query.filter(
+            db.or_(
+                CachedSourceJob.source_name.ilike(
+                    source_pattern
+                ),
+                (
+                    CachedSourceJob
+                    .job_payload["source"]
+                    .as_string()
+                ).ilike(
+                    source_pattern
+                ),
+            )
+        )
+
+    effective_posted_at = db.func.coalesce(
+        CachedSourceJob.published_at,
+        CachedSourceJob.first_seen_at,
+    )
+
+    if sort_order == "company":
+        query = query.order_by(
+            CachedSourceJob.company_name.asc(),
+            effective_posted_at.desc(),
+        )
+    elif sort_order == "title":
+        query = query.order_by(
+            CachedSourceJob.position_title.asc(),
+            effective_posted_at.desc(),
+        )
+    elif sort_order == "expiring":
+        query = query.order_by(
+            CachedSourceJob.expires_at.asc(),
+            effective_posted_at.desc(),
+        )
+    else:
+        query = query.order_by(
+            effective_posted_at.desc(),
+            CachedSourceJob.id.desc(),
+        )
+
+    pagination = query.paginate(
+        page=page,
+        per_page=30,
+        error_out=False,
+    )
+
+    cached_jobs = pagination.items
+
+    page_urls = {
+        canonical_job_posting_url(
+            cached_job.posting_url
+        )
+        for cached_job in cached_jobs
+        if canonical_job_posting_url(
+            cached_job.posting_url
+        )
+    }
+
+    url_variants = set()
+
+    for posting_url in page_urls:
+        url_variants.add(posting_url)
+        url_variants.add(f"{posting_url}/")
+
+    user_state_by_url = {}
+
+    if url_variants:
+        user_jobs = (
+            DiscoveredJob.query
+            .filter(
+                DiscoveredJob.user_id == current_user.id,
+                DiscoveredJob.posting_url.in_(
+                    url_variants
+                ),
+            )
+            .all()
+        )
+
+        for user_job in user_jobs:
+            canonical_url = canonical_job_posting_url(
+                user_job.posting_url
+            )
+
+            if canonical_url:
+                user_state_by_url[
+                    canonical_url
+                ] = user_job
+
+    jobs = [
+        job_bazaar_view(
+            cached_job,
+            user_state_by_url,
+        )
+        for cached_job in cached_jobs
+    ]
+
+    return render_template(
+        "job_bazaar.html",
+        jobs=jobs,
+        pagination=pagination,
+        filters={
+            "q": search_term,
+            "location": location_filter,
+            "workplace": workplace_filter,
+            "employment": employment_filter,
+            "source": source_filter,
+            "sort": sort_order,
+        },
+    )
+
+
+@app.route(
+    "/jobs/<int:cached_job_id>/save",
+    methods=["POST"],
+)
+@login_required
+def save_job_bazaar_job(cached_job_id):
+    cached_job = (
+        CachedSourceJob.query
+        .filter(
+            CachedSourceJob.id == cached_job_id,
+            CachedSourceJob.expires_at
+            > datetime.now(timezone.utc),
+        )
+        .first_or_404()
+    )
+
+    try:
+        job = get_or_create_user_job_from_cache(
+            cached_job
+        )
+
+        job.is_saved = True
+        job.is_ignored = False
+        job.saved_at = datetime.now(timezone.utc)
+        job.ignored_at = None
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                "Saved Job Bazaar listing: "
+                f"{job.company_name} - "
+                f"{job.position_title}"
+            ),
+        )
+
+        message = "Job saved to your account."
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": True,
+                "action": "save",
+                "cached_job_id": cached_job.id,
+                "discovered_job_id": job.id,
+                "message": message,
+            })
+
+        flash(message, "success")
+    except Exception as error:
+        db.session.rollback()
+        print(
+            "JOB BAZAAR SAVE ERROR:",
+            repr(error),
+        )
+        message = (
+            "The Job Bazaar listing could not be saved."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": False,
+                "action": "save",
+                "cached_job_id": cached_job.id,
+                "message": message,
+            }), 500
+
+        flash(message, "danger")
+
+    return redirect(
+        request.referrer
+        or url_for("job_bazaar")
+    )
+
+
+@app.route(
+    "/jobs/<int:cached_job_id>/ignore",
+    methods=["POST"],
+)
+@login_required
+def ignore_job_bazaar_job(cached_job_id):
+    cached_job = (
+        CachedSourceJob.query
+        .filter(
+            CachedSourceJob.id == cached_job_id,
+            CachedSourceJob.expires_at
+            > datetime.now(timezone.utc),
+        )
+        .first_or_404()
+    )
+
+    try:
+        job = get_or_create_user_job_from_cache(
+            cached_job
+        )
+
+        job.is_ignored = True
+        job.is_saved = False
+        job.ignored_at = datetime.now(timezone.utc)
+        job.saved_at = None
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                "Ignored Job Bazaar listing: "
+                f"{job.company_name} - "
+                f"{job.position_title}"
+            ),
+        )
+
+        message = "Job ignored for your account."
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": True,
+                "action": "ignore",
+                "cached_job_id": cached_job.id,
+                "discovered_job_id": job.id,
+                "message": message,
+            })
+
+        flash(message, "info")
+    except Exception as error:
+        db.session.rollback()
+        print(
+            "JOB BAZAAR IGNORE ERROR:",
+            repr(error),
+        )
+        message = (
+            "The Job Bazaar listing could not be ignored."
+        )
+
+        if request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest":
+            return jsonify({
+                "success": False,
+                "action": "ignore",
+                "cached_job_id": cached_job.id,
+                "message": message,
+            }), 500
+
+        flash(message, "danger")
+
+    return redirect(
+        request.referrer
+        or url_for("job_bazaar")
+    )
+
+
+@app.route(
+    "/jobs/bulk-ignore",
+    methods=["POST"],
+)
+@login_required
+def bulk_ignore_job_bazaar():
+    selected_ids = selected_integer_ids()
+
+    if not selected_ids:
+        flash(
+            "Select at least one Job Bazaar listing first.",
+            "warning",
+        )
+        return redirect(
+            request.referrer
+            or url_for("job_bazaar")
+        )
+
+    cached_jobs = (
+        CachedSourceJob.query
+        .filter(
+            CachedSourceJob.id.in_(selected_ids),
+            CachedSourceJob.expires_at
+            > datetime.now(timezone.utc),
+        )
+        .all()
+    )
+
+    ignored_count = 0
+
+    try:
+        now = datetime.now(timezone.utc)
+
+        for cached_job in cached_jobs:
+            job = get_or_create_user_job_from_cache(
+                cached_job
+            )
+
+            job.is_ignored = True
+            job.is_saved = False
+            job.ignored_at = now
+            job.saved_at = None
+            ignored_count += 1
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                "Bulk ignored "
+                f"{ignored_count} "
+                "Job Bazaar listings"
+            ),
+        )
+
+        flash(
+            f"{ignored_count} Job Bazaar listing(s) ignored.",
+            "info",
+        )
+    except Exception as error:
+        db.session.rollback()
+        print(
+            "JOB BAZAAR BULK IGNORE ERROR:",
+            repr(error),
+        )
+        flash(
+            "The selected Job Bazaar listings could not be ignored.",
+            "danger",
+        )
+
+    return redirect(
+        request.referrer
+        or url_for("job_bazaar")
+    )
+
+
+@app.route(
+    "/discovered-jobs/bulk",
+    methods=["POST"],
+)
+@login_required
+def bulk_discovered_jobs():
+    action = (
+        request.form.get("action", "")
+        .strip()
+        .lower()
+    )
+
+    if action not in {
+        "ignore",
+        "restore",
+        "delete",
+    }:
+        flash(
+            "Choose a valid bulk job action.",
+            "warning",
+        )
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    selected_ids = selected_integer_ids()
+
+    if not selected_ids:
+        flash(
+            "Select at least one job first.",
+            "warning",
+        )
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    jobs = (
+        DiscoveredJob.query
+        .filter(
+            DiscoveredJob.user_id
+            == current_user.id,
+            DiscoveredJob.id.in_(
+                selected_ids
+            ),
+        )
+        .all()
+    )
+
+    changed_count = 0
+    now = datetime.now(timezone.utc)
+
+    try:
+        for job in jobs:
+            if action == "ignore":
+                job.is_ignored = True
+                job.is_saved = False
+                job.ignored_at = now
+                job.saved_at = None
+            elif action == "restore":
+                job.is_ignored = False
+                job.ignored_at = None
+            else:
+                db.session.delete(job)
+
+            changed_count += 1
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                f"Bulk {action} action on "
+                f"{changed_count} discovered jobs"
+            ),
+        )
+    except Exception as error:
+        db.session.rollback()
+        print(
+            "DISCOVERED JOB BULK ACTION ERROR:",
+            repr(error),
+        )
+        flash(
+            "The selected jobs could not be updated.",
+            "danger",
+        )
+        return redirect(
+            request.referrer
+            or url_for("discovered_jobs")
+        )
+
+    action_message = {
+        "ignore": "ignored",
+        "restore": "restored",
+        "delete": "deleted",
+    }[action]
+
+    flash(
+        (
+            f"{changed_count} selected "
+            f"job(s) {action_message}."
+        ),
+        (
+            "success"
+            if action == "restore"
+            else "info"
+        ),
+    )
+
+    return redirect(
+        request.referrer
+        or url_for("discovered_jobs")
+    )
 
 @app.route("/job-match", methods=["GET", "POST"])
 @login_required

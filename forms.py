@@ -452,8 +452,18 @@ class JobSearchProfileForm(FlaskForm):
         validators=[DataRequired()]
     )
 
-    employment_types = StringField(
-        "Employment Types"
+    employment_types = MultiCheckboxField(
+        "Employment Types",
+        choices=[
+            ("all", "Any"),
+            ("full-time", "Full-time"),
+            ("part-time", "Part-time"),
+            ("contract", "Contract"),
+            ("internship", "Internship"),
+            ("temporary", "Temporary"),
+            ("freelance", "Freelance"),
+        ],
+        default=["all"]
     )
 
     visa_preference = SelectField(
@@ -483,12 +493,13 @@ class JobSearchProfileForm(FlaskForm):
     maximum_posting_age_days = SelectField(
         "Maximum Posting Age",
         choices=[
-            ("30", "1 month"),
-            ("90", "3 months"),
-            ("183", "6 months"),
-            ("395", "13 months"),
+            ("1", "Past 24 hours"),
+            ("7", "Past 7 days"),
+            ("14", "Past 14 days"),
+            ("30", "Past 30 days"),
+            ("60", "Past 60 days (maximum)"),
         ],
-        default="395",
+        default="60",
         validators=[DataRequired()]
     )
 
