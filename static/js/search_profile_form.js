@@ -1,3 +1,4 @@
+
 document.addEventListener("DOMContentLoaded", () => {
     const picker = document.getElementById("location-picker");
     const hiddenLocations = document.getElementById("locations-field");

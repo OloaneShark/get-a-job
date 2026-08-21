@@ -1,27 +1,158 @@
-
 {% extends "base.html" %}
 {% block title %}Auto Apply Applicant Profile{% endblock %}
+
 {% block content %}
 <div class="form-page">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h2 class="mb-1">Auto Apply Applicant Profile</h2>
-            <p class="helper-text mb-0">Identity used to fill supported external application forms. Application email stays profile-specific.</p>
+            <p class="helper-text mb-0">
+                Identity used to fill supported external application forms.
+                Application email stays profile-specific.
+            </p>
         </div>
-        <a href="{{ url_for('auto_apply_queue') }}" class="btn btn-outline-primary">Back to Queue</a>
+        <a href="{{ url_for('auto_apply_queue') }}" class="btn btn-outline-primary">
+            Back to Queue
+        </a>
     </div>
+
     <form method="POST">
         {{ form.hidden_tag() }}
+
         <div class="form-grid">
-            {% for field in (form.first_name, form.last_name, form.phone, form.city, form.state_region, form.country, form.postal_code, form.linkedin_url, form.github_url, form.website_url) %}
             <div>
-                {{ field.label(class="form-label") }}
-                {{ field(class="form-control") }}
-                {% for error in field.errors %}<div class="text-danger mt-1">{{ error }}</div>{% endfor %}
+                {{ form.first_name.label(class="form-label") }}
+                {{ form.first_name(class="form-control") }}
+                {% for error in form.first_name.errors %}
+                    <div class="text-danger mt-1">{{ error }}</div>
+                {% endfor %}
             </div>
-            {% endfor %}
+
+            <div>
+                {{ form.last_name.label(class="form-label") }}
+                {{ form.last_name(class="form-control") }}
+                {% for error in form.last_name.errors %}
+                    <div class="text-danger mt-1">{{ error }}</div>
+                {% endfor %}
+            </div>
+
+            <div>
+                {{ form.phone_country_iso.label(class="form-label") }}
+                {{ form.phone_country_iso(
+                    class="form-select",
+                    id="phone-country-select"
+                ) }}
+            </div>
+
+            <div>
+                {{ form.phone.label(class="form-label") }}
+                {{ form.phone(
+                    class="form-control",
+                    id="phone-number-input",
+                    autocomplete="tel-national",
+                    placeholder="National phone number"
+                ) }}
+                <div id="phone-number-preview" class="form-text">
+                    Stored in international E.164 format after saving.
+                </div>
+                {% for error in form.phone.errors %}
+                    <div class="text-danger mt-1">{{ error }}</div>
+                {% endfor %}
+            </div>
         </div>
-        <div class="mt-4">{{ form.submit(class="btn btn-primary") }}</div>
+
+        <div
+            id="applicant-location-picker"
+            class="mt-4"
+            data-countries-url="{{ url_for('location_countries_api') }}"
+            data-states-url="{{ url_for('location_states_api') }}"
+            data-cities-url="{{ url_for('location_cities_api') }}"
+            data-current-country="{{ form.country.data or '' }}"
+            data-current-state="{{ form.state_region.data or '' }}"
+            data-current-city="{{ form.city.data or '' }}"
+        >
+            {{ form.country(type="hidden", id="applicant-country-value") }}
+            {{ form.state_region(type="hidden", id="applicant-state-value") }}
+            {{ form.city(type="hidden", id="applicant-city-value") }}
+
+            <div class="form-grid">
+                <div>
+                    <label class="form-label" for="applicant-location-country">
+                        Country
+                    </label>
+                    <select id="applicant-location-country" class="form-select">
+                        <option value="">Loading countries...</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label" for="applicant-location-state">
+                        State / Region
+                    </label>
+                    <select
+                        id="applicant-location-state"
+                        class="form-select"
+                        disabled
+                    >
+                        <option value="">Choose a country first</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="form-label" for="applicant-location-city">
+                        City
+                    </label>
+                    <select
+                        id="applicant-location-city"
+                        class="form-select"
+                        disabled
+                    >
+                        <option value="">Choose a state / region first</option>
+                    </select>
+                </div>
+
+                <div>
+                    {{ form.postal_code.label(class="form-label") }}
+                    {{ form.postal_code(
+                        class="form-control",
+                        autocomplete="postal-code"
+                    ) }}
+                    <div class="form-text">
+                        Enter the postal code for your exact address.
+                        A city can contain multiple postal codes.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <h5>Professional Links</h5>
+            <p class="helper-text">
+                Optional. Leave these blank if you do not use them.
+            </p>
+
+            <div class="form-grid">
+                {% for field in (
+                    form.linkedin_url,
+                    form.github_url,
+                    form.website_url
+                ) %}
+                    <div>
+                        {{ field.label(class="form-label") }}
+                        {{ field(class="form-control") }}
+                        {% for error in field.errors %}
+                            <div class="text-danger mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="mt-4">
+            {{ form.submit(class="btn btn-primary") }}
+        </div>
     </form>
 </div>
+
+<script src="{{ url_for('static', filename='js/auto_apply_applicant_profile.js') }}"></script>
 {% endblock %}

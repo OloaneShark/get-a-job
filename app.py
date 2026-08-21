@@ -165,6 +165,12 @@ from services.auto_apply_service import (
 from services.auto_apply_submission.engine import (
     execute_candidate_submission,
 )
+from services.phone_service import (
+    country_region_from_name,
+    get_phone_country_choices,
+    normalize_phone_number,
+    split_phone_for_form,
+)
 
 load_dotenv()
 
@@ -3502,34 +3508,114 @@ def location_cities_api():
 @login_required
 def auto_apply_applicant_profile():
     access = get_auto_apply_access(current_user)
+
     if not access["allowed"]:
-        flash("Auto Apply is available to Premium users and administrators.", "warning")
+        flash(
+            "Auto Apply is available to Premium users and administrators.",
+            "warning",
+        )
         return redirect(url_for("search_profiles"))
 
-    profile = ApplicantProfile.query.filter_by(user_id=current_user.id).first()
+    profile = ApplicantProfile.query.filter_by(
+        user_id=current_user.id
+    ).first()
+
     form = ApplicantProfileForm(obj=profile)
 
+    form.phone_country_iso.choices = [
+        ("", "Choose phone country"),
+        *get_phone_country_choices(),
+    ]
+
+    if request.method == "GET":
+        preferred_region = (
+            country_region_from_name(profile.country)
+            if profile
+            else ""
+        )
+
+        phone_region, national_number = split_phone_for_form(
+            profile.phone if profile else None,
+            preferred_region=preferred_region,
+        )
+
+        form.phone_country_iso.data = (
+            phone_region
+            or preferred_region
+            or ""
+        )
+        form.phone.data = national_number
+
     if form.validate_on_submit():
-        if profile is None:
-            profile = ApplicantProfile(user_id=current_user.id)
-            db.session.add(profile)
+        try:
+            normalized_phone = normalize_phone_number(
+                form.phone.data,
+                form.phone_country_iso.data,
+            )
+        except ValueError as error:
+            form.phone.errors.append(str(error))
+        else:
+            if profile is None:
+                profile = ApplicantProfile(
+                    user_id=current_user.id
+                )
+                db.session.add(profile)
 
-        profile.first_name = form.first_name.data.strip()
-        profile.last_name = form.last_name.data.strip()
-        profile.phone = (form.phone.data or "").strip() or None
-        profile.city = (form.city.data or "").strip() or None
-        profile.state_region = (form.state_region.data or "").strip() or None
-        profile.country = (form.country.data or "").strip() or None
-        profile.postal_code = (form.postal_code.data or "").strip() or None
-        profile.linkedin_url = (form.linkedin_url.data or "").strip() or None
-        profile.github_url = (form.github_url.data or "").strip() or None
-        profile.website_url = (form.website_url.data or "").strip() or None
-        db.session.commit()
-        log_action(current_user.id, "Updated Auto Apply applicant profile")
-        flash("Auto Apply applicant profile saved.", "success")
-        return redirect(url_for("auto_apply_queue"))
+            profile.first_name = form.first_name.data.strip()
+            profile.last_name = form.last_name.data.strip()
+            profile.phone = normalized_phone
 
-    return render_template("auto_apply_applicant_profile.html", form=form)
+            profile.country = (
+                (form.country.data or "").strip()
+                or None
+            )
+            profile.state_region = (
+                (form.state_region.data or "").strip()
+                or None
+            )
+            profile.city = (
+                (form.city.data or "").strip()
+                or None
+            )
+            profile.postal_code = (
+                (form.postal_code.data or "").strip()
+                or None
+            )
+
+            # Professional links are intentionally optional.
+            profile.linkedin_url = (
+                (form.linkedin_url.data or "").strip()
+                or None
+            )
+            profile.github_url = (
+                (form.github_url.data or "").strip()
+                or None
+            )
+            profile.website_url = (
+                (form.website_url.data or "").strip()
+                or None
+            )
+
+            db.session.commit()
+
+            log_action(
+                current_user.id,
+                "Updated Auto Apply applicant profile",
+            )
+
+            flash(
+                "Auto Apply applicant profile saved.",
+                "success",
+            )
+
+            return redirect(
+                url_for("auto_apply_queue")
+            )
+
+    return render_template(
+        "auto_apply_applicant_profile.html",
+        form=form,
+    )
 
 
 @app.route("/auto-apply")
