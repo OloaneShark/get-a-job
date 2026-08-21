@@ -53,7 +53,8 @@ from models import (
     JobSearchProfile,
     JobSourceCompany,
     JobSourceCandidate,
-    CachedSourceJob
+    CachedSourceJob,
+    AutoApplyCandidate
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -154,6 +155,10 @@ from services.location_service import (
     get_states,
     get_cities,
 )
+from services.auto_apply_service import (
+    get_auto_apply_access,
+    stage_existing_auto_apply_matches,
+)
 
 load_dotenv()
 
@@ -189,7 +194,16 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
     "max_overflow": 2,
 }
 
-app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["UPLOAD_FOLDER"] = os.path.join(
+    app.root_path,
+    "uploads",
+)
+
+# A fresh clone/container may not have the upload directory yet.
+os.makedirs(
+    app.config["UPLOAD_FOLDER"],
+    exist_ok=True,
+)
 
 
 if not app.config["SQLALCHEMY_DATABASE_URI"]:
@@ -225,6 +239,27 @@ def get_latest_resume_for_user(user_id):
         .order_by(Resume.uploaded_at.desc())
         .first()
     )
+
+
+def configure_search_profile_auto_apply_form(form, user_id):
+    resumes = (
+        Resume.query
+        .filter_by(user_id=user_id)
+        .order_by(Resume.uploaded_at.desc())
+        .all()
+    )
+    form.auto_apply_resume_id.choices = [(0, "Select a resume")] + [
+        (
+            resume.id,
+            (resume.version_name or resume.original_filename)
+            + (
+                f" — {resume.original_filename}"
+                if resume.version_name and resume.version_name != resume.original_filename
+                else ""
+            ),
+        )
+        for resume in resumes
+    ]
 
 
 def canonical_job_posting_url(value):
@@ -2513,11 +2548,23 @@ def upload_resume():
         original_filename = secure_filename(file.filename)
 
         stored_filename = f"user_{current_user.id}_{original_filename}"
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], stored_filename)
+        file_path = os.path.join(
+            app.config["UPLOAD_FOLDER"],
+            stored_filename,
+        )
+
+        # Re-create the directory if it was removed while the app
+        # was running or this is a fresh local/container filesystem.
+        os.makedirs(
+            app.config["UPLOAD_FOLDER"],
+            exist_ok=True,
+        )
 
         file.save(file_path)
 
-        extracted_text = extract_resume_text(file_path)
+        extracted_text = extract_resume_text(
+            file_path
+        )
 
         resume = Resume(
             filename=stored_filename,
@@ -3445,6 +3492,108 @@ def location_cities_api():
         }), 503
 
 
+@app.route("/auto-apply")
+@login_required
+def auto_apply_queue():
+    auto_apply_access = get_auto_apply_access(
+        current_user
+    )
+
+    if not auto_apply_access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium "
+            "users and administrators.",
+            "warning",
+        )
+        return redirect(
+            url_for("search_profiles")
+        )
+
+    page = request.args.get("page", 1, type=int)
+    selected_status = request.args.get("status", "all").strip()
+    allowed = {"all", "Pending Review", "Approved", "Rejected"}
+    if selected_status not in allowed:
+        selected_status = "all"
+
+    query = AutoApplyCandidate.query.filter_by(user_id=current_user.id)
+    if selected_status != "all":
+        query = query.filter_by(status=selected_status)
+
+    pagination = (
+        query.order_by(AutoApplyCandidate.created_at.desc())
+        .paginate(page=page, per_page=25, error_out=False)
+    )
+    status_counts = {
+        status: count
+        for status, count in (
+            db.session.query(AutoApplyCandidate.status, db.func.count(AutoApplyCandidate.id))
+            .filter(AutoApplyCandidate.user_id == current_user.id)
+            .group_by(AutoApplyCandidate.status)
+            .all()
+        )
+    }
+    return render_template(
+        "auto_apply_queue.html",
+        candidates=pagination.items,
+        pagination=pagination,
+        selected_status=selected_status,
+        status_counts=status_counts,
+    )
+
+
+@app.route("/auto-apply/<int:candidate_id>/<string:action>", methods=["POST"])
+@login_required
+def update_auto_apply_candidate(candidate_id, action):
+    auto_apply_access = get_auto_apply_access(
+        current_user
+    )
+
+    if not auto_apply_access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium "
+            "users and administrators.",
+            "warning",
+        )
+        return redirect(
+            url_for("search_profiles")
+        )
+
+    candidate = AutoApplyCandidate.query.filter_by(
+        id=candidate_id,
+        user_id=current_user.id,
+    ).first_or_404()
+
+    action = str(action or "").strip().lower()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    if action == "approve":
+        candidate.status = "Approved"
+        candidate.reviewed_at = now
+        message = "Candidate approved. No application was submitted yet."
+        category = "success"
+    elif action == "reject":
+        candidate.status = "Rejected"
+        candidate.reviewed_at = now
+        message = "Candidate rejected."
+        category = "info"
+    elif action == "reset":
+        candidate.status = "Pending Review"
+        candidate.reviewed_at = None
+        message = "Candidate returned to Pending Review."
+        category = "info"
+    else:
+        flash("That Auto Apply action is not valid.", "warning")
+        return redirect(url_for("auto_apply_queue"))
+
+    db.session.commit()
+    log_action(
+        current_user.id,
+        f"Auto Apply {action}: {candidate.discovered_job.company_name} - {candidate.discovered_job.position_title}",
+    )
+    flash(message, category)
+    return redirect(request.referrer or url_for("auto_apply_queue"))
+
+
 @app.route("/search-profiles")
 @login_required
 def search_profiles():
@@ -3464,8 +3613,47 @@ def search_profiles():
 @login_required
 def new_search_profile():
     form = JobSearchProfileForm()
+    configure_search_profile_auto_apply_form(form, current_user.id)
+
+    if (
+        request.method == "GET"
+        and not form.auto_apply_contact_email.data
+    ):
+        form.auto_apply_contact_email.data = (
+            current_user.email
+        )
 
     if form.validate_on_submit():
+        auto_apply_access = get_auto_apply_access(
+            current_user
+        )
+
+        auto_apply_enabled = bool(
+            auto_apply_access["allowed"]
+            and form.auto_apply_enabled.data
+        )
+
+        auto_apply_resume_id = (
+            form.auto_apply_resume_id.data
+            if auto_apply_access["allowed"]
+            else None
+        ) or None
+
+        if auto_apply_access["unlimited"]:
+            # Stored for schema compatibility; ignored for Admin.
+            auto_apply_daily_limit = 50
+        else:
+            auto_apply_daily_limit = max(
+                1,
+                min(
+                    int(
+                        form.auto_apply_daily_limit.data
+                        or 50
+                    ),
+                    50,
+                ),
+            )
+
         selected_workplace_types = (
             form.workplace_types.data
             or ["remote"]
@@ -3502,7 +3690,32 @@ def new_search_profile():
             ),
             maximum_posting_age_days=int(
                 form.maximum_posting_age_days.data
-            )
+            ),
+            auto_apply_enabled=auto_apply_enabled,
+            auto_apply_resume_id=auto_apply_resume_id,
+            auto_apply_cover_letter_mode=(
+                form.auto_apply_cover_letter_mode.data
+            ),
+            auto_apply_contact_email=(
+                (
+                    form.auto_apply_contact_email.data
+                    or current_user.email
+                )
+                .strip()
+                .lower()
+                if auto_apply_access["allowed"]
+                else None
+            ),
+            auto_apply_excluded_companies=(
+                (
+                    form.auto_apply_excluded_companies.data
+                    or ""
+                ).strip()
+                or None
+            ),
+            auto_apply_daily_limit=(
+                auto_apply_daily_limit
+            ),
         )
 
         try:
@@ -3563,6 +3776,7 @@ def edit_search_profile(profile_id):
     ).first_or_404()
 
     form = JobSearchProfileForm(obj=profile)
+    configure_search_profile_auto_apply_form(form, current_user.id)
 
     if request.method == "GET":
         form.experience_levels.data = [
@@ -3637,8 +3851,45 @@ def edit_search_profile(profile_id):
         form.maximum_posting_age_days.data = str(
             selected_posting_age
         )
+        form.auto_apply_resume_id.data = profile.auto_apply_resume_id or 0
+        form.auto_apply_contact_email.data = (
+            profile.auto_apply_contact_email
+            or current_user.email
+        )
+        form.auto_apply_cover_letter_mode.data = profile.auto_apply_cover_letter_mode or "when_required"
+        form.auto_apply_daily_limit.data = profile.auto_apply_daily_limit or 10
 
     if form.validate_on_submit():
+        auto_apply_access = get_auto_apply_access(
+            current_user
+        )
+
+        auto_apply_enabled = bool(
+            auto_apply_access["allowed"]
+            and form.auto_apply_enabled.data
+        )
+
+        auto_apply_resume_id = (
+            form.auto_apply_resume_id.data
+            if auto_apply_access["allowed"]
+            else None
+        ) or None
+
+        if auto_apply_access["unlimited"]:
+            # Stored for schema compatibility; ignored for Admin.
+            auto_apply_daily_limit = 50
+        else:
+            auto_apply_daily_limit = max(
+                1,
+                min(
+                    int(
+                        form.auto_apply_daily_limit.data
+                        or 50
+                    ),
+                    50,
+                ),
+            )
+
         selected_workplace_types = (
             form.workplace_types.data
             or ["remote"]
@@ -3678,9 +3929,59 @@ def edit_search_profile(profile_id):
         )
 
         profile.minimum_salary = form.minimum_salary.data
+        profile.auto_apply_enabled = (
+            auto_apply_enabled
+        )
+        profile.auto_apply_resume_id = (
+            auto_apply_resume_id
+        )
+        profile.auto_apply_cover_letter_mode = (
+            form.auto_apply_cover_letter_mode.data
+        )
+        profile.auto_apply_contact_email = (
+            (
+                form.auto_apply_contact_email.data
+                or current_user.email
+            )
+            .strip()
+            .lower()
+            if auto_apply_access["allowed"]
+            else None
+        )
+        profile.auto_apply_excluded_companies = (
+            (
+                form.auto_apply_excluded_companies.data
+                or ""
+            ).strip()
+            or None
+        )
+        profile.auto_apply_daily_limit = (
+            auto_apply_daily_limit
+        )
         profile.active = form.active.data
 
         db.session.commit()
+
+        auto_apply_stage_stats = None
+
+        if profile.auto_apply_enabled:
+            auto_apply_stage_stats = (
+                stage_existing_auto_apply_matches(
+                    profile
+                )
+            )
+            db.session.commit()
+
+            print(
+                "AUTO APPLY BACKFILL | "
+                f"Profile: {profile.name} | "
+                f"Considered: {auto_apply_stage_stats['considered']} | "
+                f"Staged: {auto_apply_stage_stats['staged']} | "
+                f"Already queued: {auto_apply_stage_stats['already_queued']} | "
+                f"Already applied: {auto_apply_stage_stats['already_applied']} | "
+                f"Ignored: {auto_apply_stage_stats['ignored']} | "
+                f"Excluded: {auto_apply_stage_stats['excluded_company']}"
+            )
 
         log_action(
             current_user.id,

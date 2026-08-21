@@ -58,6 +58,9 @@
                 <div class="sidebar-section">Automation</div>
                 <a href="{{ url_for('job_bazaar') }}">Job Bazaar</a>
                 <a href="/search-profiles">Job Search Profiles</a>
+                {% if current_user.is_admin or current_user.plan == "premium" %}
+                    <a href="{{ url_for('auto_apply_queue') }}">Auto Apply Queue</a>
+                {% endif %}
                 <a href="{{ url_for('discovered_jobs') }}">Discovered Jobs</a>
                 <a href="{{ url_for('saved_discovered_jobs') }}">Saved Jobs</a>
                 <a href="{{ url_for('ignored_discovered_jobs') }}">Ignored Jobs</a>

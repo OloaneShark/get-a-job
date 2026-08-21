@@ -55,6 +55,19 @@
                                                 {{ "{:,}".format(profile.minimum_salary) }}
                                             </div>
                                         {% endif %}
+                                        {% if
+                                            profile.auto_apply_enabled
+                                            and (
+                                                current_user.is_admin
+                                                or current_user.plan == "premium"
+                                            )
+                                        %}
+                                            <div class="mt-2">
+                                                <span class="badge bg-info">
+                                                    Auto Apply Queue On
+                                                </span>
+                                            </div>
+                                        {% endif %}
                                     </td>
 
                                     <td>

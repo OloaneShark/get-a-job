@@ -2240,3 +2240,29 @@ body.theme-light .profile-multiselect-option:hover {
         grid-template-columns: 1fr;
     }
 }
+
+
+/* ===========================
+   Auto Apply Foundation
+=========================== */
+.auto-apply-settings { padding: 20px; border-radius: 16px; }
+body.theme-dark .auto-apply-settings { background: rgba(157,78,221,.08); border: 1px solid rgba(157,78,221,.30); }
+body.theme-light .auto-apply-settings { background: #faf7ff; border: 1px solid #ddd0f7; }
+.auto-apply-settings-fields.is-disabled { opacity: .55; }
+.auto-apply-meta { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.auto-apply-meta > div { display: flex; flex-direction: column; gap: 3px; padding: 12px; border-radius: 10px; }
+body.theme-dark .auto-apply-meta > div { background: rgba(0,229,255,.055); border: 1px solid rgba(0,229,255,.12); }
+body.theme-light .auto-apply-meta > div { background: #f8fafc; border: 1px solid #e2e8f0; }
+@media (max-width: 850px) { .auto-apply-meta { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 520px) { .auto-apply-meta { grid-template-columns: 1fr; } }
+
+/* Auto Apply toggle cleanup */
+.auto-apply-toggle{display:inline-flex;align-items:center;gap:12px;cursor:pointer;user-select:none}
+.auto-apply-toggle-input{position:absolute;opacity:0;pointer-events:none}
+.auto-apply-toggle-track{position:relative;display:inline-block;width:46px;height:26px;flex:0 0 46px;border-radius:999px;border:1px solid rgba(110,168,254,.7);background:rgba(255,255,255,.12);transition:.18s ease}
+.auto-apply-toggle-track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .18s ease;box-shadow:0 1px 5px rgba(0,0,0,.28)}
+.auto-apply-toggle-input:checked + .auto-apply-toggle-track{background:#0d6efd;border-color:#3d8bfd;box-shadow:0 0 12px rgba(13,110,253,.22)}
+.auto-apply-toggle-input:checked + .auto-apply-toggle-track::after{transform:translateX(20px)}
+.auto-apply-toggle-input:focus-visible + .auto-apply-toggle-track{outline:2px solid #22d3ee;outline-offset:3px}
+.auto-apply-unlimited-display{display:flex;align-items:center;font-weight:600;cursor:default}
+body.theme-dark .auto-apply-unlimited-display{color:#dce8ff;background:#101a2f}

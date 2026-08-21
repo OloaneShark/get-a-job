@@ -233,6 +233,112 @@
             {% endfor %}
         </div>
 
+        {% if current_user.is_admin or current_user.plan == "premium" %}
+        <div class="auto-apply-settings mb-4">
+            <div class="d-flex flex-wrap justify-content-between gap-3">
+                <div>
+                    <h4 class="mb-1">Auto Apply</h4>
+                    <p class="form-text mb-0">Stage eligible matches into your private review queue. Nothing is submitted in this phase.</p>
+                </div>
+                <label class="auto-apply-toggle" for="auto-apply-enabled">
+                    {{
+                        form.auto_apply_enabled(
+                            class="auto-apply-toggle-input",
+                            id="auto-apply-enabled"
+                        )
+                    }}
+                    <span class="auto-apply-toggle-track" aria-hidden="true"></span>
+                    <span class="auto-apply-toggle-label">Enable Auto Apply</span>
+                </label>
+            </div>
+
+            <div id="auto-apply-settings-fields" class="auto-apply-settings-fields form-grid mt-3">
+                <div>
+                    {{ form.auto_apply_resume_id.label(class="form-label") }}
+                    {{ form.auto_apply_resume_id(class="form-select auto-apply-dependent") }}
+                    {% for error in form.auto_apply_resume_id.errors %}<div class="text-danger mt-1">{{ error }}</div>{% endfor %}
+                </div>
+                <div>
+                    {{ form.auto_apply_contact_email.label(class="form-label") }}
+                    {{
+                        form.auto_apply_contact_email(
+                            class="form-control auto-apply-dependent",
+                            list="application-email-options",
+                            placeholder=current_user.email
+                        )
+                    }}
+
+                    <datalist id="application-email-options">
+                        <option value="{{ current_user.email }}">
+                            Jobfinitum account email
+                        </option>
+                    </datalist>
+
+                    <div class="form-text">
+                        Employers, ATS accounts, and confirmation messages
+                        use this address. It does not change your Jobfinitum
+                        sign-in email.
+                    </div>
+
+                    {% for error in form.auto_apply_contact_email.errors %}
+                        <div class="text-danger mt-1">
+                            {{ error }}
+                        </div>
+                    {% endfor %}
+                </div>
+                <div>
+                    {{ form.auto_apply_cover_letter_mode.label(class="form-label") }}
+                    {{ form.auto_apply_cover_letter_mode(class="form-select auto-apply-dependent") }}
+                </div>
+                <div>
+                    {{ form.auto_apply_daily_limit.label(class="form-label") }}
+                    {% if current_user.is_admin %}
+                        {{ form.auto_apply_daily_limit(type="hidden", value="50") }}
+                        <div class="form-control auto-apply-unlimited-display">
+                            Unlimited
+                        </div>
+                        <div class="form-text">
+                            Administrator accounts have no daily Auto Apply limit.
+                        </div>
+                    {% else %}
+                        {{
+                            form.auto_apply_daily_limit(
+                                class="form-control auto-apply-dependent",
+                                min="1",
+                                max="50"
+                            )
+                        }}
+                        <div class="form-text">
+                            Premium accounts can process at most 50 Auto Apply
+                            jobs per day across all search profiles. You can set
+                            this profile lower.
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="full-width">
+                    {{ form.auto_apply_excluded_companies.label(class="form-label") }}
+                    {{ form.auto_apply_excluded_companies(class="form-control auto-apply-dependent") }}
+                    <div class="form-text">One company per line or comma-separated. Matching companies are never staged.</div>
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        <div class="auto-apply-settings mb-4">
+            <div class="d-flex flex-wrap justify-content-between gap-3">
+                <div>
+                    <h4 class="mb-1">Auto Apply</h4>
+                    <p class="form-text mb-0">
+                        Auto Apply is a Premium feature. Premium accounts can
+                        process up to 50 jobs per day. Administrator accounts
+                        are unlimited.
+                    </p>
+                </div>
+                <span class="badge bg-secondary align-self-start">Premium</span>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="form-check mb-4">
             {{ form.active(class="form-check-input") }}
             {{ form.active.label(class="form-check-label") }}

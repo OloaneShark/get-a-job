@@ -362,3 +362,17 @@ document.addEventListener("DOMContentLoaded", () => {
     updateEmploymentSummary();
     loadCountries();
 });
+
+
+document.addEventListener("DOMContentLoaded", () => {
+    const toggle = document.getElementById("auto-apply-enabled");
+    const fields = document.getElementById("auto-apply-settings-fields");
+    if (!toggle || !fields) return;
+    const controls = Array.from(fields.querySelectorAll(".auto-apply-dependent"));
+    function sync() {
+        fields.classList.toggle("is-disabled", !toggle.checked);
+        controls.forEach(control => { control.disabled = !toggle.checked; });
+    }
+    toggle.addEventListener("change", sync);
+    sync();
+});

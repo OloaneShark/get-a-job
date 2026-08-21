@@ -50,6 +50,7 @@ from services.job_sources.utils import (
 from services.job_sources.discovery.common_crawl_discovery import (
     run_common_crawl_discovery,
 )
+from services.auto_apply_service import stage_auto_apply_candidates
 
 
 scheduler = BackgroundScheduler(
@@ -436,6 +437,7 @@ def save_discovered_jobs(
     jobs,
 ):
     saved_count = 0
+    auto_apply_jobs = []
 
     existing_jobs = (
         DiscoveredJob.query
@@ -624,6 +626,7 @@ def save_discovered_jobs(
                     profile
                 )
 
+            auto_apply_jobs.append(existing_job)
             continue
 
         discovered_job = DiscoveredJob(
@@ -681,7 +684,25 @@ def save_discovered_jobs(
         index_job(
             discovered_job
         )
+        auto_apply_jobs.append(discovered_job)
         saved_count += 1
+
+    auto_apply_stats = stage_auto_apply_candidates(profile, auto_apply_jobs)
+
+    if auto_apply_stats["enabled"]:
+        print(
+            "AUTO APPLY STAGE | "
+            f"Profile: {profile.name} | "
+            f"Considered: {auto_apply_stats['considered']} | "
+            f"Staged: {auto_apply_stats['staged']} | "
+            f"Already queued: {auto_apply_stats['already_queued']} | "
+            f"Already applied: {auto_apply_stats['already_applied']} | "
+            f"Ignored: {auto_apply_stats['ignored']} | "
+            f"Excluded company: {auto_apply_stats['excluded_company']} | "
+            f"Daily limit skipped: {auto_apply_stats['daily_limit']} | "
+            f"Invalid resume: {auto_apply_stats['invalid_resume']} | "
+            f"Access denied: {auto_apply_stats['access_denied']}"
+        )
 
     return saved_count
 

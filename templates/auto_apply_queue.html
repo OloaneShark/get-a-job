@@ -1,0 +1,108 @@
+
+{% extends "base.html" %}
+{% block title %}Auto Apply Queue{% endblock %}
+{% block content %}
+<div class="form-page">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="mb-1">Auto Apply Queue</h2>
+            <p class="helper-text mb-0">
+                Jobs staged by your Auto Apply profiles for review.
+            </p>
+        </div>
+        <a href="{{ url_for('search_profiles') }}" class="btn btn-outline-primary">
+            Manage Profiles
+        </a>
+    </div>
+
+    <div class="alert alert-info">
+        <strong>Foundation mode:</strong> Approve and Reject only change queue state.
+        Jobfinitum is not submitting application forms yet.
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        {% for value, label in (("all", "All"), ("Pending Review", "Pending Review"), ("Approved", "Approved"), ("Rejected", "Rejected")) %}
+            <a href="{{ url_for('auto_apply_queue', status=value) }}"
+               class="btn {% if selected_status == value %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                {{ label }}{% if value != "all" %} ({{ status_counts.get(value, 0) }}){% endif %}
+            </a>
+        {% endfor %}
+    </div>
+
+    {% if candidates %}
+        <div class="d-grid gap-3">
+            {% for candidate in candidates %}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap justify-content-between gap-3">
+                            <div>
+                                <h4 class="mb-1">{{ candidate.discovered_job.position_title }}</h4>
+                                <h6 class="mb-1">{{ candidate.discovered_job.company_name }}</h6>
+                                <div class="helper-text">
+                                    {{ candidate.discovered_job.location or "Location not listed" }} · {{ candidate.discovered_job.source }}
+                                </div>
+                            </div>
+                            <span class="badge {% if candidate.status == 'Approved' %}bg-success{% elif candidate.status == 'Rejected' %}bg-danger{% else %}bg-info{% endif %}">
+                                {{ candidate.status }}
+                            </span>
+                        </div>
+
+                        <div class="auto-apply-meta mt-3">
+                            <div><span class="helper-text">Profile</span><strong>{{ candidate.search_profile.name }}</strong></div>
+                            <div><span class="helper-text">Resume</span><strong>{{ candidate.resume.version_name or candidate.resume.original_filename }}</strong></div>
+                            <div><span class="helper-text">Application email</span><strong>{{ candidate.application_email or current_user.email }}</strong></div>
+                            <div><span class="helper-text">Cover letter</span><strong>{{ candidate.cover_letter_mode|replace('_', ' ')|title }}</strong></div>
+                            <div><span class="helper-text">Staged</span><strong>{{ candidate.created_at.strftime('%Y-%m-%d %H:%M') }}</strong></div>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <a href="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
+                               target="_blank" rel="noopener noreferrer" class="btn btn-primary">View Job</a>
+
+                            {% if candidate.status != 'Approved' %}
+                                <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-success">Approve</button>
+                                </form>
+                            {% endif %}
+
+                            {% if candidate.status != 'Rejected' %}
+                                <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reject') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-danger">Reject</button>
+                                </form>
+                            {% endif %}
+
+                            {% if candidate.status != 'Pending Review' %}
+                                <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reset') }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-outline-warning">Reset Review</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {% if pagination.pages > 1 %}
+            <nav class="mt-4"><ul class="pagination flex-wrap">
+                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_prev %}{{ url_for('auto_apply_queue', page=pagination.prev_num, status=selected_status) }}{% else %}#{% endif %}">Previous</a>
+                </li>
+                {% for n in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                    {% if n %}<li class="page-item {% if n == pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('auto_apply_queue', page=n, status=selected_status) }}">{{ n }}</a></li>{% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+                {% endfor %}
+                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                    <a class="page-link" href="{% if pagination.has_next %}{{ url_for('auto_apply_queue', page=pagination.next_num, status=selected_status) }}{% else %}#{% endif %}">Next</a>
+                </li>
+            </ul></nav>
+        {% endif %}
+    {% else %}
+        <div class="card"><div class="card-body">
+            <h5>No Auto Apply candidates here yet.</h5>
+            <p class="helper-text mb-0">Enable Auto Apply on a profile, choose a resume, and run the normal scheduler.</p>
+        </div></div>
+    {% endif %}
+</div>
+{% endblock %}

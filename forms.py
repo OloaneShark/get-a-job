@@ -24,7 +24,8 @@ from wtforms.validators import (
     EqualTo,
     URL,
     Optional,
-    ValidationError
+    ValidationError,
+    NumberRange
 )
 
 
@@ -508,6 +509,46 @@ class JobSearchProfileForm(FlaskForm):
         validators=[Optional()]
     )
 
+    auto_apply_enabled = BooleanField("Enable Auto Apply", default=False)
+
+    auto_apply_resume_id = SelectField(
+        "Auto Apply Resume",
+        choices=[(0, "Select a resume")],
+        coerce=int,
+        default=0,
+    )
+
+    auto_apply_contact_email = StringField(
+        "Application / Confirmation Email",
+        validators=[
+            Optional(),
+            Email(),
+        ],
+    )
+
+    auto_apply_cover_letter_mode = SelectField(
+        "Cover Letter",
+        choices=[
+            ("when_required", "Generate when required"),
+            ("always", "Generate for every application"),
+            ("never", "Never generate automatically"),
+        ],
+        default="when_required",
+        validators=[DataRequired()]
+    )
+
+    auto_apply_excluded_companies = TextAreaField(
+        "Excluded Companies",
+        validators=[Optional()],
+        render_kw={"rows": 4, "placeholder": "One company per line, or separate with commas"},
+    )
+
+    auto_apply_daily_limit = IntegerField(
+        "Daily Auto Apply Queue Limit",
+        default=10,
+        validators=[DataRequired(), NumberRange(min=1, max=50)],
+    )
+
     active = BooleanField(
         "Active",
         default=True
@@ -516,6 +557,10 @@ class JobSearchProfileForm(FlaskForm):
     submit = SubmitField(
         "Save Search Profile"
     )
+
+    def validate_auto_apply_resume_id(self, auto_apply_resume_id):
+        if self.auto_apply_enabled.data and not auto_apply_resume_id.data:
+            raise ValidationError("Select a resume before enabling Auto Apply.")
 
     def validate_workplace_types(
         self,

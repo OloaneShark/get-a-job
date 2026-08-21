@@ -647,6 +647,14 @@ class JobSearchProfile(db.Model):
         nullable=False,
         default=60,
     )
+
+    auto_apply_enabled = db.Column(db.Boolean, nullable=False, default=False)
+    auto_apply_resume_id = db.Column(db.Integer, db.ForeignKey("resume.id"), nullable=True)
+    auto_apply_cover_letter_mode = db.Column(db.String(30), nullable=False, default="when_required")
+    auto_apply_excluded_companies = db.Column(db.Text, nullable=True)
+    auto_apply_contact_email = db.Column(db.String(255), nullable=True)
+    auto_apply_daily_limit = db.Column(db.Integer, nullable=False, default=10)
+
     matched_jobs = db.relationship(
         "DiscoveredJob",
         secondary=discovered_job_profile,
@@ -656,8 +664,34 @@ class JobSearchProfile(db.Model):
 
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
-    
-    
+
+
+class AutoApplyCandidate(db.Model):
+    __tablename__ = "auto_apply_candidate"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    search_profile_id = db.Column(db.Integer, db.ForeignKey("job_search_profile.id", ondelete="CASCADE"), nullable=False, index=True)
+    discovered_job_id = db.Column(db.Integer, db.ForeignKey("discovered_job.id", ondelete="CASCADE"), nullable=False, index=True)
+    resume_id = db.Column(db.Integer, db.ForeignKey("resume.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = db.Column(db.String(30), nullable=False, default="Pending Review", index=True)
+    cover_letter_mode = db.Column(db.String(30), nullable=False, default="when_required")
+    application_email = db.Column(db.String(255), nullable=True)
+    rule_snapshot_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime, nullable=True)
+
+    discovered_job = db.relationship("DiscoveredJob", foreign_keys=[discovered_job_id])
+    search_profile = db.relationship("JobSearchProfile", foreign_keys=[search_profile_id])
+    resume = db.relationship("Resume", foreign_keys=[resume_id])
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "discovered_job_id", name="uq_auto_apply_candidate_user_job"),
+        db.Index("ix_auto_apply_candidate_user_status_created", "user_id", "status", "created_at"),
+    )
+
+
 class JobSourceCompany(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_name = db.Column(db.String(150), nullable=False)

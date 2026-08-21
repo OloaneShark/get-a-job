@@ -5,6 +5,7 @@ from models import (
     AIUsage,
     AccountSecurityEvent,
     ApplicationPackage,
+    AutoApplyCandidate,
     AuditLog,
     CompanyIntelligence,
     DiscoveredJob,
@@ -28,6 +29,7 @@ def delete_user_account(user):
         AccountSecurityEvent,
         AIReport,
         ApplicationPackage,
+        AutoApplyCandidate,
     ):
         model.query.filter_by(user_id=user_id).delete(
             synchronize_session=False
