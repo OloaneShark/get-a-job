@@ -54,7 +54,9 @@ from models import (
     JobSourceCompany,
     JobSourceCandidate,
     CachedSourceJob,
-    AutoApplyCandidate
+    AutoApplyCandidate,
+    ApplicantProfile,
+    ApplicationSubmissionAttempt
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -85,7 +87,8 @@ from forms import (
     TwoFactorSetupForm,
     TwoFactorChallengeForm,
     DisableTwoFactorForm,
-    DeleteAccountForm
+    DeleteAccountForm,
+    ApplicantProfileForm
 )
 from services.company_service import analyze_company
 from services.job_match_service import analyze_resume_job_match
@@ -158,6 +161,9 @@ from services.location_service import (
 from services.auto_apply_service import (
     get_auto_apply_access,
     stage_existing_auto_apply_matches,
+)
+from services.auto_apply_submission.engine import (
+    execute_candidate_submission,
 )
 
 load_dotenv()
@@ -3492,6 +3498,40 @@ def location_cities_api():
         }), 503
 
 
+@app.route("/auto-apply/applicant-profile", methods=["GET", "POST"])
+@login_required
+def auto_apply_applicant_profile():
+    access = get_auto_apply_access(current_user)
+    if not access["allowed"]:
+        flash("Auto Apply is available to Premium users and administrators.", "warning")
+        return redirect(url_for("search_profiles"))
+
+    profile = ApplicantProfile.query.filter_by(user_id=current_user.id).first()
+    form = ApplicantProfileForm(obj=profile)
+
+    if form.validate_on_submit():
+        if profile is None:
+            profile = ApplicantProfile(user_id=current_user.id)
+            db.session.add(profile)
+
+        profile.first_name = form.first_name.data.strip()
+        profile.last_name = form.last_name.data.strip()
+        profile.phone = (form.phone.data or "").strip() or None
+        profile.city = (form.city.data or "").strip() or None
+        profile.state_region = (form.state_region.data or "").strip() or None
+        profile.country = (form.country.data or "").strip() or None
+        profile.postal_code = (form.postal_code.data or "").strip() or None
+        profile.linkedin_url = (form.linkedin_url.data or "").strip() or None
+        profile.github_url = (form.github_url.data or "").strip() or None
+        profile.website_url = (form.website_url.data or "").strip() or None
+        db.session.commit()
+        log_action(current_user.id, "Updated Auto Apply applicant profile")
+        flash("Auto Apply applicant profile saved.", "success")
+        return redirect(url_for("auto_apply_queue"))
+
+    return render_template("auto_apply_applicant_profile.html", form=form)
+
+
 @app.route("/auto-apply")
 @login_required
 def auto_apply_queue():
@@ -3538,6 +3578,7 @@ def auto_apply_queue():
         pagination=pagination,
         selected_status=selected_status,
         status_counts=status_counts,
+        applicant_profile=ApplicantProfile.query.filter_by(user_id=current_user.id).first(),
     )
 
 
@@ -3567,10 +3608,9 @@ def update_auto_apply_candidate(candidate_id, action):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     if action == "approve":
-        candidate.status = "Approved"
-        candidate.reviewed_at = now
-        message = "Candidate approved. No application was submitted yet."
-        category = "success"
+        result = execute_candidate_submission(candidate, current_user)
+        message = result["message"]
+        category = result["category"]
     elif action == "reject":
         candidate.status = "Rejected"
         candidate.reviewed_at = now

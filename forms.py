@@ -391,6 +391,20 @@ class JobUrlImportForm(FlaskForm):
     save_submit = SubmitField("Save as Application")
 
 
+class ApplicantProfileForm(FlaskForm):
+    first_name = StringField("First Name", validators=[DataRequired(), Length(max=100)])
+    last_name = StringField("Last Name", validators=[DataRequired(), Length(max=100)])
+    phone = StringField("Phone", validators=[Optional(), Length(max=50)])
+    city = StringField("City", validators=[Optional(), Length(max=100)])
+    state_region = StringField("State / Region", validators=[Optional(), Length(max=100)])
+    country = StringField("Country", validators=[Optional(), Length(max=100)])
+    postal_code = StringField("Postal Code", validators=[Optional(), Length(max=30)])
+    linkedin_url = StringField("LinkedIn URL", validators=[Optional(), URL(), Length(max=500)])
+    github_url = StringField("GitHub URL", validators=[Optional(), URL(), Length(max=500)])
+    website_url = StringField("Website / Portfolio URL", validators=[Optional(), URL(), Length(max=500)])
+    submit = SubmitField("Save Applicant Profile")
+
+
 class JobSearchProfileForm(FlaskForm):
     name = StringField(
         "Profile Name",

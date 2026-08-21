@@ -598,6 +598,10 @@ class ApplicationPackage(db.Model):
 
     submitted_at = db.Column(db.DateTime)
 
+    application_email = db.Column(db.String(255), nullable=True)
+    discovered_job_id = db.Column(db.Integer, db.ForeignKey("discovered_job.id", ondelete="SET NULL"), nullable=True, index=True)
+    job_snapshot_json = db.Column(db.Text, nullable=True)
+
     application_id = db.Column(
         db.Integer,
         db.ForeignKey("job_application.id"),
@@ -611,6 +615,25 @@ class ApplicationPackage(db.Model):
     )
     
     
+class ApplicantProfile(db.Model):
+    __tablename__ = "applicant_profile"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(50), nullable=True)
+    city = db.Column(db.String(100), nullable=True)
+    state_region = db.Column(db.String(100), nullable=True)
+    country = db.Column(db.String(100), nullable=True)
+    postal_code = db.Column(db.String(30), nullable=True)
+    linkedin_url = db.Column(db.String(500), nullable=True)
+    github_url = db.Column(db.String(500), nullable=True)
+    website_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class JobSearchProfile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -677,6 +700,10 @@ class AutoApplyCandidate(db.Model):
     status = db.Column(db.String(30), nullable=False, default="Pending Review", index=True)
     cover_letter_mode = db.Column(db.String(30), nullable=False, default="when_required")
     application_email = db.Column(db.String(255), nullable=True)
+    application_id = db.Column(db.Integer, db.ForeignKey("job_application.id", ondelete="SET NULL"), nullable=True, index=True)
+    application_package_id = db.Column(db.Integer, db.ForeignKey("application_package.id", ondelete="SET NULL"), nullable=True, index=True)
+    execution_status = db.Column(db.String(40), nullable=False, default="Not Started", index=True)
+    last_submission_attempt_at = db.Column(db.DateTime, nullable=True)
     rule_snapshot_json = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -690,6 +717,24 @@ class AutoApplyCandidate(db.Model):
         db.UniqueConstraint("user_id", "discovered_job_id", name="uq_auto_apply_candidate_user_job"),
         db.Index("ix_auto_apply_candidate_user_status_created", "user_id", "status", "created_at"),
     )
+
+
+class ApplicationSubmissionAttempt(db.Model):
+    __tablename__ = "application_submission_attempt"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    auto_apply_candidate_id = db.Column(db.Integer, db.ForeignKey("auto_apply_candidate.id", ondelete="CASCADE"), nullable=False, index=True)
+    application_id = db.Column(db.Integer, db.ForeignKey("job_application.id", ondelete="CASCADE"), nullable=False, index=True)
+    application_package_id = db.Column(db.Integer, db.ForeignKey("application_package.id", ondelete="CASCADE"), nullable=False, index=True)
+    adapter_name = db.Column(db.String(80), nullable=False)
+    status = db.Column(db.String(40), nullable=False, index=True)
+    message = db.Column(db.Text, nullable=True)
+    detail_json = db.Column(db.Text, nullable=True)
+    confirmation_reference = db.Column(db.String(255), nullable=True)
+    confirmation_url = db.Column(db.String(1000), nullable=True)
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    finished_at = db.Column(db.DateTime, nullable=True)
 
 
 class JobSourceCompany(db.Model):
