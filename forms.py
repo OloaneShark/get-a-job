@@ -443,6 +443,68 @@ class ApplicantProfileForm(FlaskForm):
         validators=[Optional(), URL(), Length(max=500)],
     )
 
+    answer_choices = [
+        ("Unknown", "Ask me / Do not guess"),
+        ("Yes", "Yes"),
+        ("No", "No"),
+    ]
+
+    is_18_or_older = SelectField(
+        "Are you 18 years of age or older?",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    work_authorization_default = SelectField(
+        "Default work authorization answer",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    sponsorship_default = SelectField(
+        "Default visa sponsorship answer",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    willing_to_relocate = SelectField(
+        "Willing to relocate?",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    willing_to_travel = SelectField(
+        "Willing to travel for work?",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    years_of_experience = IntegerField(
+        "Years of professional experience",
+        validators=[
+            Optional(),
+            NumberRange(min=0, max=80),
+        ],
+    )
+
+    salary_expectation = StringField(
+        "Default salary / compensation expectation",
+        validators=[
+            Optional(),
+            Length(max=100),
+        ],
+    )
+
+    available_start_date = DateField(
+        "Available start date",
+        validators=[Optional()],
+    )
+
     submit = SubmitField("Save Applicant Profile")
 
 

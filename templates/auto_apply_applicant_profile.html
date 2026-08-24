@@ -149,6 +149,72 @@
         </div>
 
         <div class="mt-4">
+            <h5>Reusable Application Answers</h5>
+            <p class="helper-text">
+                Jobfinitum may use these answers on supported employer forms.
+                Leave any answer as <strong>Ask me / Do not guess</strong>
+                when it is not universally true for your applications.
+                Jobfinitum will never invent an answer.
+            </p>
+
+            <div class="alert alert-info">
+                Work authorization and sponsorship can vary by country.
+                Only set a default when you actually want Jobfinitum to reuse
+                that same answer. Otherwise leave it as
+                <strong>Ask me / Do not guess</strong>.
+            </div>
+
+            <div class="form-grid">
+                {% for field in (
+                    form.is_18_or_older,
+                    form.work_authorization_default,
+                    form.sponsorship_default,
+                    form.willing_to_relocate,
+                    form.willing_to_travel
+                ) %}
+                    <div>
+                        {{ field.label(class="form-label") }}
+                        {{ field(class="form-select") }}
+                        {% for error in field.errors %}
+                            <div class="text-danger mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+
+                <div>
+                    {{ form.years_of_experience.label(class="form-label") }}
+                    {{ form.years_of_experience(
+                        class="form-control",
+                        min="0",
+                        max="80"
+                    ) }}
+                    {% for error in form.years_of_experience.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+
+                <div>
+                    {{ form.salary_expectation.label(class="form-label") }}
+                    {{ form.salary_expectation(
+                        class="form-control",
+                        placeholder="Example: 85000 USD or 80k-95k"
+                    ) }}
+                    {% for error in form.salary_expectation.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+
+                <div>
+                    {{ form.available_start_date.label(class="form-label") }}
+                    {{ form.available_start_date(class="form-control") }}
+                    {% for error in form.available_start_date.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
             {{ form.submit(class="btn btn-primary") }}
         </div>
     </form>

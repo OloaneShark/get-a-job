@@ -8,6 +8,7 @@ from flask import current_app
 
 from models import (
     ApplicantProfile,
+    ApplicationHistory,
     ApplicationPackage,
     ApplicationSubmissionAttempt,
     JobApplication,
@@ -15,6 +16,13 @@ from models import (
 )
 from services.auto_apply_service import get_auto_apply_access
 from services.auto_apply_submission.adapters.lever_hosted import LeverHostedAdapter
+
+
+from services.auto_apply_submission.application_question_service import (
+    application_answers,
+    dump_question_state,
+    merge_questions,
+)
 
 
 def utcnow_naive():
@@ -111,7 +119,11 @@ def get_or_create_package(candidate, application):
     return package
 
 
-def execute_candidate_submission(candidate, user):
+def execute_candidate_submission(
+    candidate,
+    user,
+    resume_mode=False,
+):
     access = get_auto_apply_access(user)
     now = utcnow_naive()
 
@@ -166,14 +178,35 @@ def execute_candidate_submission(candidate, user):
             result = adapter.submit(
                 job=candidate.discovered_job,
                 identity=identity,
-                application_email=(package.application_email or user.email),
+                application_email=(
+                    package.application_email
+                    or user.email
+                ),
                 resume_path=file_path,
-                cover_letter_text=package.cover_letter_text,
+                cover_letter_text=(
+                    package.cover_letter_text
+                ),
+                resume_mode=resume_mode,
+                application_answers=application_answers(
+                    package.answers_json
+                ),
             )
 
     status = result.get("status") or "Failed"
     message = result.get("message") or "Submission attempt failed."
     detail = result.get("detail") or {}
+
+    if (
+        status == "Needs Application Answer"
+        and isinstance(detail.get("questions"), list)
+    ):
+        question_state = merge_questions(
+            package.answers_json,
+            detail["questions"],
+        )
+        package.answers_json = dump_question_state(
+            question_state
+        )
 
     attempt.status = status
     attempt.message = message
@@ -192,9 +225,16 @@ def execute_candidate_submission(candidate, user):
         package.confirmation_url = result.get("confirmation_url")
         package.failure_reason = None
         category = "success"
-    elif status == "Needs User Action":
-        application.status = "Auto Apply - Needs User Action"
-        package.status = "Needs User Action"
+    elif status in {
+        "Waiting for Verification",
+        "Waiting for Sign-In",
+        "Needs Application Answer",
+        "Needs User Action",
+    }:
+        application.status = (
+            f"Auto Apply - {status}"
+        )
+        package.status = status
         package.failure_reason = message
         category = "warning"
     elif status == "Unsupported":
@@ -209,3 +249,135 @@ def execute_candidate_submission(candidate, user):
         category = "danger"
 
     return {"status": status, "message": message, "category": category}
+
+def mark_candidate_submitted_manually(candidate, user):
+    access = get_auto_apply_access(user)
+
+    if not access["allowed"]:
+        return {
+            "status": "Failed",
+            "message": "Auto Apply is not enabled for this account tier.",
+            "category": "danger",
+        }
+
+    if candidate.execution_status == "Submitted":
+        return {
+            "status": "Submitted",
+            "message": "This application is already marked submitted.",
+            "category": "info",
+        }
+
+    now = utcnow_naive()
+
+    application = get_or_create_application(candidate)
+    package = get_or_create_package(candidate, application)
+
+    previous_status = application.status
+
+    attempt = ApplicationSubmissionAttempt(
+        user_id=user.id,
+        auto_apply_candidate_id=candidate.id,
+        application_id=application.id,
+        application_package_id=package.id,
+        adapter_name="manual_handoff",
+        status="Submitted",
+        message=(
+            "User confirmed manual submission after "
+            "Auto Apply handoff."
+        ),
+        detail_json=json.dumps(
+            {
+                "completion_mode": "manual_handoff",
+                "previous_execution_status": candidate.execution_status,
+            },
+            sort_keys=True,
+        ),
+        started_at=now,
+        finished_at=now,
+    )
+
+    db.session.add(attempt)
+
+    candidate.status = "Approved"
+    candidate.execution_status = "Submitted"
+    candidate.reviewed_at = candidate.reviewed_at or now
+    candidate.last_submission_attempt_at = now
+
+    application.status = "Applied"
+    application.application_date = now
+
+    package.status = "Submitted"
+    package.submitted_at = now
+    package.failure_reason = None
+
+    if not package.confirmation_reference:
+        package.confirmation_reference = (
+            "Manual completion confirmed in Jobfinitum"
+        )
+
+    db.session.add(
+        ApplicationHistory(
+            application_id=application.id,
+            status="Applied",
+            note=(
+                "Auto Apply manual handoff completed"
+                if previous_status != "Applied"
+                else "Manual submission reconfirmed"
+            ),
+        )
+    )
+
+    return {
+        "status": "Submitted",
+        "message": (
+            "Application marked submitted. Jobfinitum recorded "
+            "the manual handoff and updated the application tracker."
+        ),
+        "category": "success",
+    }
+
+
+def reset_candidate_submission(candidate):
+    candidate.status = "Pending Review"
+    candidate.execution_status = "Not Started"
+    candidate.reviewed_at = None
+
+    application = (
+        db.session.get(
+            JobApplication,
+            candidate.application_id,
+        )
+        if candidate.application_id
+        else None
+    )
+
+    package = (
+        db.session.get(
+            ApplicationPackage,
+            candidate.application_package_id,
+        )
+        if candidate.application_package_id
+        else None
+    )
+
+    if (
+        application is not None
+        and application.status != "Applied"
+    ):
+        application.status = "Auto Apply - Preparing"
+
+    if (
+        package is not None
+        and package.status != "Submitted"
+    ):
+        package.status = "Prepared"
+        package.failure_reason = None
+
+    return {
+        "status": "Not Started",
+        "message": (
+            "Candidate returned to Pending Review. "
+            "Previous submission-attempt history was preserved."
+        ),
+        "category": "info",
+    }

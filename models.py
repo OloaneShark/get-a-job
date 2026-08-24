@@ -630,6 +630,47 @@ class ApplicantProfile(db.Model):
     linkedin_url = db.Column(db.String(500), nullable=True)
     github_url = db.Column(db.String(500), nullable=True)
     website_url = db.Column(db.String(500), nullable=True)
+
+    # Reusable application-answer defaults.
+    # "Unknown" means Jobfinitum must not guess.
+    is_18_or_older = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
+    work_authorization_default = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
+    sponsorship_default = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
+    willing_to_relocate = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
+    willing_to_travel = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
+    years_of_experience = db.Column(
+        db.Integer,
+        nullable=True,
+    )
+    salary_expectation = db.Column(
+        db.String(100),
+        nullable=True,
+    )
+    available_start_date = db.Column(
+        db.Date,
+        nullable=True,
+    )
+
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 

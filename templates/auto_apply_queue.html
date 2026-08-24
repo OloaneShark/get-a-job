@@ -1,33 +1,61 @@
-
 {% extends "base.html" %}
 {% block title %}Auto Apply Queue{% endblock %}
+
 {% block content %}
 <div class="form-page">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
         <div>
             <h2 class="mb-1">Auto Apply Queue</h2>
             <p class="helper-text mb-0">
-                Jobs staged by your Auto Apply profiles for review.
+                Jobs staged by your Auto Apply profiles for review and submission.
             </p>
         </div>
+
         <div class="d-flex flex-wrap gap-2">
-            <a href="{{ url_for('auto_apply_applicant_profile') }}" class="btn btn-outline-primary">Applicant Profile</a>
-            <a href="{{ url_for('search_profiles') }}" class="btn btn-outline-primary">Manage Profiles</a>
+            <a href="{{ url_for('auto_apply_applicant_profile') }}" class="btn btn-outline-primary">
+                Applicant Profile
+            </a>
+            <a href="{{ url_for('search_profiles') }}" class="btn btn-outline-primary">
+                Manage Profiles
+            </a>
         </div>
     </div>
 
     {% if not applicant_profile %}
-    <div class="alert alert-warning"><strong>Applicant Profile required:</strong> save your identity details before submitting applications.</div>
+        <div class="alert alert-warning">
+            <strong>Applicant Profile required:</strong>
+            save your identity details before submitting applications.
+        </div>
     {% endif %}
+
     <div class="alert alert-info">
-        <strong>Live submission phase:</strong> Approve &amp; Submit executes supported public application forms. CAPTCHA, account requirements, unknown required questions, and unsupported ATSs stop without being marked Applied.
+        <strong class="text-dark">Live submission:</strong>
+        supported forms can be submitted automatically.
+        CAPTCHA, MFA, account setup, verification, and unknown required
+        questions are handed back to you instead of being falsely marked Applied.
     </div>
 
     <div class="d-flex flex-wrap gap-2 mb-4">
-        {% for value, label in (("all", "All"), ("Pending Review", "Pending Review"), ("Approved", "Approved"), ("Rejected", "Rejected")) %}
-            <a href="{{ url_for('auto_apply_queue', status=value) }}"
-               class="btn {% if selected_status == value %}btn-primary{% else %}btn-outline-primary{% endif %}">
-                {{ label }}{% if value != "all" %} ({{ status_counts.get(value, 0) }}){% endif %}
+        {% for value, label in (
+            ("all", "All"),
+            ("Pending Review", "Pending Review"),
+            ("Waiting for Verification", "Verification Required"),
+            ("Waiting for Sign-In", "Waiting for Sign-In"),
+            ("Needs Application Answer", "Needs Application Answer"),
+            ("Needs User Action", "Needs User Action"),
+            ("Unsupported", "Unsupported"),
+            ("Failed", "Failed"),
+            ("Submitted", "Submitted"),
+            ("Rejected", "Rejected")
+        ) %}
+            <a
+                href="{{ url_for('auto_apply_queue', status=value) }}"
+                class="btn {% if selected_status == value %}btn-primary{% else %}btn-outline-primary{% endif %}"
+            >
+                {{ label }}
+                {% if value != "all" %}
+                    ({{ status_counts.get(value, 0) }})
+                {% endif %}
             </a>
         {% endfor %}
     </div>
@@ -35,53 +63,316 @@
     {% if candidates %}
         <div class="d-grid gap-3">
             {% for candidate in candidates %}
+                {% set execution = candidate.execution_status or "Not Started" %}
+                {% set latest_attempt = latest_attempts.get(candidate.id) %}
+
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between gap-3">
                             <div>
-                                <h4 class="mb-1">{{ candidate.discovered_job.position_title }}</h4>
-                                <h6 class="mb-1">{{ candidate.discovered_job.company_name }}</h6>
+                                <h4 class="mb-1">
+                                    {{ candidate.discovered_job.position_title }}
+                                </h4>
+                                <h6 class="mb-1">
+                                    {{ candidate.discovered_job.company_name }}
+                                </h6>
                                 <div class="helper-text">
-                                    {{ candidate.discovered_job.location or "Location not listed" }} · {{ candidate.discovered_job.source }}
+                                    {{ candidate.discovered_job.location or "Location not listed" }}
+                                    - {{ candidate.discovered_job.source }}
                                 </div>
                             </div>
-                            <span class="badge {% if candidate.status == 'Approved' %}bg-success{% elif candidate.status == 'Rejected' %}bg-danger{% else %}bg-info{% endif %}">
-                                {{ candidate.status }}
-                            </span>
+
+                            {% if candidate.status == "Rejected" %}
+                                <span class="badge bg-danger">Rejected</span>
+                            {% elif execution == "Submitted" %}
+                                <span class="badge bg-success">Submitted</span>
+                            {% elif execution == "Waiting for Verification" %}
+                                <span class="badge bg-warning text-dark">Verification Required</span>
+                            {% elif execution == "Waiting for Sign-In" %}
+                                <span class="badge bg-warning text-dark">Waiting for Sign-In</span>
+                            {% elif execution == "Needs Application Answer" %}
+                                <span class="badge bg-warning text-dark">Needs Application Answer</span>
+                            {% elif execution == "Needs User Action" %}
+                                <span class="badge bg-warning text-dark">Needs User Action</span>
+                            {% elif execution == "Unsupported" %}
+                                <span class="badge bg-secondary">Unsupported</span>
+                            {% elif execution == "Failed" %}
+                                <span class="badge bg-danger">Failed</span>
+                            {% elif candidate.status == "Pending Review" %}
+                                <span class="badge bg-info">Pending Review</span>
+                            {% else %}
+                                <span class="badge bg-primary">{{ execution }}</span>
+                            {% endif %}
                         </div>
+
+                        {% if execution in (
+                            "Waiting for Verification",
+                            "Waiting for Sign-In",
+                            "Needs Application Answer",
+                            "Needs User Action",
+                            "Unsupported",
+                            "Failed"
+                        ) %}
+                            <div class="alert alert-warning mt-3 mb-0">
+                                <strong>
+                                    {% if execution == "Waiting for Verification" %}
+                                        Verification required:
+                                    {% elif execution == "Waiting for Sign-In" %}
+                                        Sign-in required:
+                                    {% elif execution == "Needs Application Answer" %}
+                                        Application answer required:
+                                    {% elif execution == "Needs User Action" %}
+                                        Action required:
+                                    {% elif execution == "Unsupported" %}
+                                        Manual submission required:
+                                    {% else %}
+                                        Submission problem:
+                                    {% endif %}
+                                </strong>
+
+                                {% if latest_attempt %}
+                                    {{ latest_attempt.message or "Review the application before continuing." }}
+
+                                    {% if execution == "Waiting for Verification" %}
+                                        <div class="mt-2">
+                                            When you are ready, use
+                                            <strong>Resume Application</strong>.
+                                            Jobfinitum will reopen the persistent browser,
+                                            wait while you complete verification, and then
+                                            continue the application.
+                                        </div>
+                                    {% elif execution == "Waiting for Sign-In" %}
+                                        <div class="mt-2">
+                                            Use <strong>Resume Application</strong> when you
+                                            are ready to sign in or create the employer
+                                            account. The persistent browser profile keeps
+                                            the resulting login session for later use.
+                                        </div>
+                                    {% elif execution == "Needs Application Answer" %}
+                                        <div class="mt-2">
+                                            Jobfinitum found required questions it does not
+                                            have saved answers for yet. Answer them below
+                                            without leaving Jobfinitum.
+                                        </div>
+                                    {% endif %}
+                                {% else %}
+                                    Review the application before continuing.
+                                {% endif %}
+                            </div>
+                        {% endif %}
+
+                        {% if execution == "Needs Application Answer" %}
+                            {% set question_state = application_question_states.get(candidate.id, {}) %}
+                            {% set questions = question_state.get("questions", []) %}
+                            {% set saved_answers = question_state.get("answers", {}) %}
+
+                            {% if questions %}
+                                <form
+                                    method="POST"
+                                    action="{{ url_for('save_auto_apply_candidate_answers', candidate_id=candidate.id) }}"
+                                    class="application-question-form mt-3"
+                                >
+                                    <input
+                                        type="hidden"
+                                        name="csrf_token"
+                                        value="{{ csrf_token() }}"
+                                    >
+
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h5 class="mb-2">Application Questions</h5>
+                                            <p class="helper-text">
+                                                These answers are saved to this application package
+                                                and reused when Jobfinitum resumes the employer form.
+                                            </p>
+
+                                            <div class="d-grid gap-3">
+                                                {% for question in questions %}
+                                                    {% set saved = saved_answers.get(question.key) %}
+                                                    <div>
+                                                        <label
+                                                            class="form-label"
+                                                            for="answer-{{ question.key }}"
+                                                        >
+                                                            {{ question.text }}
+                                                            {% if question.required %}
+                                                                <span class="text-danger">*</span>
+                                                            {% endif %}
+                                                        </label>
+
+                                                        {% if question.choices and question.type == "checkbox" %}
+                                                            <div class="d-grid gap-2">
+                                                                {% for choice in question.choices %}
+                                                                    <label class="form-check">
+                                                                        <input
+                                                                            class="form-check-input"
+                                                                            type="checkbox"
+                                                                            name="answer__{{ question.key }}"
+                                                                            value="{{ choice.value }}"
+                                                                            {% if saved and choice.value in saved %}checked{% endif %}
+                                                                        >
+                                                                        <span class="form-check-label">
+                                                                            {{ choice.label }}
+                                                                        </span>
+                                                                    </label>
+                                                                {% endfor %}
+                                                            </div>
+                                                        {% elif question.choices %}
+                                                            <select
+                                                                class="form-select"
+                                                                id="answer-{{ question.key }}"
+                                                                name="answer__{{ question.key }}"
+                                                                {% if question.required %}required{% endif %}
+                                                            >
+                                                                <option value="">Choose an answer</option>
+                                                                {% for choice in question.choices %}
+                                                                    <option
+                                                                        value="{{ choice.value }}"
+                                                                        {% if saved == choice.value %}selected{% endif %}
+                                                                    >
+                                                                        {{ choice.label }}
+                                                                    </option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        {% elif question.type == "textarea" %}
+                                                            <textarea
+                                                                class="form-control"
+                                                                id="answer-{{ question.key }}"
+                                                                name="answer__{{ question.key }}"
+                                                                rows="3"
+                                                                {% if question.required %}required{% endif %}
+                                                            >{{ saved or "" }}</textarea>
+                                                        {% else %}
+                                                            <input
+                                                                class="form-control"
+                                                                id="answer-{{ question.key }}"
+                                                                name="answer__{{ question.key }}"
+                                                                type="{% if question.type in ('date', 'number', 'email', 'url', 'tel') %}{{ question.type }}{% else %}text{% endif %}"
+                                                                value="{{ saved or '' }}"
+                                                                {% if question.required %}required{% endif %}
+                                                            >
+                                                        {% endif %}
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
+
+                                            <div class="mt-3">
+                                                <button
+                                                    type="submit"
+                                                    class="btn btn-success"
+                                                >
+                                                    Save Answers &amp; Continue
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </form>
+                            {% endif %}
+                        {% endif %}
 
                         <div class="auto-apply-meta mt-3">
                             <div><span class="helper-text">Profile</span><strong>{{ candidate.search_profile.name }}</strong></div>
                             <div><span class="helper-text">Resume</span><strong>{{ candidate.resume.version_name or candidate.resume.original_filename }}</strong></div>
                             <div><span class="helper-text">Application email</span><strong>{{ candidate.application_email or current_user.email }}</strong></div>
                             <div><span class="helper-text">Cover letter</span><strong>{{ candidate.cover_letter_mode|replace('_', ' ')|title }}</strong></div>
-                            <div><span class="helper-text">Execution</span><strong>{{ candidate.execution_status or "Not Started" }}</strong></div>
+                            <div><span class="helper-text">Execution</span><strong>{{ execution }}</strong></div>
                             <div><span class="helper-text">Staged</span><strong>{{ candidate.created_at.strftime('%Y-%m-%d %H:%M') }}</strong></div>
                         </div>
 
                         <div class="d-flex flex-wrap gap-2 mt-3">
-                            <a href="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
-                               target="_blank" rel="noopener noreferrer" class="btn btn-primary">View Job</a>
+                            <a
+                                href="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="btn btn-primary"
+                            >
+                                {% if execution in (
+                                    "Waiting for Verification",
+                                    "Waiting for Sign-In",
+                                    "Needs Application Answer",
+                                    "Needs User Action",
+                                    "Unsupported",
+                                    "Failed"
+                                ) %}
+                                    Open Application
+                                {% else %}
+                                    View Job
+                                {% endif %}
+                            </a>
 
-                            {% if candidate.execution_status != 'Submitted' and candidate.status != 'Rejected' %}
-                                <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}">
+                            {% if execution != "Submitted" and candidate.status != "Rejected" %}
+                                {% if execution in ("Waiting for Verification", "Waiting for Sign-In") %}
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='resume') }}"
+                                    >
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-success">
+                                            Resume Application
+                                        </button>
+                                    </form>
+                                {% else %}
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}"
+                                    >
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-success">
+                                            {% if execution in ("Needs Application Answer", "Needs User Action", "Unsupported", "Failed") %}
+                                                Retry Submission
+                                            {% else %}
+                                                Approve &amp; Submit
+                                            {% endif %}
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            {% endif %}
+
+                            {% if candidate.status != "Rejected" and execution in (
+                                "Waiting for Verification",
+                                "Waiting for Sign-In",
+                                "Needs Application Answer",
+                                "Needs User Action",
+                                "Unsupported",
+                                "Failed"
+                            ) %}
+                                <form
+                                    method="POST"
+                                    action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='mark-submitted') }}"
+                                    onsubmit="return confirm('Only mark this submitted after you completed the employer application yourself. Continue?');"
+                                >
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-success">{% if candidate.status == 'Approved' %}Retry Submission{% else %}Approve &amp; Submit{% endif %}</button>
+                                    <button type="submit" class="btn btn-outline-success">
+                                        Mark Submitted Manually
+                                    </button>
                                 </form>
                             {% endif %}
 
-                            {% if candidate.status != 'Rejected' %}
+                            {% if candidate.status != "Rejected" and execution != "Submitted" %}
                                 <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reject') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-outline-danger">Reject</button>
+                                    <button type="submit" class="btn btn-outline-danger">
+                                        Reject
+                                    </button>
                                 </form>
                             {% endif %}
 
-                            {% if candidate.status != 'Pending Review' %}
+                            {% if candidate.status != "Pending Review" and execution != "Submitted" %}
                                 <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reset') }}">
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-outline-warning">Reset Review</button>
+                                    <button type="submit" class="btn btn-outline-warning">
+                                        Reset Review
+                                    </button>
                                 </form>
+                            {% endif %}
+
+                            {% if candidate.application_id %}
+                                <a
+                                    href="{{ url_for('application_detail', application_id=candidate.application_id) }}"
+                                    class="btn btn-outline-info"
+                                >
+                                    Tracker Record
+                                </a>
                             {% endif %}
                         </div>
                     </div>
@@ -90,23 +381,52 @@
         </div>
 
         {% if pagination.pages > 1 %}
-            <nav class="mt-4"><ul class="pagination flex-wrap">
-                <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-                    <a class="page-link" href="{% if pagination.has_prev %}{{ url_for('auto_apply_queue', page=pagination.prev_num, status=selected_status) }}{% else %}#{% endif %}">Previous</a>
-                </li>
-                {% for n in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
-                    {% if n %}<li class="page-item {% if n == pagination.page %}active{% endif %}"><a class="page-link" href="{{ url_for('auto_apply_queue', page=n, status=selected_status) }}">{{ n }}</a></li>{% else %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
-                {% endfor %}
-                <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-                    <a class="page-link" href="{% if pagination.has_next %}{{ url_for('auto_apply_queue', page=pagination.next_num, status=selected_status) }}{% else %}#{% endif %}">Next</a>
-                </li>
-            </ul></nav>
+            <nav class="mt-4">
+                <ul class="pagination flex-wrap">
+                    <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                        <a
+                            class="page-link"
+                            href="{% if pagination.has_prev %}{{ url_for('auto_apply_queue', page=pagination.prev_num, status=selected_status) }}{% else %}#{% endif %}"
+                        >
+                            Previous
+                        </a>
+                    </li>
+
+                    {% for n in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if n %}
+                            <li class="page-item {% if n == pagination.page %}active{% endif %}">
+                                <a class="page-link" href="{{ url_for('auto_apply_queue', page=n, status=selected_status) }}">
+                                    {{ n }}
+                                </a>
+                            </li>
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                        <a
+                            class="page-link"
+                            href="{% if pagination.has_next %}{{ url_for('auto_apply_queue', page=pagination.next_num, status=selected_status) }}{% else %}#{% endif %}"
+                        >
+                            Next
+                        </a>
+                    </li>
+                </ul>
+            </nav>
         {% endif %}
     {% else %}
-        <div class="card"><div class="card-body">
-            <h5>No Auto Apply candidates here yet.</h5>
-            <p class="helper-text mb-0">Enable Auto Apply on a profile, choose a resume, and run the normal scheduler.</p>
-        </div></div>
+        <div class="card">
+            <div class="card-body">
+                <h5>No Auto Apply candidates here yet.</h5>
+                <p class="helper-text mb-0">
+                    Enable Auto Apply on a profile, choose a resume,
+                    and run the normal scheduler.
+                </p>
+            </div>
+        </div>
     {% endif %}
 </div>
 {% endblock %}

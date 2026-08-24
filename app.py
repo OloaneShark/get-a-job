@@ -8,6 +8,9 @@
 #AAAAAAAAAAHHHHHHHHHHHHHH I HATE IT I HATE IT I HATE IT
 #WHY CANT THEY BE NICE AND SIMPLE AND CLEAN LIKE REMOTE OK???
 #August 17, 2026 IT IS ALIVE MY EXPERIMENT IS ALIVE!
+#Ok so automation is somewhat coming along but it is still a damn hassle and doesn't want to work fully
+#August 24, 2026, making first commit in 3 days because automation is a bitch to do on your own
+#since I'm working on this solo
 
 import os
 import bcrypt
@@ -158,12 +161,21 @@ from services.location_service import (
     get_states,
     get_cities,
 )
+from models import ApplicationPackage as AutoApplyApplicationPackage
+from services.auto_apply_submission.application_question_service import (
+    dump_question_state,
+    load_question_state,
+    save_answers,
+)
+
 from services.auto_apply_service import (
     get_auto_apply_access,
     stage_existing_auto_apply_matches,
 )
 from services.auto_apply_submission.engine import (
     execute_candidate_submission,
+    mark_candidate_submitted_manually,
+    reset_candidate_submission,
 )
 from services.phone_service import (
     country_region_from_name,
@@ -3596,6 +3608,40 @@ def auto_apply_applicant_profile():
                 or None
             )
 
+            profile.is_18_or_older = (
+                form.is_18_or_older.data
+                or "Unknown"
+            )
+            profile.work_authorization_default = (
+                form.work_authorization_default.data
+                or "Unknown"
+            )
+            profile.sponsorship_default = (
+                form.sponsorship_default.data
+                or "Unknown"
+            )
+            profile.willing_to_relocate = (
+                form.willing_to_relocate.data
+                or "Unknown"
+            )
+            profile.willing_to_travel = (
+                form.willing_to_travel.data
+                or "Unknown"
+            )
+            profile.years_of_experience = (
+                form.years_of_experience.data
+            )
+            profile.salary_expectation = (
+                (
+                    form.salary_expectation.data
+                    or ""
+                ).strip()
+                or None
+            )
+            profile.available_start_date = (
+                form.available_start_date.data
+            )
+
             db.session.commit()
 
             log_action(
@@ -3621,103 +3667,562 @@ def auto_apply_applicant_profile():
 @app.route("/auto-apply")
 @login_required
 def auto_apply_queue():
-    auto_apply_access = get_auto_apply_access(
-        current_user
-    )
+    auto_apply_access = get_auto_apply_access(current_user)
 
     if not auto_apply_access["allowed"]:
         flash(
-            "Auto Apply is available to Premium "
-            "users and administrators.",
+            "Auto Apply is available to Premium users and administrators.",
             "warning",
         )
-        return redirect(
-            url_for("search_profiles")
-        )
+        return redirect(url_for("search_profiles"))
 
     page = request.args.get("page", 1, type=int)
     selected_status = request.args.get("status", "all").strip()
-    allowed = {"all", "Pending Review", "Approved", "Rejected"}
+
+    allowed = {
+        "all",
+        "Pending Review",
+        "Waiting for Verification",
+        "Waiting for Sign-In",
+        "Needs Application Answer",
+        "Needs User Action",
+        "Unsupported",
+        "Failed",
+        "Submitted",
+        "Rejected",
+    }
+
     if selected_status not in allowed:
         selected_status = "all"
 
-    query = AutoApplyCandidate.query.filter_by(user_id=current_user.id)
-    if selected_status != "all":
-        query = query.filter_by(status=selected_status)
+    query = AutoApplyCandidate.query.filter_by(
+        user_id=current_user.id
+    )
+
+    if selected_status == "Pending Review":
+        query = query.filter_by(status="Pending Review")
+    elif selected_status == "Rejected":
+        query = query.filter_by(status="Rejected")
+    elif selected_status != "all":
+        query = query.filter_by(
+            execution_status=selected_status
+        )
 
     pagination = (
-        query.order_by(AutoApplyCandidate.created_at.desc())
-        .paginate(page=page, per_page=25, error_out=False)
+        query
+        .order_by(AutoApplyCandidate.created_at.desc())
+        .paginate(
+            page=page,
+            per_page=25,
+            error_out=False,
+        )
     )
+
     status_counts = {
-        status: count
-        for status, count in (
-            db.session.query(AutoApplyCandidate.status, db.func.count(AutoApplyCandidate.id))
-            .filter(AutoApplyCandidate.user_id == current_user.id)
-            .group_by(AutoApplyCandidate.status)
+        "Pending Review": (
+            AutoApplyCandidate.query
+            .filter_by(
+                user_id=current_user.id,
+                status="Pending Review",
+            )
+            .count()
+        ),
+        "Rejected": (
+            AutoApplyCandidate.query
+            .filter_by(
+                user_id=current_user.id,
+                status="Rejected",
+            )
+            .count()
+        ),
+    }
+
+    for execution_value in (
+        "Waiting for Verification",
+        "Waiting for Sign-In",
+        "Needs Application Answer",
+        "Needs User Action",
+        "Unsupported",
+        "Failed",
+        "Submitted",
+    ):
+        status_counts[execution_value] = (
+            AutoApplyCandidate.query
+            .filter_by(
+                user_id=current_user.id,
+                execution_status=execution_value,
+            )
+            .count()
+        )
+
+    candidate_ids = [
+        candidate.id
+        for candidate in pagination.items
+    ]
+
+    latest_attempts = {}
+    application_question_states = {}
+
+    package_ids = [
+        candidate.application_package_id
+        for candidate in pagination.items
+        if candidate.application_package_id
+    ]
+
+    if package_ids:
+        packages = (
+            AutoApplyApplicationPackage.query
+            .filter(
+                AutoApplyApplicationPackage.id.in_(
+                    package_ids
+                )
+            )
             .all()
         )
-    }
+
+        packages_by_id = {
+            package.id: package
+            for package in packages
+        }
+
+        for candidate in pagination.items:
+            package = packages_by_id.get(
+                candidate.application_package_id
+            )
+
+            if package is None:
+                continue
+
+            application_question_states[candidate.id] = (
+                load_question_state(package.answers_json)
+            )
+
+    if candidate_ids:
+        attempts = (
+            ApplicationSubmissionAttempt.query
+            .filter(
+                ApplicationSubmissionAttempt.user_id
+                == current_user.id,
+                ApplicationSubmissionAttempt
+                .auto_apply_candidate_id
+                .in_(candidate_ids),
+            )
+            .order_by(
+                ApplicationSubmissionAttempt
+                .auto_apply_candidate_id.asc(),
+                ApplicationSubmissionAttempt
+                .started_at.desc(),
+                ApplicationSubmissionAttempt.id.desc(),
+            )
+            .all()
+        )
+
+        for attempt in attempts:
+            latest_attempts.setdefault(
+                attempt.auto_apply_candidate_id,
+                attempt,
+            )
+
     return render_template(
         "auto_apply_queue.html",
         candidates=pagination.items,
         pagination=pagination,
         selected_status=selected_status,
         status_counts=status_counts,
-        applicant_profile=ApplicantProfile.query.filter_by(user_id=current_user.id).first(),
+        latest_attempts=latest_attempts,
+        application_question_states=application_question_states,
+        applicant_profile=(
+            ApplicantProfile.query
+            .filter_by(user_id=current_user.id)
+            .first()
+        ),
     )
+
+
+@app.route(
+    "/auto-apply/<int:candidate_id>/answers",
+    methods=["POST"],
+)
+@login_required
+def save_auto_apply_candidate_answers(candidate_id):
+    auto_apply_access = get_auto_apply_access(current_user)
+
+    if not auto_apply_access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users "
+            "and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=candidate_id,
+            user_id=current_user.id,
+        )
+        .first_or_404()
+    )
+
+    if not candidate.application_package_id:
+        flash(
+            "This application does not have a prepared "
+            "application package yet.",
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Needs Application Answer",
+            )
+        )
+
+    package = db.session.get(
+        AutoApplyApplicationPackage,
+        candidate.application_package_id,
+    )
+
+    if package is None or package.user_id != current_user.id:
+        abort(404)
+
+    state = load_question_state(package.answers_json)
+    submitted_answers = {}
+    missing_required = []
+
+    for question in state["questions"]:
+        key = str(question.get("key") or "")
+
+        if not key:
+            continue
+
+        field_name = f"answer__{key}"
+
+        if question.get("type") == "checkbox":
+            value = request.form.getlist(field_name)
+        else:
+            value = request.form.get(field_name, "")
+
+        submitted_answers[key] = value
+
+        if question.get("required", True) and not value:
+            missing_required.append(
+                question.get("text") or "Required question"
+            )
+
+    if missing_required:
+        flash(
+            "Please answer every required application "
+            "question before continuing.",
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Needs Application Answer",
+            )
+        )
+
+    state = save_answers(
+        package.answers_json,
+        submitted_answers,
+    )
+    package.answers_json = dump_question_state(state)
+    db.session.flush()
+
+    result = execute_candidate_submission(
+        candidate,
+        current_user,
+        resume_mode=False,
+    )
+
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        (
+            "Saved Auto Apply application answers "
+            f"for candidate {candidate.id}"
+        ),
+    )
+
+    flash(result["message"], result["category"])
+
+    return redirect(
+        url_for(
+            "auto_apply_queue",
+            status=result["status"],
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# AUTO APPLY INTERACTIVE HANDOFF WORKER
+#
+# Human verification must not block the Flask request that launched it.
+# This in-process registry prevents duplicate local Resume sessions for the
+# same candidate while a background browser session is already active.
+# ---------------------------------------------------------------------------
+import threading as _auto_apply_handoff_threading
+import traceback as _auto_apply_handoff_traceback
+
+
+_AUTO_APPLY_HANDOFF_LOCK = (
+    _auto_apply_handoff_threading.Lock()
+)
+
+_AUTO_APPLY_HANDOFF_ACTIVE = set()
+
+
+def _run_auto_apply_resume_worker(
+    candidate_id,
+    user_id,
+):
+    try:
+        with app.app_context():
+            from models import (
+                AutoApplyCandidate,
+                User,
+            )
+
+            try:
+                candidate = (
+                    AutoApplyCandidate.query
+                    .filter_by(
+                        id=candidate_id,
+                        user_id=user_id,
+                    )
+                    .first()
+                )
+
+                user = db.session.get(
+                    User,
+                    user_id,
+                )
+
+                if candidate is None:
+                    print(
+                        "AUTO APPLY HANDOFF WORKER | "
+                        f"Candidate {candidate_id} no longer exists."
+                    )
+                    return
+
+                if user is None:
+                    print(
+                        "AUTO APPLY HANDOFF WORKER | "
+                        f"User {user_id} no longer exists."
+                    )
+                    return
+
+                print(
+                    "AUTO APPLY HANDOFF WORKER | "
+                    f"Starting candidate {candidate_id}."
+                )
+
+                result = execute_candidate_submission(
+                    candidate,
+                    user,
+                    resume_mode=True,
+                )
+
+                db.session.commit()
+
+                print(
+                    "AUTO APPLY HANDOFF WORKER | "
+                    f"Candidate {candidate_id} finished with "
+                    f"status={result.get('status')!r}."
+                )
+
+            except Exception as error:
+                db.session.rollback()
+
+                print(
+                    "AUTO APPLY HANDOFF WORKER | "
+                    f"Candidate {candidate_id} crashed: "
+                    f"{type(error).__name__}: {error}"
+                )
+
+                _auto_apply_handoff_traceback.print_exc()
+
+            finally:
+                db.session.remove()
+
+    finally:
+        with _AUTO_APPLY_HANDOFF_LOCK:
+            _AUTO_APPLY_HANDOFF_ACTIVE.discard(
+                int(candidate_id)
+            )
+
+        print(
+            "AUTO APPLY HANDOFF WORKER | "
+            f"Released candidate {candidate_id}."
+        )
+
+
+def _start_auto_apply_resume_worker(
+    candidate_id,
+    user_id,
+):
+    candidate_id = int(
+        candidate_id
+    )
+
+    user_id = int(
+        user_id
+    )
+
+    with _AUTO_APPLY_HANDOFF_LOCK:
+        if (
+            candidate_id
+            in _AUTO_APPLY_HANDOFF_ACTIVE
+        ):
+            return False
+
+        _AUTO_APPLY_HANDOFF_ACTIVE.add(
+            candidate_id
+        )
+
+    worker = (
+        _auto_apply_handoff_threading.Thread(
+            target=_run_auto_apply_resume_worker,
+            args=(
+                candidate_id,
+                user_id,
+            ),
+            name=(
+                "jobfinitum-auto-apply-handoff-"
+                f"{candidate_id}"
+            ),
+            daemon=True,
+        )
+    )
+
+    try:
+        worker.start()
+
+    except Exception:
+        with _AUTO_APPLY_HANDOFF_LOCK:
+            _AUTO_APPLY_HANDOFF_ACTIVE.discard(
+                candidate_id
+            )
+
+        raise
+
+    return True
 
 
 @app.route("/auto-apply/<int:candidate_id>/<string:action>", methods=["POST"])
 @login_required
 def update_auto_apply_candidate(candidate_id, action):
-    auto_apply_access = get_auto_apply_access(
-        current_user
-    )
+    auto_apply_access = get_auto_apply_access(current_user)
 
     if not auto_apply_access["allowed"]:
         flash(
-            "Auto Apply is available to Premium "
-            "users and administrators.",
+            "Auto Apply is available to Premium users and administrators.",
             "warning",
         )
-        return redirect(
-            url_for("search_profiles")
+        return redirect(url_for("search_profiles"))
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=candidate_id,
+            user_id=current_user.id,
         )
+        .first_or_404()
+    )
 
-    candidate = AutoApplyCandidate.query.filter_by(
-        id=candidate_id,
-        user_id=current_user.id,
-    ).first_or_404()
-
-    action = str(action or "").strip().lower()
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
 
     if action == "approve":
-        result = execute_candidate_submission(candidate, current_user)
+        result = execute_candidate_submission(
+            candidate,
+            current_user,
+            resume_mode=False,
+        )
         message = result["message"]
         category = result["category"]
+
+    elif action == "resume":
+        started = _start_auto_apply_resume_worker(
+            candidate.id,
+            current_user.id,
+        )
+
+        if started:
+            flash(
+                "Verification browser started. "
+                "You can keep using Jobfinitum while "
+                "the human handoff is active.",
+                "info",
+            )
+        else:
+            flash(
+                "A verification session for this "
+                "application is already in progress.",
+                "info",
+            )
+
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Waiting for Verification",
+            )
+        )
+
+    elif action == "mark-submitted":
+        result = mark_candidate_submitted_manually(
+            candidate,
+            current_user,
+        )
+        message = result["message"]
+        category = result["category"]
+
     elif action == "reject":
+        if candidate.execution_status == "Submitted":
+            flash(
+                "A submitted application cannot be rejected "
+                "from the Auto Apply queue.",
+                "warning",
+            )
+            return redirect(url_for("auto_apply_queue"))
+
         candidate.status = "Rejected"
         candidate.reviewed_at = now
         message = "Candidate rejected."
         category = "info"
+
     elif action == "reset":
-        candidate.status = "Pending Review"
-        candidate.reviewed_at = None
-        message = "Candidate returned to Pending Review."
-        category = "info"
+        if candidate.execution_status == "Submitted":
+            flash(
+                "A submitted application cannot be reset "
+                "to Pending Review.",
+                "warning",
+            )
+            return redirect(url_for("auto_apply_queue"))
+
+        result = reset_candidate_submission(candidate)
+        message = result["message"]
+        category = result["category"]
+
     else:
-        flash("That Auto Apply action is not valid.", "warning")
+        flash("Unknown Auto Apply action.", "danger")
         return redirect(url_for("auto_apply_queue"))
 
     db.session.commit()
+
     log_action(
         current_user.id,
-        f"Auto Apply {action}: {candidate.discovered_job.company_name} - {candidate.discovered_job.position_title}",
+        f"Auto Apply candidate {candidate.id}: {action}",
     )
+
     flash(message, category)
-    return redirect(request.referrer or url_for("auto_apply_queue"))
+
+    return redirect(
+        request.referrer
+        or url_for("auto_apply_queue")
+    )
 
 
 @app.route("/search-profiles")
@@ -5820,7 +6325,32 @@ def delete_job_description(job_id):
     return redirect(url_for("dashboard"))
 
 
-start_scheduler(app)
+scheduler_enabled = (
+    os.getenv(
+        "JOB_SCHEDULER_ENABLED",
+        "false",
+    )
+    .strip()
+    .lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
+if scheduler_enabled:
+    print(
+        "JOB SEARCH SCHEDULER: enabled by "
+        "JOB_SCHEDULER_ENABLED."
+    )
+    start_scheduler(app)
+else:
+    print(
+        "JOB SEARCH SCHEDULER: disabled by "
+        "JOB_SCHEDULER_ENABLED."
+    )
 
 if __name__ == "__main__":
     with app.app_context():
