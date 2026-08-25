@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Jobfinitum Chrome Agent",
+  "version": "0.2.0",
+  "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*",
+    "https://jobfinitum.com/*",
+    "https://www.jobfinitum.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://jobs.lever.co/*",
+        "https://jobs.eu.lever.co/*"
+      ],
+      "js": [
+        "lever_agent.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+        "https://jobfinitum.com/*",
+        "https://www.jobfinitum.com/*"
+      ],
+      "js": [
+        "site_bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

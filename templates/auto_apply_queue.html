@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Auto Apply Queue{% endblock %}
+{% block title %}Auto Apply Queue
+{% endblock %}
 
 {% block content %}
 <div class="form-page">
@@ -33,6 +34,21 @@
         supported forms can be submitted automatically.
         CAPTCHA, MFA, account setup, verification, and unknown required
         questions are handed back to you instead of being falsely marked Applied.
+    </div>
+
+    <div
+        id="jobfinitum-browser-agent-status"
+        class="alert alert-warning d-flex flex-wrap align-items-center gap-2"
+        role="status"
+    >
+        <strong>Browser Agent:</strong>
+        <span id="jobfinitum-browser-agent-status-text">
+            Checking...
+        </span>
+        <span
+            id="jobfinitum-browser-agent-version"
+            class="helper-text"
+        ></span>
     </div>
 
     <div class="d-flex flex-wrap gap-2 mb-4">
@@ -137,7 +153,7 @@
                                         <div class="mt-2">
                                             When you are ready, use
                                             <strong>Resume Application</strong>.
-                                            Jobfinitum will reopen the persistent browser,
+                                            Jobfinitum will reopen the application in your browser,
                                             wait while you complete verification, and then
                                             continue the application.
                                         </div>
@@ -145,7 +161,7 @@
                                         <div class="mt-2">
                                             Use <strong>Resume Application</strong> when you
                                             are ready to sign in or create the employer
-                                            account. The persistent browser profile keeps
+                                            account. The browser session keeps
                                             the resulting login session for later use.
                                         </div>
                                     {% elif execution == "Needs Application Answer" %}
@@ -167,10 +183,17 @@
                             {% set saved_answers = question_state.get("answers", {}) %}
 
                             {% if questions %}
+                                {% set answer_application_target = candidate.discovered_job.apply_url or candidate.discovered_job.posting_url %}
+                                {% set answer_uses_chrome_agent = answer_application_target and (
+                                    "jobs.lever.co/" in answer_application_target
+                                    or "jobs.eu.lever.co/" in answer_application_target
+                                ) %}
+
                                 <form
                                     method="POST"
                                     action="{{ url_for('save_auto_apply_candidate_answers', candidate_id=candidate.id) }}"
                                     class="application-question-form mt-3"
+                                    {% if answer_uses_chrome_agent %}target="_blank"{% endif %}
                                 >
                                     <input
                                         type="hidden"
@@ -279,9 +302,15 @@
                             <div><span class="helper-text">Staged</span><strong>{{ candidate.created_at.strftime('%Y-%m-%d %H:%M') }}</strong></div>
                         </div>
 
+                        {% set application_target = candidate.discovered_job.apply_url or candidate.discovered_job.posting_url %}
+                        {% set chrome_agent_lever = application_target and (
+                            "jobs.lever.co/" in application_target
+                            or "jobs.eu.lever.co/" in application_target
+                        ) %}
+
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             <a
-                                href="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
+                                href="{{ application_target }}"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 class="btn btn-primary"
@@ -300,11 +329,16 @@
                                 {% endif %}
                             </a>
 
+
                             {% if execution != "Submitted" and candidate.status != "Rejected" %}
                                 {% if execution in ("Waiting for Verification", "Waiting for Sign-In") %}
                                     <form
                                         method="POST"
                                         action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='resume') }}"
+                                        {% if chrome_agent_lever %}
+                                            target="_blank"
+                                            data-jobfinitum-agent-required="true"
+                                        {% endif %}
                                     >
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-success">
@@ -315,6 +349,10 @@
                                     <form
                                         method="POST"
                                         action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}"
+                                        {% if chrome_agent_lever %}
+                                            target="_blank"
+                                            data-jobfinitum-agent-required="true"
+                                        {% endif %}
                                     >
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-success">
@@ -429,4 +467,6 @@
         </div>
     {% endif %}
 </div>
+
+<script src="{{ url_for('static', filename='js/chrome_agent_site.js') }}"></script>
 {% endblock %}

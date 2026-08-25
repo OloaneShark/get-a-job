@@ -969,6 +969,7 @@ class LeverHostedAdapter(SubmissionAdapter):
                 field_name,
                 text,
             ),
+            "field_name": field_name,
             "text": text.rstrip(
                 " *"
             ).strip(),

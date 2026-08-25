@@ -177,6 +177,19 @@ from services.auto_apply_submission.engine import (
     mark_candidate_submitted_manually,
     reset_candidate_submission,
 )
+from services.auto_apply_submission.chrome_agent_service import (
+    apply_chrome_agent_result,
+    build_chrome_agent_launch_url,
+    build_chrome_agent_task,
+    chrome_agent_supports_job,
+    create_chrome_agent_token,
+    decode_chrome_agent_token,
+    prepare_chrome_agent_candidate,
+)
+from services.auto_apply_submission.executor_router import (
+    EXECUTOR_CHROME_AGENT,
+    get_submission_executor,
+)
 from services.phone_service import (
     country_region_from_name,
     get_phone_country_choices,
@@ -3929,6 +3942,67 @@ def save_auto_apply_candidate_answers(candidate_id):
     package.answers_json = dump_question_state(state)
     db.session.flush()
 
+    # Lever questions discovered by the normal-Chrome
+    # executor must resume in that same executor. Sending
+    # them back through Playwright here causes a second
+    # scrape with different control metadata and can erase
+    # the answers the user just saved.
+    if chrome_agent_supports_job(
+        candidate.discovered_job
+    ):
+        prepared = prepare_chrome_agent_candidate(
+            candidate,
+            current_user,
+        )
+
+        if not prepared["ok"]:
+            db.session.rollback()
+
+            flash(
+                prepared["message"],
+                "warning",
+            )
+
+            return redirect(
+                url_for(
+                    "auto_apply_queue",
+                    status="Needs Application Answer",
+                )
+            )
+
+        token = create_chrome_agent_token(
+            app.config["SECRET_KEY"],
+            candidate.id,
+            current_user.id,
+        )
+
+        launch_url = build_chrome_agent_launch_url(
+            prepared["target"],
+            token,
+            request.host_url.rstrip("/"),
+        )
+
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                "Saved Auto Apply application answers "
+                f"for candidate {candidate.id} and "
+                "resumed the Chrome Agent"
+            ),
+        )
+
+        flash(
+            "Application answers saved. "
+            "Resuming the normal-Chrome Auto Apply agent.",
+            "success",
+        )
+
+        return redirect(
+            launch_url
+        )
+
     result = execute_candidate_submission(
         candidate,
         current_user,
@@ -3953,6 +4027,222 @@ def save_auto_apply_candidate_answers(candidate_id):
             status=result["status"],
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# NORMAL CHROME AUTO APPLY AGENT
+# ---------------------------------------------------------------------------
+@app.route(
+    "/auto-apply/<int:candidate_id>/chrome-agent",
+    methods=["POST"],
+)
+@login_required
+def launch_auto_apply_chrome_agent(candidate_id):
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=candidate_id,
+            user_id=current_user.id,
+        )
+        .first_or_404()
+    )
+
+    if not chrome_agent_supports_job(candidate.discovered_job):
+        flash(
+            "The Chrome Agent does not support this application host yet.",
+            "warning",
+        )
+        return redirect(
+            request.referrer
+            or url_for("auto_apply_queue")
+        )
+
+    prepared = prepare_chrome_agent_candidate(
+        candidate,
+        current_user,
+    )
+
+    if not prepared["ok"]:
+        db.session.rollback()
+        flash(prepared["message"], "warning")
+        return redirect(
+            request.referrer
+            or url_for("auto_apply_queue")
+        )
+
+    token = create_chrome_agent_token(
+        app.config["SECRET_KEY"],
+        candidate.id,
+        current_user.id,
+    )
+
+    launch_url = build_chrome_agent_launch_url(
+        prepared["target"],
+        token,
+        request.host_url.rstrip("/"),
+    )
+
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        (
+            "Launched Chrome Agent for "
+            f"Auto Apply candidate {candidate.id}"
+        ),
+    )
+
+    return redirect(launch_url)
+
+
+def _chrome_agent_candidate_from_token(token):
+    claims = decode_chrome_agent_token(
+        app.config["SECRET_KEY"],
+        token,
+    )
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=claims["candidate_id"],
+            user_id=claims["user_id"],
+        )
+        .first()
+    )
+
+    user = db.session.get(
+        User,
+        claims["user_id"],
+    )
+
+    if candidate is None or user is None:
+        return None, None, "Chrome Agent task no longer exists."
+
+    return candidate, user, None
+
+
+@app.route(
+    "/api/chrome-agent/task/<token>",
+    methods=["GET"],
+)
+@csrf.exempt
+def chrome_agent_task_api(token):
+    try:
+        candidate, user, error = (
+            _chrome_agent_candidate_from_token(token)
+        )
+    except ValueError as token_error:
+        return jsonify({"error": str(token_error)}), 401
+
+    if error:
+        return jsonify({"error": error}), 404
+
+    try:
+        task = build_chrome_agent_task(
+            candidate,
+            user,
+            token=token,
+            resume_url=url_for(
+                "chrome_agent_resume_api",
+                token=token,
+                _external=True,
+            ),
+        )
+        db.session.commit()
+        return jsonify(task)
+
+    except ValueError as task_error:
+        db.session.rollback()
+        return jsonify({"error": str(task_error)}), 400
+
+
+@app.route(
+    "/api/chrome-agent/resume/<token>",
+    methods=["GET"],
+)
+@csrf.exempt
+def chrome_agent_resume_api(token):
+    try:
+        candidate, user, error = (
+            _chrome_agent_candidate_from_token(token)
+        )
+    except ValueError as token_error:
+        return jsonify({"error": str(token_error)}), 401
+
+    if error:
+        return jsonify({"error": error}), 404
+
+    prepared = prepare_chrome_agent_candidate(
+        candidate,
+        user,
+    )
+
+    if not prepared["ok"]:
+        db.session.rollback()
+        return jsonify({"error": prepared["message"]}), 400
+
+    db.session.commit()
+
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        candidate.resume.filename,
+        as_attachment=False,
+        download_name=(
+            candidate.resume.original_filename
+            or candidate.resume.filename
+        ),
+    )
+
+
+@app.route(
+    "/api/chrome-agent/result/<token>",
+    methods=["POST"],
+)
+@csrf.exempt
+def chrome_agent_result_api(token):
+    try:
+        candidate, user, error = (
+            _chrome_agent_candidate_from_token(token)
+        )
+    except ValueError as token_error:
+        return jsonify({"error": str(token_error)}), 401
+
+    if error:
+        return jsonify({"error": error}), 404
+
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        result = apply_chrome_agent_result(
+            candidate,
+            user,
+            payload,
+        )
+        db.session.commit()
+
+        log_action(
+            user.id,
+            (
+                "Chrome Agent result for "
+                f"Auto Apply candidate {candidate.id}: "
+                f"{result['status']}"
+            ),
+        )
+
+        return jsonify(result)
+
+    except ValueError as result_error:
+        db.session.rollback()
+        return jsonify({"error": str(result_error)}), 400
 
 
 # ---------------------------------------------------------------------------
@@ -4130,6 +4420,25 @@ def update_auto_apply_candidate(candidate_id, action):
         )
         .first_or_404()
     )
+
+    # Route submission through Jobfinitum's central
+    # executor registry. Lever is formally assigned to the
+    # normal-Chrome Agent and therefore never enters the
+    # legacy Playwright path from Approve/Resume.
+    submission_executor = (
+        get_submission_executor(
+            candidate.discovered_job
+        )
+    )
+
+    if (
+        action in {"approve", "resume"}
+        and submission_executor
+        == EXECUTOR_CHROME_AGENT
+    ):
+        return launch_auto_apply_chrome_agent(
+            candidate.id
+        )
 
     now = datetime.now(
         timezone.utc

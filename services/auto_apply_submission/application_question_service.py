@@ -107,6 +107,12 @@ def merge_questions(
         clean_questions.append(
             {
                 "key": str(key),
+                "field_name": str(
+                    question.get(
+                        "field_name"
+                    )
+                    or ""
+                ),
                 "text": text,
                 "type": str(
                     question.get(
@@ -142,22 +148,137 @@ def merge_questions(
         )
 
     # A fresh adapter scrape is the authoritative question
-    # snapshot for this application package. This replaces
-    # malformed/stale labels from older extraction code.
+    # snapshot for this application package. Preserve answers
+    # even when two executors produce slightly different keys
+    # for the same employer field.
+    previous_questions = (
+        state.get("questions")
+        or []
+    )
+
+    previous_answers = dict(
+        state.get("answers")
+        or {}
+    )
+
+    previous_by_field = {}
+    previous_by_text = {}
+
+    for previous in previous_questions:
+        if not isinstance(
+            previous,
+            dict,
+        ):
+            continue
+
+        previous_key = str(
+            previous.get("key")
+            or ""
+        )
+
+        if (
+            not previous_key
+            or previous_key
+            not in previous_answers
+        ):
+            continue
+
+        previous_adapter = str(
+            previous.get("adapter")
+            or ""
+        ).strip().lower()
+
+        previous_field = str(
+            previous.get("field_name")
+            or ""
+        ).strip().lower()
+
+        previous_text = normalize_question_text(
+            previous.get("text")
+        ).lower()
+
+        if previous_field:
+            previous_by_field[
+                (
+                    previous_adapter,
+                    previous_field,
+                )
+            ] = previous_answers[
+                previous_key
+            ]
+
+        if previous_text:
+            previous_by_text[
+                (
+                    previous_adapter,
+                    previous_text,
+                )
+            ] = previous_answers[
+                previous_key
+            ]
+
+    remapped_answers = {}
+
+    for question in clean_questions:
+        key = question["key"]
+
+        if key in previous_answers:
+            remapped_answers[key] = (
+                previous_answers[key]
+            )
+            continue
+
+        adapter = str(
+            question.get("adapter")
+            or ""
+        ).strip().lower()
+
+        field_name = str(
+            question.get("field_name")
+            or ""
+        ).strip().lower()
+
+        question_text = normalize_question_text(
+            question.get("text")
+        ).lower()
+
+        if (
+            field_name
+            and (
+                adapter,
+                field_name,
+            )
+            in previous_by_field
+        ):
+            remapped_answers[key] = (
+                previous_by_field[
+                    (
+                        adapter,
+                        field_name,
+                    )
+                ]
+            )
+            continue
+
+        if (
+            question_text
+            and (
+                adapter,
+                question_text,
+            )
+            in previous_by_text
+        ):
+            remapped_answers[key] = (
+                previous_by_text[
+                    (
+                        adapter,
+                        question_text,
+                    )
+                ]
+            )
+
     state["questions"] = clean_questions
-
-    valid_keys = {
-        question["key"]
-        for question in clean_questions
-    }
-
-    state["answers"] = {
-        key: value
-        for key, value in state[
-            "answers"
-        ].items()
-        if key in valid_keys
-    }
+    state["answers"] = remapped_answers
 
     return state
 
