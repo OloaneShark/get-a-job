@@ -4036,6 +4036,14 @@ def save_auto_apply_candidate_answers(candidate_id):
     "/auto-apply/<int:candidate_id>/chrome-agent",
     methods=["POST"],
 )
+@app.route("/browser-agent")
+@login_required
+def browser_agent_settings():
+    return render_template(
+        "browser_agent_settings.html"
+    )
+
+
 @login_required
 def launch_auto_apply_chrome_agent(candidate_id):
     access = get_auto_apply_access(current_user)

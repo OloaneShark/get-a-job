@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Browser Agent - Jobfinitum{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Browser Agent</h1>
+            <p class="text-muted mb-0">
+                Jobfinitum uses the Browser Agent when an application needs normal Chrome.
+            </p>
+        </div>
+
+        <a
+            class="btn btn-outline-secondary"
+            href="{{ url_for('auto_apply_queue') }}"
+        >
+            Back to Auto Apply
+        </a>
+    </div>
+
+    <div
+        id="jobfinitum-browser-agent-status"
+        class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-3"
+        role="status"
+    >
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <strong>Browser Agent:</strong>
+            <span id="jobfinitum-browser-agent-status-text">Checking...</span>
+            <span
+                id="jobfinitum-browser-agent-version"
+                class="helper-text"
+            ></span>
+        </div>
+
+        <button
+            type="button"
+            class="btn btn-sm btn-outline-secondary"
+            onclick="window.location.reload()"
+        >
+            Check Again
+        </button>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h4">How Auto Apply uses it</h2>
+
+                    <p>
+                        Jobfinitum chooses the execution layer automatically.
+                        You do not manually choose between browser engines.
+                    </p>
+
+                    <div class="border rounded p-3 mb-3">
+                        <div><strong>Lever</strong></div>
+                        <div class="text-muted">
+                            Jobfinitum -> Browser Agent -> normal Chrome
+                        </div>
+                    </div>
+
+                    <p class="mb-0 text-muted">
+                        Jobfinitum prepares the application package. The Browser Agent
+                        opens the supported employer application in normal Chrome, fills
+                        the form, uploads the resume, applies saved answers, submits, and
+                        reports the result back to Jobfinitum.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h2 class="h4">Current support</h2>
+
+                    <div class="d-flex justify-content-between border-bottom py-2">
+                        <span>Lever</span>
+                        <strong>Browser Agent</strong>
+                    </div>
+
+                    <div class="d-flex justify-content-between border-bottom py-2">
+                        <span>Greenhouse</span>
+                        <span class="text-muted">Next</span>
+                    </div>
+
+                    <div class="d-flex justify-content-between border-bottom py-2">
+                        <span>Ashby</span>
+                        <span class="text-muted">Planned</span>
+                    </div>
+
+                    <div class="d-flex justify-content-between py-2">
+                        <span>Workday</span>
+                        <span class="text-muted">Planned</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-body">
+            <h2 class="h4">What stays on Jobfinitum</h2>
+
+            <p class="mb-0 text-muted">
+                Account data, Premium access, application limits, resumes,
+                saved answers, candidate ownership, and submission history remain
+                controlled by Jobfinitum. The Browser Agent is only the browser
+                execution layer.
+            </p>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/chrome_agent_site.js') }}"></script>
+{% endblock %}
