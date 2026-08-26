@@ -1,3 +1,4 @@
+import re
 import json
 import mimetypes
 import os
@@ -21,9 +22,31 @@ from services.auto_apply_submission.engine import (
 )
 
 
+
+from services.phone_service import (
+    country_region_from_name,
+    split_phone_for_form,
+)
+
 TOKEN_SALT = "jobfinitum-chrome-agent-v1"
 TOKEN_MAX_AGE_SECONDS = 1800
-SUPPORTED_HOSTS = {"jobs.lever.co", "jobs.eu.lever.co"}
+
+LEVER_HOSTS = {
+    "jobs.lever.co",
+    "jobs.eu.lever.co",
+}
+
+GREENHOUSE_HOSTS = {
+    "boards.greenhouse.io",
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+}
+
+SUPPORTED_HOSTS = (
+    LEVER_HOSTS
+    | GREENHOUSE_HOSTS
+)
 
 
 def utcnow_naive():
@@ -35,8 +58,34 @@ def chrome_agent_target(job):
 
 
 def chrome_agent_supports_job(job):
-    host = (urlsplit(chrome_agent_target(job)).hostname or "").lower()
+    host = (
+        urlsplit(
+            chrome_agent_target(job)
+        ).hostname
+        or ""
+    ).lower()
+
     return host in SUPPORTED_HOSTS
+
+
+def chrome_agent_adapter(job):
+    host = (
+        urlsplit(
+            chrome_agent_target(job)
+        ).hostname
+        or ""
+    ).lower()
+
+    if host in LEVER_HOSTS:
+        return "lever_hosted"
+
+    if host in GREENHOUSE_HOSTS:
+        return "greenhouse_hosted"
+
+    raise ValueError(
+        "The Chrome Agent does not support "
+        "this application host yet."
+    )
 
 
 def _serializer(secret_key):
@@ -185,10 +234,23 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
         if str(value or "").strip()
     )
 
+    adapter_name = chrome_agent_adapter(
+        candidate.discovered_job
+    )
+
+    preferred_phone_region = country_region_from_name(
+        identity.country
+    )
+
+    phone_country_iso, phone_national = split_phone_for_form(
+        identity.phone,
+        preferred_region=preferred_phone_region,
+    )
+
     return {
         "version": 1,
         "executor": "chrome_agent",
-        "adapter": "lever_hosted",
+        "adapter": adapter_name,
         "candidate_id": candidate.id,
         "target_url": prepared["target"],
         "identity": {
@@ -197,6 +259,10 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
             "full_name": f"{identity.first_name} {identity.last_name}".strip(),
             "email": package.application_email or user.email,
             "phone": identity.phone or "",
+            "phone_e164": identity.phone or "",
+            "phone_country_iso": phone_country_iso or "",
+            "phone_country_name": identity.country or "",
+            "phone_national": phone_national or "",
             "city": identity.city or "",
             "state_region": identity.state_region or "",
             "country": identity.country or "",
@@ -225,39 +291,206 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
     }
 
 
-def _normalize_agent_questions(raw_questions):
+def _normalize_agent_questions(
+    raw_questions,
+    adapter_name,
+):
     result = []
+
     for raw in raw_questions or []:
         if not isinstance(raw, dict):
             continue
 
-        field_name = str(raw.get("field_name") or "").strip()
-        text = " ".join(str(raw.get("text") or "").split()).strip()
+        field_name = str(
+            raw.get("field_name")
+            or ""
+        ).strip()
+
+        text = " ".join(
+            str(
+                raw.get("text")
+                or ""
+            ).split()
+        ).strip()
+
         if not text:
             continue
 
-        question_type = str(raw.get("type") or "text").strip()
+        question_type = str(
+            raw.get("type")
+            or "text"
+        ).strip()
+
         choices = raw.get("choices")
-        if not isinstance(choices, list):
+
+        if not isinstance(
+            choices,
+            list,
+        ):
             choices = []
 
         result.append(
             {
                 "key": build_question_key(
-                    "lever_hosted",
+                    adapter_name,
                     field_name,
                     text,
                 ),
                 "field_name": field_name,
                 "text": text,
                 "type": question_type,
-                "required": bool(raw.get("required", True)),
+                "required": bool(
+                    raw.get(
+                        "required",
+                        True,
+                    )
+                ),
                 "choices": choices,
-                "adapter": "lever_hosted",
+                "adapter": adapter_name,
             }
         )
+
     return result
 
+
+
+def _known_profile_answer_for_agent_question(identity, question):
+    text = " ".join(
+        str(question.get("text") or "").lower().split()
+    )
+    field_name = str(
+        question.get("field_name") or ""
+    ).strip().lower()
+
+    def matches(*parts):
+        return any(
+            part in text or part in field_name
+            for part in parts
+        )
+
+    def generic_total_experience_question():
+        normalized = re.sub(
+            r"[^a-z0-9]+",
+            " ",
+            text,
+        ).strip()
+
+        patterns = (
+            r"^years of experience$",
+            r"^total years of experience$",
+            r"^how many years of experience do you have$",
+            r"^how many total years of experience do you have$",
+            r"^how many years of professional experience do you have$",
+            r"^how many years of work experience do you have$",
+            r"^what are your total years of experience$",
+            r"^what is your total years of experience$",
+        )
+
+        return any(
+            re.fullmatch(pattern, normalized)
+            for pattern in patterns
+        )
+
+    if matches("linkedin"):
+        return identity.linkedin_url or None
+
+    if matches("github"):
+        return identity.github_url or None
+
+    if matches("website", "portfolio"):
+        return identity.website_url or None
+
+    if (
+        text in ("location (city)", "location city", "city")
+        or field_name in ("location", "location_city", "city")
+    ):
+        return identity.city or None
+
+    if matches(
+        "salary expectation",
+        "salary expectations",
+        "desired salary",
+        "expected salary",
+        "compensation expectation",
+        "desired compensation",
+        "base salary expectation",
+    ):
+        return identity.salary_expectation or None
+
+    if matches(
+        "18 years of age",
+        "18 or older",
+        "at least 18",
+    ):
+        if identity.is_18_or_older is True:
+            return "Yes"
+        if identity.is_18_or_older is False:
+            return "No"
+
+    if matches(
+        "authorized to work",
+        "authorization to work",
+        "work authorization",
+        "eligible to work",
+    ):
+        return identity.work_authorization_default or None
+
+    if matches(
+        "require sponsorship",
+        "need sponsorship",
+        "visa sponsorship",
+        "sponsorship now",
+        "sponsorship now, or in the future",
+    ):
+        return identity.sponsorship_default or None
+
+    if (
+        generic_total_experience_question()
+        and identity.years_of_experience is not None
+    ):
+        return str(identity.years_of_experience)
+
+    return None
+
+
+
+def _compatible_profile_answer_for_question(question, answer):
+    if answer in (None, "", [], ()):
+        return None
+
+    choices = question.get("choices") or []
+
+    if not choices:
+        return answer
+
+    wanted = str(answer).strip().lower()
+
+    if not wanted:
+        return None
+
+    for choice in choices:
+        if isinstance(choice, dict):
+            label = str(
+                choice.get("label") or ""
+            ).strip()
+            value = str(
+                choice.get("value")
+                or choice.get("platform_value")
+                or ""
+            ).strip()
+
+            if (
+                label.lower() == wanted
+                or value.lower() == wanted
+            ):
+                return label or value
+        else:
+            value = str(choice or "").strip()
+
+            if value.lower() == wanted:
+                return value
+
+    return None
 
 def apply_chrome_agent_result(candidate, user, payload):
     prepared = prepare_chrome_agent_candidate(candidate, user)
@@ -266,6 +499,19 @@ def apply_chrome_agent_result(candidate, user, payload):
 
     application = prepared["application"]
     package = prepared["package"]
+    identity = prepared["identity"]
+
+    adapter_name = chrome_agent_adapter(
+        candidate.discovered_job
+    )
+
+    platform_name = (
+        "Lever"
+        if adapter_name == "lever_hosted"
+        else "Greenhouse"
+        if adapter_name == "greenhouse_hosted"
+        else "application host"
+    )
 
     status_map = {
         "submitted": "Submitted",
@@ -281,11 +527,25 @@ def apply_chrome_agent_result(candidate, user, payload):
         raise ValueError("Chrome Agent returned an unsupported status.")
 
     default_messages = {
-        "Submitted": "Chrome Agent submitted the Lever application successfully.",
-        "Waiting for Verification": "Lever requires human verification in normal Chrome.",
-        "Needs Application Answer": "Lever requires additional application answers.",
-        "Needs User Action": "Lever requires additional user action.",
-        "Failed": "Chrome Agent submission failed.",
+        "Submitted": (
+            "Chrome Agent submitted the "
+            f"{platform_name} application successfully."
+        ),
+        "Waiting for Verification": (
+            f"{platform_name} requires human "
+            "verification in normal Chrome."
+        ),
+        "Needs Application Answer": (
+            f"{platform_name} requires additional "
+            "application answers."
+        ),
+        "Needs User Action": (
+            f"{platform_name} requires additional "
+            "user action."
+        ),
+        "Failed": (
+            "Chrome Agent submission failed."
+        ),
     }
     message = str(
         payload.get("message") or default_messages[status]
@@ -296,9 +556,99 @@ def apply_chrome_agent_result(candidate, user, payload):
         detail = {}
 
     if status == "Needs Application Answer":
-        questions = _normalize_agent_questions(payload.get("questions"))
-        state = merge_questions(package.answers_json, questions)
-        package.answers_json = dump_question_state(state)
+        all_questions = _normalize_agent_questions(
+            payload.get("questions"),
+            str(
+                (
+                    payload.get("detail")
+                    or {}
+                ).get("adapter")
+                or payload.get("adapter")
+                or "greenhouse_hosted"
+            ),
+        )
+
+        if all_questions:
+            state = merge_questions(
+                package.answers_json,
+                all_questions,
+                preserve_existing=True,
+            )
+
+            answers = dict(
+                state.get("answers")
+                or {}
+            )
+
+            profile_prefilled = []
+
+            for question in all_questions:
+                key = str(
+                    question.get("key")
+                    or ""
+                )
+
+                if not key:
+                    continue
+
+                existing = answers.get(key)
+
+                if existing not in (
+                    None,
+                    "",
+                    [],
+                    (),
+                ):
+                    continue
+
+                known_answer = (
+                    _known_profile_answer_for_agent_question(
+                        identity,
+                        question,
+                    )
+                )
+
+                compatible_answer = (
+                    _compatible_profile_answer_for_question(
+                        question,
+                        known_answer,
+                    )
+                )
+
+                if compatible_answer in (
+                    None,
+                    "",
+                    [],
+                    (),
+                ):
+                    continue
+
+                answers[key] = compatible_answer
+
+                profile_prefilled.append(
+                    {
+                        "key": key,
+                        "text": question.get("text"),
+                    }
+                )
+
+            state["answers"] = answers
+
+            package.answers_json = dump_question_state(
+                state
+            )
+
+            if profile_prefilled:
+                detail[
+                    "profile_prefilled_questions"
+                ] = profile_prefilled
+
+            status = "Needs Application Answer"
+
+            message = (
+                payload.get("message")
+                or "Greenhouse identified required fields that still need attention."
+            )
 
     now = utcnow_naive()
     confirmation_url = str(
@@ -310,7 +660,13 @@ def apply_chrome_agent_result(candidate, user, payload):
         auto_apply_candidate_id=candidate.id,
         application_id=application.id,
         application_package_id=package.id,
-        adapter_name="lever_chrome_agent",
+        adapter_name=(
+            adapter_name.replace(
+                "_hosted",
+                "",
+            )
+            + "_chrome_agent"
+        ),
         status=status,
         message=message,
         detail_json=json.dumps(detail, sort_keys=True),

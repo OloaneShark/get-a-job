@@ -8,6 +8,10 @@ EXECUTOR_LEGACY = "legacy_submission"
 CHROME_AGENT_HOSTS = {
     "jobs.lever.co",
     "jobs.eu.lever.co",
+    "boards.greenhouse.io",
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
 }
 
 

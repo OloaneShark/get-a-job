@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.2.0",
+  "version": "0.3.22",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://jobfinitum.com/*",
-    "https://www.jobfinitum.com/*"
+    "https://www.jobfinitum.com/*",
+    "https://boards-api.greenhouse.io/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -34,6 +35,18 @@
         "site_bridge.js"
       ],
       "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://boards.eu.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://job-boards.eu.greenhouse.io/*"
+      ],
+      "js": [
+        "greenhouse_agent.js"
+      ],
+      "run_at": "document_idle"
     }
   ]
 }

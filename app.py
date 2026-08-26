@@ -168,6 +168,11 @@ from services.auto_apply_submission.application_question_service import (
     save_answers,
 )
 
+from services.auto_apply_submission.application_answer_memory_service import (
+    apply_saved_answer_memories,
+    remember_submitted_answers,
+)
+
 from services.auto_apply_service import (
     get_auto_apply_access,
     stage_existing_auto_apply_matches,
@@ -3806,9 +3811,22 @@ def auto_apply_queue():
             if package is None:
                 continue
 
-            application_question_states[candidate.id] = (
-                load_question_state(package.answers_json)
+            question_state = (
+                load_question_state(
+                    package.answers_json
+                )
             )
+
+            question_state = (
+                apply_saved_answer_memories(
+                    current_user.id,
+                    question_state,
+                )
+            )
+
+            application_question_states[
+                candidate.id
+            ] = question_state
 
     if candidate_ids:
         attempts = (
@@ -3939,6 +3957,23 @@ def save_auto_apply_candidate_answers(candidate_id):
         package.answers_json,
         submitted_answers,
     )
+
+    remember_keys = set(
+        request.form.getlist(
+            "remember_answer"
+        )
+    )
+
+    remember_submitted_answers(
+        current_user.id,
+        state.get(
+            "questions",
+            [],
+        ),
+        submitted_answers,
+        remember_keys,
+    )
+
     package.answers_json = dump_question_state(state)
     db.session.flush()
 

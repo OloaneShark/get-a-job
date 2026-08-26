@@ -75,6 +75,8 @@ def application_answers(raw_json):
 def merge_questions(
     raw_json,
     questions,
+    *,
+    preserve_existing=False,
 ):
     state = load_question_state(
         raw_json
@@ -146,6 +148,98 @@ def merge_questions(
                 ),
             }
         )
+
+    # Collapse duplicate logical questions emitted by complex ATS widgets.
+    # Greenhouse-style select controls can expose both an outer combobox and an
+    # inner input for one employer question. Keep the richer descriptor so the
+    # user sees one question with its real choices instead of duplicate text
+    # inputs.
+    deduped_questions = []
+    deduped_indexes = {}
+
+    def question_richness(question):
+        question_type = str(
+            question.get("type")
+            or ""
+        ).strip().lower()
+
+        choices = (
+            question.get("choices")
+            if isinstance(
+                question.get("choices"),
+                list,
+            )
+            else []
+        )
+
+        return (
+            len(choices) * 100
+            + (
+                25
+                if question_type
+                in {
+                    "select",
+                    "radio",
+                    "checkbox",
+                }
+                else 0
+            )
+            + (
+                5
+                if str(
+                    question.get("field_name")
+                    or ""
+                ).strip()
+                else 0
+            )
+        )
+
+    for question in clean_questions:
+        logical_key = (
+            str(
+                question.get("adapter")
+                or ""
+            ).strip().lower(),
+            normalize_question_text(
+                question.get("text")
+            ).lower(),
+        )
+
+        if not logical_key[1]:
+            continue
+
+        existing_index = deduped_indexes.get(
+            logical_key
+        )
+
+        if existing_index is None:
+            deduped_indexes[
+                logical_key
+            ] = len(
+                deduped_questions
+            )
+            deduped_questions.append(
+                question
+            )
+            continue
+
+        existing = deduped_questions[
+            existing_index
+        ]
+
+        if (
+            question_richness(
+                question
+            )
+            > question_richness(
+                existing
+            )
+        ):
+            deduped_questions[
+                existing_index
+            ] = question
+
+    clean_questions = deduped_questions
 
     # A fresh adapter scrape is the authoritative question
     # snapshot for this application package. Preserve answers
@@ -277,8 +371,296 @@ def merge_questions(
                 ]
             )
 
-    state["questions"] = clean_questions
-    state["answers"] = remapped_answers
+    if not preserve_existing:
+        state["questions"] = clean_questions
+        state["answers"] = remapped_answers
+        return state
+
+    # Chrome/Browser Agent question handback is PARTIAL:
+    # it normally reports only the fields that still need user
+    # attention. Never treat that subset as a replacement for
+    # the full application-answer package or previously-saved
+    # answers will disappear on every retry.
+    merged_questions = [
+        dict(question)
+        for question in previous_questions
+        if isinstance(
+            question,
+            dict,
+        )
+    ]
+
+    merged_answers = dict(
+        previous_answers
+    )
+
+    index_by_key = {}
+    index_by_field = {}
+    index_by_text = {}
+
+    for index, previous in enumerate(
+        merged_questions
+    ):
+        previous_key = str(
+            previous.get("key")
+            or ""
+        )
+
+        previous_adapter = str(
+            previous.get("adapter")
+            or ""
+        ).strip().lower()
+
+        previous_field = str(
+            previous.get("field_name")
+            or ""
+        ).strip().lower()
+
+        previous_text = normalize_question_text(
+            previous.get("text")
+        ).lower()
+
+        if previous_key:
+            index_by_key[
+                previous_key
+            ] = index
+
+        if previous_field:
+            index_by_field[
+                (
+                    previous_adapter,
+                    previous_field,
+                )
+            ] = index
+
+        if previous_text:
+            index_by_text[
+                (
+                    previous_adapter,
+                    previous_text,
+                )
+            ] = index
+
+    for incoming in clean_questions:
+        incoming_key = str(
+            incoming.get("key")
+            or ""
+        )
+
+        incoming_adapter = str(
+            incoming.get("adapter")
+            or ""
+        ).strip().lower()
+
+        incoming_field = str(
+            incoming.get("field_name")
+            or ""
+        ).strip().lower()
+
+        incoming_text = normalize_question_text(
+            incoming.get("text")
+        ).lower()
+
+        matched_index = None
+
+        if (
+            incoming_key
+            and incoming_key
+            in index_by_key
+        ):
+            matched_index = (
+                index_by_key[
+                    incoming_key
+                ]
+            )
+
+        elif (
+            incoming_field
+            and (
+                incoming_adapter,
+                incoming_field,
+            )
+            in index_by_field
+        ):
+            matched_index = (
+                index_by_field[
+                    (
+                        incoming_adapter,
+                        incoming_field,
+                    )
+                ]
+            )
+
+        elif (
+            incoming_text
+            and (
+                incoming_adapter,
+                incoming_text,
+            )
+            in index_by_text
+        ):
+            matched_index = (
+                index_by_text[
+                    (
+                        incoming_adapter,
+                        incoming_text,
+                    )
+                ]
+            )
+
+        if matched_index is None:
+            merged_questions.append(
+                incoming
+            )
+
+            new_index = (
+                len(
+                    merged_questions
+                )
+                - 1
+            )
+
+            if incoming_key:
+                index_by_key[
+                    incoming_key
+                ] = new_index
+
+            if incoming_field:
+                index_by_field[
+                    (
+                        incoming_adapter,
+                        incoming_field,
+                    )
+                ] = new_index
+
+            if incoming_text:
+                index_by_text[
+                    (
+                        incoming_adapter,
+                        incoming_text,
+                    )
+                ] = new_index
+
+            if (
+                incoming_key
+                in remapped_answers
+            ):
+                merged_answers[
+                    incoming_key
+                ] = remapped_answers[
+                    incoming_key
+                ]
+
+            continue
+
+        previous = (
+            merged_questions[
+                matched_index
+            ]
+        )
+
+        previous_key = str(
+            previous.get("key")
+            or ""
+        )
+
+        # Keep the freshest descriptor/choice list from the
+        # Agent, while preserving the saved answer.
+        merged_questions[
+            matched_index
+        ] = incoming
+
+        if (
+            incoming_key
+            and incoming_key
+            in remapped_answers
+        ):
+            merged_answers[
+                incoming_key
+            ] = remapped_answers[
+                incoming_key
+            ]
+
+        elif (
+            previous_key
+            and previous_key
+            in merged_answers
+            and incoming_key
+        ):
+            merged_answers[
+                incoming_key
+            ] = merged_answers[
+                previous_key
+            ]
+
+        if (
+            previous_key
+            and incoming_key
+            and previous_key
+            != incoming_key
+        ):
+            merged_answers.pop(
+                previous_key,
+                None,
+            )
+
+        if previous_key:
+            index_by_key.pop(
+                previous_key,
+                None,
+            )
+
+        if incoming_key:
+            index_by_key[
+                incoming_key
+            ] = matched_index
+
+        if incoming_field:
+            index_by_field[
+                (
+                    incoming_adapter,
+                    incoming_field,
+                )
+            ] = matched_index
+
+        if incoming_text:
+            index_by_text[
+                (
+                    incoming_adapter,
+                    incoming_text,
+                )
+            ] = matched_index
+
+    valid_keys = {
+        str(
+            question.get("key")
+            or ""
+        )
+        for question in merged_questions
+        if isinstance(
+            question,
+            dict,
+        )
+        and str(
+            question.get("key")
+            or ""
+        )
+    }
+
+    merged_answers = {
+        key: value
+        for key, value
+        in merged_answers.items()
+        if key in valid_keys
+    }
+
+    state["questions"] = (
+        merged_questions
+    )
+
+    state["answers"] = (
+        merged_answers
+    )
 
     return state
 

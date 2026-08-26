@@ -729,6 +729,64 @@ class JobSearchProfile(db.Model):
     def __repr__(self):
         return f"<JobSearchProfile {self.name}>"
 
+class ApplicationAnswerMemory(db.Model):
+    __tablename__ = "application_answer_memory"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    question_key = db.Column(
+        db.String(64),
+        nullable=False,
+    )
+
+    question_text = db.Column(
+        db.Text,
+        nullable=False,
+    )
+
+    question_type = db.Column(
+        db.String(40),
+        nullable=True,
+    )
+
+    answer_json = db.Column(
+        db.JSON,
+        nullable=False,
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "user_id",
+            "question_key",
+            name="uq_application_answer_memory_user_question",
+        ),
+        db.Index(
+            "ix_application_answer_memory_user_updated",
+            "user_id",
+            "updated_at",
+        ),
+    )
+
 
 class AutoApplyCandidate(db.Model):
     __tablename__ = "auto_apply_candidate"

@@ -13,6 +13,29 @@ function normalizeOrigin(value) {
   return parsed.origin;
 }
 
+
+function normalizeGreenhouseSchemaUrl(value) {
+  const parsed = new URL(String(value || ""));
+
+  if (
+    parsed.protocol !== "https:"
+    || parsed.hostname !== "boards-api.greenhouse.io"
+    || !/^\/v1\/boards\/[^/]+\/jobs\/\d+$/.test(parsed.pathname)
+  ) {
+    throw new Error(
+      "Greenhouse schema URL is not allowed."
+    );
+  }
+
+  parsed.search = "";
+  parsed.searchParams.set(
+    "questions",
+    "true"
+  );
+
+  return parsed.href;
+}
+
 async function notifyJobfinitumTabs(result) {
   let tabs = [];
 
@@ -90,6 +113,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         `${origin}/api/chrome-agent/task/${token}`
       );
       sendResponse({ok: true, task});
+      return;
+    }
+
+    if (
+      message.type
+      === "jobfinitum-greenhouse-schema"
+    ) {
+      const schemaUrl =
+        normalizeGreenhouseSchemaUrl(
+          message.url
+        );
+
+      const schema =
+        await fetchJson(
+          schemaUrl
+        );
+
+      sendResponse({
+        ok: true,
+        schema,
+      });
+
       return;
     }
 

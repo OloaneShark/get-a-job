@@ -193,6 +193,10 @@
                                 {% set answer_uses_chrome_agent = answer_application_target and (
                                     "jobs.lever.co/" in answer_application_target
                                     or "jobs.eu.lever.co/" in answer_application_target
+                                    or "boards.greenhouse.io/" in answer_application_target
+                                    or "boards.eu.greenhouse.io/" in answer_application_target
+                                    or "job-boards.greenhouse.io/" in answer_application_target
+                                    or "job-boards.eu.greenhouse.io/" in answer_application_target
                                 ) %}
 
                                 <form
@@ -213,6 +217,8 @@
                                             <p class="helper-text">
                                                 These answers are saved to this application package
                                                 and reused when Jobfinitum resumes the employer form.
+                                                Remembered answers are account-wide and can prefill matching
+                                                questions on future applications, regardless of resume version.
                                             </p>
 
                                             <div class="d-grid gap-3">
@@ -281,6 +287,19 @@
                                                                 {% if question.required %}required{% endif %}
                                                             >
                                                         {% endif %}
+
+                                                        <label class="form-check mt-2">
+                                                            <input
+                                                                class="form-check-input"
+                                                                type="checkbox"
+                                                                name="remember_answer"
+                                                                value="{{ question.key }}"
+                                                                {% if question.type != "textarea" %}checked{% endif %}
+                                                            >
+                                                            <span class="form-check-label helper-text">
+                                                                Remember this answer for future Auto Apply applications
+                                                            </span>
+                                                        </label>
                                                     </div>
                                                 {% endfor %}
                                             </div>
@@ -309,9 +328,13 @@
                         </div>
 
                         {% set application_target = candidate.discovered_job.apply_url or candidate.discovered_job.posting_url %}
-                        {% set chrome_agent_lever = application_target and (
+                        {% set chrome_agent_supported = application_target and (
                             "jobs.lever.co/" in application_target
                             or "jobs.eu.lever.co/" in application_target
+                            or "boards.greenhouse.io/" in application_target
+                            or "boards.eu.greenhouse.io/" in application_target
+                            or "job-boards.greenhouse.io/" in application_target
+                            or "job-boards.eu.greenhouse.io/" in application_target
                         ) %}
 
                         <div class="d-flex flex-wrap gap-2 mt-3">
@@ -341,7 +364,7 @@
                                     <form
                                         method="POST"
                                         action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='resume') }}"
-                                        {% if chrome_agent_lever %}
+                                        {% if chrome_agent_supported %}
                                             target="_blank"
                                             data-jobfinitum-agent-required="true"
                                         {% endif %}
@@ -355,7 +378,7 @@
                                     <form
                                         method="POST"
                                         action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}"
-                                        {% if chrome_agent_lever %}
+                                        {% if chrome_agent_supported %}
                                             target="_blank"
                                             data-jobfinitum-agent-required="true"
                                         {% endif %}

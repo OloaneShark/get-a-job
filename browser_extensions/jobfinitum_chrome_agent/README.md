@@ -2,23 +2,35 @@
 
 Runs supported Jobfinitum Auto Apply tasks inside ordinary user Chrome.
 
-V1 supports Lever and automates:
-- identity fields
-- resume upload
-- LinkedIn / GitHub / website
-- reusable Applicant Profile answers
-- saved employer-specific answers
-- final Submit Application click
-- status reporting back to Jobfinitum
+Current Browser Agent support:
+- Lever
+- Greenhouse
 
-If Lever genuinely displays human verification, the agent leaves the tab open,
-reports Verification Required, and keeps watching for a successful submission.
+The Agent can:
+- fill identity fields
+- upload the selected resume
+- fill LinkedIn / GitHub / website fields when present
+- use reusable Applicant Profile answers
+- use saved employer-specific answers
+- return unknown required questions to Jobfinitum
+- click the final application submit control
+- report submission state back to Jobfinitum
+- leave genuine CAPTCHA / verification for the user instead of bypassing it
 
-## One-time install
+## Development install
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. Click **Load unpacked**
 4. Select `browser_extensions/jobfinitum_chrome_agent`
 
-Then use **Run Chrome Agent** from Jobfinitum's Auto Apply Queue.
+Jobfinitum detects the Browser Agent automatically. Users do not choose an
+executor manually; the Jobfinitum backend routes supported ATS hosts into the
+Browser Agent framework.
+
+
+## Greenhouse schema
+
+Greenhouse question types and option lists come from Greenhouse's public Job Board API.
+The Browser Agent uses the official schema to preserve select and multi-select fields
+instead of guessing their shape from rendered React controls.
