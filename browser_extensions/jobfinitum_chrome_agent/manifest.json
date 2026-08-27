@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.3.22",
+  "version": "0.4.8",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://jobfinitum.com/*",
     "https://www.jobfinitum.com/*",
-    "https://boards-api.greenhouse.io/*"
+    "https://boards-api.greenhouse.io/*",
+    "https://himalayas.app/*",
+    "https://www.himalayas.app/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -47,6 +49,20 @@
         "greenhouse_agent.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://himalayas.app/*",
+        "https://www.himalayas.app/*"
+      ],
+      "js": [
+        "himalayas_agent.js"
+      ],
+      "run_at": "document_idle"
     }
+  ],
+  "permissions": [
+    "tabs",
+    "storage"
   ]
 }

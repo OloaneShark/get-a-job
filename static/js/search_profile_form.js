@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const splitStoredLocations = value => (
         String(value || "")
-            .split(/[\n,]+/)
+            .split(/\r?\n+/)
             .map(item => item.trim())
             .filter(Boolean)
     );
@@ -260,13 +260,11 @@ document.addEventListener("DOMContentLoaded", () => {
             : ""
         );
 
-        // Keep the existing matcher semantics: store only the most-specific
-        // selected level (city, otherwise state/region, otherwise country).
-        const value = (
-            selectedCity
-            || selectedState
-            || selectedCountry
-        );
+        const value = [
+            selectedCity,
+            selectedState,
+            selectedCountry,
+        ].filter(Boolean).join(", ");
 
         if (
             value

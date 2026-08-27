@@ -69,6 +69,283 @@ async function notifyJobfinitumTabs(result) {
 }
 
 
+const JOBFINITUM_GREENHOUSE_SCHOOL_HOSTS =
+  new Set([
+    "boards.greenhouse.io",
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+  ]);
+
+
+async function jobfinitumSearchOpenGreenhouseSchoolTabs(
+  rawQuery,
+  rawGreenhouseUrl = ""
+) {
+  const query =
+    String(
+      rawQuery || ""
+    ).trim();
+
+  if (
+    query.length < 2
+  ) {
+    return {
+      ok: true,
+      schools: [],
+    };
+  }
+
+  let greenhouseUrl = "";
+
+  if (
+    String(
+      rawGreenhouseUrl || ""
+    ).trim()
+  ) {
+    try {
+      const parsed =
+        new URL(
+          String(
+            rawGreenhouseUrl
+          )
+        );
+
+      const host =
+        parsed.hostname
+          .toLowerCase();
+
+      if (
+        parsed.protocol !== "https:"
+        || !JOBFINITUM_GREENHOUSE_SCHOOL_HOSTS
+            .has(host)
+      ) {
+        throw new Error(
+          "School lookup URL is not a supported Greenhouse application URL."
+        );
+      }
+
+      parsed.hash = "";
+      greenhouseUrl =
+        parsed.href;
+    } catch (error) {
+      return {
+        ok: false,
+        schools: [],
+        error:
+          String(
+            error?.message
+            || error
+          ),
+      };
+    }
+  }
+
+  async function searchTab(
+    tabId,
+    attempts = 1
+  ) {
+    let lastError = "";
+
+    for (
+      let attempt = 0;
+      attempt < attempts;
+      attempt += 1
+    ) {
+      try {
+        const response =
+          await chrome.tabs.sendMessage(
+            tabId,
+            {
+              type:
+                "jobfinitum-greenhouse-school-search",
+              query,
+            }
+          );
+
+        if (
+          response?.ok
+        ) {
+          return {
+            ok: true,
+            schools:
+              Array.isArray(
+                response.schools
+              )
+                ? response.schools
+                : [],
+            tab_id:
+              tabId,
+            url:
+              response.url
+              || "",
+          };
+        }
+
+        if (
+          response?.error
+        ) {
+          lastError =
+            String(
+              response.error
+            );
+        }
+      } catch (error) {
+        lastError =
+          String(
+            error?.message
+            || error
+          );
+      }
+
+      if (
+        attempt + 1 < attempts
+      ) {
+        await new Promise(
+          (resolve) =>
+            setTimeout(
+              resolve,
+              180
+            )
+        );
+      }
+    }
+
+    return {
+      ok: false,
+      schools: [],
+      error:
+        lastError,
+    };
+  }
+
+  // First reuse an already-open Greenhouse application tab.
+  const tabs =
+    await chrome.tabs.query({});
+
+  const candidates =
+    tabs
+      .filter(
+        (tab) => {
+          if (
+            typeof tab.id
+            !== "number"
+            || !tab.url
+          ) {
+            return false;
+          }
+
+          try {
+            const parsed =
+              new URL(
+                tab.url
+              );
+
+            return (
+              JOBFINITUM_GREENHOUSE_SCHOOL_HOSTS
+                .has(
+                  parsed.hostname.toLowerCase()
+                )
+            );
+          } catch (error) {
+            return false;
+          }
+        }
+      )
+      .sort(
+        (left, right) => {
+          // Prefer the exact candidate application URL.
+          const leftExact =
+            greenhouseUrl
+            && left.url
+            && String(left.url)
+              .split("#")[0]
+              === greenhouseUrl;
+
+          const rightExact =
+            greenhouseUrl
+            && right.url
+            && String(right.url)
+              .split("#")[0]
+              === greenhouseUrl;
+
+          if (
+            leftExact !== rightExact
+          ) {
+            return (
+              Number(rightExact)
+              - Number(leftExact)
+            );
+          }
+
+          const activeDifference =
+            Number(
+              Boolean(
+                right.active
+              )
+            )
+            - Number(
+                Boolean(
+                  left.active
+                )
+              );
+
+          if (
+            activeDifference
+          ) {
+            return activeDifference;
+          }
+
+          return (
+            Number(
+              right.lastAccessed || 0
+            )
+            - Number(
+                left.lastAccessed || 0
+              )
+          );
+        }
+      );
+
+  let lastError = "";
+
+  for (
+    const tab
+    of candidates
+  ) {
+    const result =
+      await searchTab(
+        tab.id,
+        2
+      );
+
+    if (
+      result.ok
+    ) {
+      return result;
+    }
+
+    if (
+      result.error
+    ) {
+      lastError =
+        result.error;
+    }
+  }
+
+  return {
+    ok: false,
+    schools: [],
+    error:
+      lastError
+      || (
+        "Open the matching Greenhouse application tab first, "
+        + "then type in School again so Jobfinitum can read "
+        + "Greenhouse's live school dropdown."
+      ),
+  };
+}
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, {cache: "no-store", ...options});
   let payload = {};
@@ -99,6 +376,332 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
+const HIMALAYAS_RESOLVER_PREFIX =
+  "jobfinitum_himalayas_resolver_";
+
+const BATCH_RUNNER_STORAGE_KEY =
+  "jobfinitum_batch_runner_v1";
+
+async function saveBatchRunner(
+  tabId,
+  origin
+) {
+  await chrome.storage.session.set({
+    [BATCH_RUNNER_STORAGE_KEY]: {
+      tabId,
+      origin,
+    },
+  });
+}
+
+async function getBatchRunner() {
+  const values =
+    await chrome.storage.session.get(
+      BATCH_RUNNER_STORAGE_KEY
+    );
+
+  return (
+    values[BATCH_RUNNER_STORAGE_KEY]
+    || null
+  );
+}
+
+async function clearBatchRunner() {
+  await chrome.storage.session.remove(
+    BATCH_RUNNER_STORAGE_KEY
+  );
+}
+
+async function closeBatchRunner(origin) {
+  const runner =
+    await getBatchRunner();
+
+  if (
+    !runner
+    || runner.origin !== origin
+  ) {
+    return false;
+  }
+
+  await clearBatchRunner();
+
+  try {
+    await chrome.tabs.remove(
+      runner.tabId
+    );
+  } catch (error) {
+    // It may already have been closed by the queue page.
+  }
+
+  return true;
+}
+
+function himalayasResolverKey(tabId) {
+  return (
+    HIMALAYAS_RESOLVER_PREFIX
+    + String(tabId)
+  );
+}
+
+async function saveHimalayasResolverSession(
+  tabId,
+  session
+) {
+  await chrome.storage.session.set({
+    [himalayasResolverKey(tabId)]:
+      session,
+  });
+}
+
+async function getHimalayasResolverSession(
+  tabId
+) {
+  const key =
+    himalayasResolverKey(tabId);
+
+  const values =
+    await chrome.storage.session.get(
+      key
+    );
+
+  return values[key] || null;
+}
+
+async function deleteHimalayasResolverSession(
+  tabId
+) {
+  await chrome.storage.session.remove(
+    himalayasResolverKey(tabId)
+  );
+}
+
+function externalHimalayasTarget(
+  value,
+  jobfinitumOrigin = ""
+) {
+  const parsed =
+    new URL(
+      String(value || "")
+    );
+
+  if (
+    !["http:", "https:"].includes(
+      parsed.protocol
+    )
+  ) {
+    throw new Error(
+      "Resolved application URL must use HTTP or HTTPS."
+    );
+  }
+
+  const host =
+    parsed.hostname.toLowerCase();
+
+  const blockedHosts =
+    new Set([
+      "himalayas.app",
+      "www.himalayas.app",
+      "127.0.0.1",
+      "localhost",
+      "jobfinitum.com",
+      "www.jobfinitum.com",
+    ]);
+
+  let normalizedJobfinitumOrigin = "";
+
+  try {
+    normalizedJobfinitumOrigin =
+      jobfinitumOrigin
+        ? normalizeOrigin(
+            jobfinitumOrigin
+          )
+        : "";
+  } catch (error) {
+    normalizedJobfinitumOrigin = "";
+  }
+
+  if (
+    !host
+    || blockedHosts.has(host)
+    || (
+      normalizedJobfinitumOrigin
+      && parsed.origin === normalizedJobfinitumOrigin
+    )
+  ) {
+    throw new Error(
+      "Resolved application URL is not an external employer target."
+    );
+  }
+
+  return parsed.href;
+}
+
+function chainedAgentUrl(
+  resolvedUrl,
+  session
+) {
+  const parsed =
+    new URL(
+      resolvedUrl
+    );
+
+  parsed.hash =
+    new URLSearchParams({
+      jobfinitum_agent:
+        String(
+          session.token || ""
+        ),
+      jobfinitum_origin:
+        String(
+          session.origin || ""
+        ),
+    }).toString();
+
+  return parsed.href;
+}
+
+async function resolveHimalayasTargetOnce(
+  tabId,
+  value,
+  session = null
+) {
+  const currentSession =
+    session
+    || await getHimalayasResolverSession(
+      tabId
+    );
+
+  if (!currentSession) {
+    return false;
+  }
+
+  const resolvedUrl =
+    externalHimalayasTarget(
+      value,
+      currentSession.origin
+    );
+
+  const origin =
+    normalizeOrigin(
+      currentSession.origin
+    );
+
+  const token =
+    encodeURIComponent(
+      String(
+        currentSession.token || ""
+      )
+    );
+
+  const result =
+    await fetchJson(
+      `${origin}/api/chrome-agent/result/${token}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          status:
+            "resolved_application_target",
+          resolved_url:
+            resolvedUrl,
+          detail: {
+            resolver:
+              "himalayas_browser_agent",
+          },
+        }),
+      }
+    );
+
+  await notifyJobfinitumTabs(
+    result
+  );
+
+  await deleteHimalayasResolverSession(
+    tabId
+  );
+
+  if (
+    result.continue_in_chrome_agent
+  ) {
+    await chrome.tabs.update(
+      tabId,
+      {
+        url:
+          chainedAgentUrl(
+            result.resolved_url
+            || resolvedUrl,
+            currentSession
+          ),
+      }
+    );
+  } else if (
+    result.manual_application
+    && result.resolved_url
+  ) {
+    await chrome.tabs.update(
+      tabId,
+      {
+        url:
+          String(
+            result.resolved_url
+          ),
+      }
+    );
+  }
+
+  return true;
+}
+
+
+const HIMALAYAS_RESOLUTIONS_IN_FLIGHT =
+  new Map();
+
+
+async function resolveHimalayasTarget(
+  tabId,
+  value,
+  session = null
+) {
+  const existing =
+    HIMALAYAS_RESOLUTIONS_IN_FLIGHT.get(
+      tabId
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  const resolution =
+    resolveHimalayasTargetOnce(
+      tabId,
+      value,
+      session
+    );
+
+  HIMALAYAS_RESOLUTIONS_IN_FLIGHT.set(
+    tabId,
+    resolution
+  );
+
+  try {
+    return await resolution;
+  } finally {
+    if (
+      HIMALAYAS_RESOLUTIONS_IN_FLIGHT.get(
+        tabId
+      ) === resolution
+    ) {
+      HIMALAYAS_RESOLUTIONS_IN_FLIGHT.delete(
+        tabId
+      );
+    }
+  }
+}
+
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || !message.type) {
     return false;
@@ -107,12 +710,65 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     const origin = normalizeOrigin(message.origin);
 
+    if (
+      message.type
+      === "jobfinitum-batch-register"
+    ) {
+      const tabId = sender?.tab?.id;
+
+      if (typeof tabId !== "number") {
+        throw new Error(
+          "Chrome Agent could not identify the batch runner tab."
+        );
+      }
+
+      await saveBatchRunner(
+        tabId,
+        origin
+      );
+
+      sendResponse({ok: true});
+      return;
+    }
+
+    if (
+      message.type
+      === "jobfinitum-batch-control"
+    ) {
+      if (message.action !== "stop") {
+        throw new Error(
+          "Unknown Auto Apply batch action."
+        );
+      }
+
+      await closeBatchRunner(origin);
+      sendResponse({ok: true});
+      return;
+    }
+
     if (message.type === "jobfinitum-task") {
       const token = encodeURIComponent(String(message.token || ""));
       const task = await fetchJson(
         `${origin}/api/chrome-agent/task/${token}`
       );
       sendResponse({ok: true, task});
+      return;
+    }
+
+    if (
+      message.type
+      === "jobfinitum-school-search"
+    ) {
+      const result =
+        await jobfinitumSearchOpenGreenhouseSchoolTabs(
+          message.query,
+          message.greenhouse_url
+        );
+
+      sendResponse(
+        result
+      );
+
       return;
     }
 
@@ -179,6 +835,75 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (
+      message.type
+      === "jobfinitum-himalayas-watch"
+    ) {
+      const tabId =
+        sender?.tab?.id;
+
+      if (
+        typeof tabId
+        !== "number"
+      ) {
+        throw new Error(
+          "Himalayas resolver could not identify its tab."
+        );
+      }
+
+      await saveHimalayasResolverSession(
+        tabId,
+        {
+          token:
+            String(
+              message.token || ""
+            ),
+          origin,
+        }
+      );
+
+      sendResponse({
+        ok: true,
+      });
+
+      return;
+    }
+
+    if (
+      message.type
+      === "jobfinitum-himalayas-resolved"
+    ) {
+      const tabId =
+        sender?.tab?.id;
+
+      if (
+        typeof tabId
+        !== "number"
+      ) {
+        throw new Error(
+          "Himalayas resolver could not identify its tab."
+        );
+      }
+
+      await resolveHimalayasTarget(
+        tabId,
+        message.url,
+        {
+          token:
+            String(
+              message.token || ""
+            ),
+          origin,
+        }
+      );
+
+      sendResponse({
+        ok: true,
+      });
+
+      return;
+    }
+
     if (message.type === "jobfinitum-close-agent-tab") {
       const tabId = sender?.tab?.id;
 
@@ -186,6 +911,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         throw new Error(
           "Chrome Agent could not identify its tab."
         );
+      }
+
+      const runner =
+        await getBatchRunner();
+
+      if (
+        runner?.tabId === tabId
+        && runner.origin === origin
+      ) {
+        sendResponse({ok: true});
+        return;
       }
 
       sendResponse({ok: true});
@@ -214,3 +950,147 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   return true;
 });
+
+
+chrome.tabs.onCreated.addListener(
+  async (tab) => {
+    try {
+      if (
+        typeof tab.id
+        !== "number"
+        || typeof tab.openerTabId
+        !== "number"
+      ) {
+        return;
+      }
+
+      const openerSession =
+        await getHimalayasResolverSession(
+          tab.openerTabId
+        );
+
+      if (!openerSession) {
+        return;
+      }
+
+      await saveHimalayasResolverSession(
+        tab.id,
+        openerSession
+      );
+    } catch (error) {
+      console.warn(
+        "Jobfinitum could not track Himalayas child tab:",
+        error
+      );
+    }
+  }
+);
+chrome.tabs.onUpdated.addListener(
+  async (
+    tabId,
+    changeInfo,
+    tab
+  ) => {
+    if (!changeInfo.url) {
+      return;
+    }
+
+    try {
+      let session =
+        await getHimalayasResolverSession(
+          tabId
+        );
+
+      if (
+        !session
+        && typeof tab.openerTabId
+        === "number"
+      ) {
+        session =
+          await getHimalayasResolverSession(
+            tab.openerTabId
+          );
+
+        if (session) {
+          await saveHimalayasResolverSession(
+            tabId,
+            session
+          );
+        }
+      }
+
+      if (!session) {
+        return;
+      }
+
+      const parsed =
+        new URL(
+          changeInfo.url
+        );
+
+      const host =
+        parsed.hostname.toLowerCase();
+
+      if (
+        host === "himalayas.app"
+        || host === "www.himalayas.app"
+      ) {
+        return;
+      }
+
+      if (
+        !["http:", "https:"].includes(
+          parsed.protocol
+        )
+      ) {
+        return;
+      }
+
+      await new Promise(
+        (resolve) => setTimeout(
+          resolve,
+          900
+        )
+      );
+
+      const settledTab =
+        await chrome.tabs.get(
+          tabId
+        );
+
+      const settledUrl =
+        String(
+          settledTab.url
+          || ""
+        );
+
+      if (!settledUrl) {
+        return;
+      }
+
+      try {
+        externalHimalayasTarget(
+          settledUrl,
+          session.origin
+        );
+      } catch (error) {
+        await deleteHimalayasResolverSession(
+          tabId
+        );
+
+        return;
+      }
+
+      await resolveHimalayasTarget(
+        tabId,
+        settledUrl,
+        session
+      );
+    } catch (error) {
+      console.warn(
+        "Jobfinitum Himalayas navigation resolver failed:",
+        error
+      );
+    }
+  }
+);

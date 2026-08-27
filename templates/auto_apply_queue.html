@@ -57,6 +57,39 @@
         </a>
     </div>
 
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+        <input
+            id="jobfinitum-batch-csrf-token"
+            type="hidden"
+            value="{{ csrf_token() }}"
+        >
+        <button
+            id="jobfinitum-batch-start"
+            type="button"
+            class="btn btn-success"
+            data-candidates-url="{{ url_for('auto_apply_batch_candidates_api') }}"
+            disabled
+        >
+            Start Auto Apply
+        </button>
+        <button
+            id="jobfinitum-batch-stop"
+            type="button"
+            class="btn btn-outline-danger"
+            disabled
+        >
+            Stop Auto Apply
+        </button>
+        <span
+            id="jobfinitum-batch-progress"
+            class="helper-text"
+            role="status"
+            aria-live="polite"
+        >
+            Batch runner idle
+        </span>
+    </div>
+
     <div class="d-flex flex-wrap gap-2 mb-4">
         {% for value, label in (
             ("all", "All"),
@@ -65,7 +98,7 @@
             ("Waiting for Sign-In", "Waiting for Sign-In"),
             ("Needs Application Answer", "Needs Application Answer"),
             ("Needs User Action", "Needs User Action"),
-            ("Unsupported", "Unsupported"),
+            ("Unsupported", "Manual Apply"),
             ("Failed", "Failed"),
             ("Submitted", "Submitted"),
             ("Rejected", "Rejected")
@@ -117,7 +150,7 @@
                             {% elif execution == "Needs User Action" %}
                                 <span class="badge bg-warning text-dark">Needs User Action</span>
                             {% elif execution == "Unsupported" %}
-                                <span class="badge bg-secondary">Unsupported</span>
+                                <span class="badge bg-secondary">Manual Apply</span>
                             {% elif execution == "Failed" %}
                                 <span class="badge bg-danger">Failed</span>
                             {% elif candidate.status == "Pending Review" %}
@@ -197,6 +230,8 @@
                                     or "boards.eu.greenhouse.io/" in answer_application_target
                                     or "job-boards.greenhouse.io/" in answer_application_target
                                     or "job-boards.eu.greenhouse.io/" in answer_application_target
+                                    or "himalayas.app/" in answer_application_target
+                                    or "www.himalayas.app/" in answer_application_target
                                 ) %}
 
                                 <form
@@ -235,7 +270,32 @@
                                                             {% endif %}
                                                         </label>
 
-                                                        {% if question.choices and question.type == "checkbox" %}
+                                                        {% if question.field_name == "greenhouse_education_school" %}
+                                                            <input
+                                                                class="form-control"
+                                                                id="answer-{{ question.key }}"
+                                                                name="answer__{{ question.key }}"
+                                                                type="text"
+                                                                value="{{ saved or '' }}"
+                                                                autocomplete="off"
+                                                                list="school-options-{{ question.key }}"
+                                                                data-jobfinitum-school-search="true"
+                                                                data-greenhouse-url="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
+                                                                data-school-status-id="school-status-{{ question.key }}"
+                                                                {% if question.required %}required{% endif %}
+                                                                placeholder="Start typing a school name"
+                                                            >
+                                                            <datalist
+                                                                id="school-options-{{ question.key }}"
+                                                                data-jobfinitum-school-results="true"
+                                                            ></datalist>
+                                                            <div
+                                                                id="school-status-{{ question.key }}"
+                                                                class="helper-text mt-1"
+                                                            >
+                                                                Type at least 2 characters to search the actual Greenhouse school list.
+                                                            </div>
+                                                        {% elif question.choices and question.type == "checkbox" %}
                                                             <div class="d-grid gap-2">
                                                                 {% for choice in question.choices %}
                                                                     <label class="form-check">
@@ -335,6 +395,8 @@
                             or "boards.eu.greenhouse.io/" in application_target
                             or "job-boards.greenhouse.io/" in application_target
                             or "job-boards.eu.greenhouse.io/" in application_target
+                            or "himalayas.app/" in application_target
+                            or "www.himalayas.app/" in application_target
                         ) %}
 
                         <div class="d-flex flex-wrap gap-2 mt-3">
@@ -374,7 +436,7 @@
                                             Resume Application
                                         </button>
                                     </form>
-                                {% else %}
+                                {% elif execution != "Unsupported" %}
                                     <form
                                         method="POST"
                                         action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='approve') }}"
@@ -385,7 +447,7 @@
                                     >
                                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-success">
-                                            {% if execution in ("Needs Application Answer", "Needs User Action", "Unsupported", "Failed") %}
+                                            {% if execution in ("Needs Application Answer", "Needs User Action", "Failed") %}
                                                 Retry Submission
                                             {% else %}
                                                 Approve &amp; Submit

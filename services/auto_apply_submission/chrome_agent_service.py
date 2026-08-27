@@ -43,9 +43,15 @@ GREENHOUSE_HOSTS = {
     "job-boards.eu.greenhouse.io",
 }
 
+HIMALAYAS_HOSTS = {
+    "himalayas.app",
+    "www.himalayas.app",
+}
+
 SUPPORTED_HOSTS = (
     LEVER_HOSTS
     | GREENHOUSE_HOSTS
+    | HIMALAYAS_HOSTS
 )
 
 
@@ -81,6 +87,9 @@ def chrome_agent_adapter(job):
 
     if host in GREENHOUSE_HOSTS:
         return "greenhouse_hosted"
+
+    if host in HIMALAYAS_HOSTS:
+        return "himalayas_resolver"
 
     raise ValueError(
         "The Chrome Agent does not support "
@@ -492,6 +501,68 @@ def _compatible_profile_answer_for_question(question, answer):
 
     return None
 
+def _record_himalayas_manual_handoff(
+    *,
+    candidate,
+    user,
+    application,
+    package,
+    message,
+    detail,
+    resolved_url=None,
+    resolved_host=None,
+):
+    now = utcnow_naive()
+
+    normalized_detail = dict(detail or {})
+    normalized_detail.update(
+        {
+            "resolver": "himalayas_browser_agent",
+            "manual_application": True,
+        }
+    )
+
+    if resolved_url:
+        normalized_detail["resolved_url"] = resolved_url
+
+    if resolved_host:
+        normalized_detail["resolved_host"] = resolved_host
+
+    attempt = ApplicationSubmissionAttempt(
+        user_id=user.id,
+        auto_apply_candidate_id=candidate.id,
+        application_id=application.id,
+        application_package_id=package.id,
+        adapter_name="himalayas_resolver",
+        status="Unsupported",
+        message=message,
+        detail_json=json.dumps(
+            normalized_detail,
+            sort_keys=True,
+        ),
+        started_at=now,
+        finished_at=now,
+    )
+    db.session.add(attempt)
+
+    candidate.last_submission_attempt_at = now
+    candidate.execution_status = "Unsupported"
+
+    application.status = "Auto Apply - Unsupported"
+
+    package.status = "Unsupported"
+    package.failure_reason = message
+
+    return {
+        "status": "Unsupported",
+        "message": message,
+        "resolved_url": resolved_url,
+        "resolved_host": resolved_host,
+        "continue_in_chrome_agent": False,
+        "manual_application": True,
+    }
+
+
 def apply_chrome_agent_result(candidate, user, payload):
     prepared = prepare_chrome_agent_candidate(candidate, user)
     if not prepared["ok"]:
@@ -504,6 +575,116 @@ def apply_chrome_agent_result(candidate, user, payload):
     adapter_name = chrome_agent_adapter(
         candidate.discovered_job
     )
+
+    if adapter_name == "himalayas_resolver":
+        resolver_status = str(
+            payload.get("status") or ""
+        ).strip().lower()
+
+        if resolver_status == "needs_manual_destination":
+            detail = payload.get("detail")
+
+            if not isinstance(detail, dict):
+                detail = {}
+
+            message = str(
+                payload.get("message")
+                or (
+                    "Himalayas did not expose the employer "
+                    "application destination automatically."
+                )
+            ).strip()
+
+            return _record_himalayas_manual_handoff(
+                candidate=candidate,
+                user=user,
+                application=application,
+                package=package,
+                message=message,
+                detail=detail,
+                resolved_url=None,
+                resolved_host=None,
+            )
+
+        if resolver_status != "resolved_application_target":
+            raise ValueError(
+                "Himalayas Browser Agent did not return "
+                "a resolved employer application target."
+            )
+
+        resolved_url = str(
+            payload.get("resolved_url")
+            or payload.get("application_url")
+            or ""
+        ).strip()
+
+        resolved_parts = urlsplit(resolved_url)
+        resolved_host = (
+            resolved_parts.hostname or ""
+        ).lower()
+
+        if (
+            resolved_parts.scheme not in {"http", "https"}
+            or not resolved_host
+            or resolved_host in HIMALAYAS_HOSTS
+        ):
+            raise ValueError(
+                "Himalayas Browser Agent returned an "
+                "invalid external application target."
+            )
+
+        job = candidate.discovered_job
+        job.apply_url = resolved_url
+        db.session.flush()
+
+        continue_in_chrome_agent = (
+            chrome_agent_supports_job(job)
+            and chrome_agent_adapter(job)
+            != "himalayas_resolver"
+        )
+
+        resolved_adapter = None
+
+        if continue_in_chrome_agent:
+            resolved_adapter = chrome_agent_adapter(job)
+
+        if not continue_in_chrome_agent:
+            return _record_himalayas_manual_handoff(
+                candidate=candidate,
+                user=user,
+                application=application,
+                package=package,
+                message=(
+                    "Himalayas resolved this application to "
+                    f"{resolved_host}, which does not have a "
+                    "Jobfinitum Auto Apply adapter yet. Continue "
+                    "from Manual Apply."
+                ),
+                detail=(
+                    payload.get("detail")
+                    if isinstance(
+                        payload.get("detail"),
+                        dict,
+                    )
+                    else {}
+                ),
+                resolved_url=resolved_url,
+                resolved_host=resolved_host,
+            )
+
+        return {
+            "status": "Resolved Application Target",
+            "message": (
+                "Himalayas employer application "
+                "target resolved."
+            ),
+            "resolved_url": resolved_url,
+            "resolved_host": resolved_host,
+            "resolved_adapter": resolved_adapter,
+            "continue_in_chrome_agent": (
+                continue_in_chrome_agent
+            ),
+        }
 
     platform_name = (
         "Lever"

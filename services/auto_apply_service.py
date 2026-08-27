@@ -13,6 +13,10 @@ from models import (
 from services.job_sources.utils import (
     normalize_identity_text,
 )
+from services.job_sources.job_match_service import (
+    parse_profile_locations,
+    persisted_job_matches_location,
+)
 
 
 PREMIUM_AUTO_APPLY_DAILY_MAX = 50
@@ -88,7 +92,9 @@ def _snapshot(profile, access):
             "excluded_companies": _split(
                 profile.auto_apply_excluded_companies
             ),
-            "locations": _split(profile.locations),
+            "locations": parse_profile_locations(
+                profile.locations
+            ),
             "employment_types": _split(profile.employment_types),
             "workplace_types": _split(profile.workplace_types),
             "experience_levels": _split(profile.experience_levels),
@@ -117,6 +123,7 @@ def stage_auto_apply_candidates(profile, jobs):
         "excluded_company": 0,
         "daily_limit": 0,
         "invalid_resume": 0,
+        "location_mismatch": 0,
     }
 
     if not stats["enabled"]:
@@ -164,6 +171,13 @@ def stage_auto_apply_candidates(profile, jobs):
             job is None
             or id(job) in seen
         ):
+            continue
+
+        if not persisted_job_matches_location(
+            job,
+            profile,
+        ):
+            stats["location_mismatch"] += 1
             continue
 
         seen.add(id(job))

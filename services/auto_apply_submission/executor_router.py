@@ -12,6 +12,8 @@ CHROME_AGENT_HOSTS = {
     "boards.eu.greenhouse.io",
     "job-boards.greenhouse.io",
     "job-boards.eu.greenhouse.io",
+    "himalayas.app",
+    "www.himalayas.app",
 }
 
 

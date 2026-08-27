@@ -70,22 +70,37 @@ class HimalayasJobSource(BaseJobSource):
         return f"{salary_text} per {period}"
 
     @staticmethod
-    def format_location(raw_job):
+    def location_restriction_names(raw_job):
         restrictions = raw_job.get("locationRestrictions") or []
         location_names = []
 
         for restriction in restrictions:
-            if not isinstance(restriction, dict):
-                continue
+            if isinstance(restriction, dict):
+                location_name = (
+                    restriction.get("name")
+                    or restriction.get("alpha2")
+                    or restriction.get("slug")
+                )
+            else:
+                location_name = restriction
 
-            location_name = (
-                restriction.get("name")
-                or restriction.get("alpha2")
-                or restriction.get("slug")
-            )
+            normalized_name = str(
+                location_name or ""
+            ).strip()
 
-            if location_name:
-                location_names.append(str(location_name).strip())
+            if (
+                normalized_name
+                and normalized_name not in location_names
+            ):
+                location_names.append(normalized_name)
+
+        return location_names
+
+    @classmethod
+    def format_location(cls, raw_job):
+        location_names = cls.location_restriction_names(
+            raw_job
+        )
 
         if not location_names:
             return "Worldwide"
@@ -161,6 +176,11 @@ class HimalayasJobSource(BaseJobSource):
 
     def normalize_job(self, raw_job):
         posting_url = raw_job.get("applicationLink")
+        allowed_locations = (
+            self.location_restriction_names(
+                raw_job
+            )
+        )
         categories = raw_job.get("categories") or []
         parent_categories = raw_job.get("parentCategories") or []
         seniority = raw_job.get("seniority") or []
@@ -189,6 +209,15 @@ class HimalayasJobSource(BaseJobSource):
                 or "Untitled Position"
             ),
             "location": self.format_location(raw_job),
+            "location_source": "himalayas_api",
+            "location_confidence": 1.0,
+            "remote_candidate_scope": (
+                "selected_locations"
+                if allowed_locations
+                else "worldwide"
+            ),
+            "remote_allowed_locations": allowed_locations,
+            "remote_allowed_location_type": "countries",
             "employment_type": self.normalize_employment_type(
                 raw_job.get("employmentType")
             ),

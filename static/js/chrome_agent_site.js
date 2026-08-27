@@ -22,6 +22,22 @@
   let connected = false;
   let dirtyQuestionForm = false;
 
+  function batchRunnerActive() {
+    try {
+      const state = JSON.parse(
+        window.sessionStorage.getItem(
+          "jobfinitum_auto_apply_batch_v1"
+        ) || "null"
+      );
+
+      return Boolean(
+        state?.active
+      );
+    } catch (error) {
+      return false;
+    }
+  }
+
   function requiredAgentForms() {
     return [
       ...document.querySelectorAll(
@@ -159,6 +175,10 @@
       if (event.data.type === "result") {
         const result = event.data.result || {};
 
+        if (batchRunnerActive()) {
+          return;
+        }
+
         if (
           location.pathname.startsWith(
             "/auto-apply"
@@ -199,6 +219,731 @@
         }
       },
       1200
+    );
+  }
+})();
+(() => {
+  "use strict";
+
+  const EXTENSION_SOURCE =
+    "jobfinitum-chrome-agent";
+
+  const SITE_SOURCE =
+    "jobfinitum-site";
+
+  const STORAGE_KEY =
+    "jobfinitum_auto_apply_batch_v1";
+
+  const RUNNER_NAME =
+    "jobfinitum-auto-apply-runner";
+
+  const FINAL_STATUSES =
+    new Set([
+      "Submitted",
+      "Needs Application Answer",
+      "Needs User Action",
+      "Unsupported",
+      "Failed",
+      "Waiting for Verification",
+      "Waiting for Sign-In",
+    ]);
+
+  const PAUSE_STATUSES =
+    new Set([
+      "Waiting for Verification",
+      "Waiting for Sign-In",
+    ]);
+
+  const startButton =
+    document.getElementById(
+      "jobfinitum-batch-start"
+    );
+
+  const stopButton =
+    document.getElementById(
+      "jobfinitum-batch-stop"
+    );
+
+  const progress =
+    document.getElementById(
+      "jobfinitum-batch-progress"
+    );
+
+  const csrfToken =
+    document.getElementById(
+      "jobfinitum-batch-csrf-token"
+    )?.value || "";
+
+  let runnerWindow = null;
+
+  if (
+    !startButton
+    || !stopButton
+    || !progress
+  ) {
+    return;
+  }
+
+  function loadState() {
+    try {
+      return JSON.parse(
+        window.sessionStorage.getItem(
+          STORAGE_KEY
+        ) || "null"
+      );
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function saveState(state) {
+    window.sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(state)
+    );
+  }
+
+  function clearState() {
+    window.sessionStorage.removeItem(
+      STORAGE_KEY
+    );
+  }
+
+  function agentConnected() {
+    return Boolean(
+      String(
+        document.documentElement.dataset
+          .jobfinitumChromeAgentVersion
+        || ""
+      ).trim()
+    );
+  }
+
+  function updateControls(state = loadState()) {
+    const active =
+      Boolean(state?.active);
+
+    startButton.disabled = (
+      active
+      || !agentConnected()
+    );
+
+    stopButton.disabled =
+      !active;
+
+    if (!active) {
+      return;
+    }
+
+    progress.textContent = (
+      `Running ${state.completed + 1} of ${state.total}`
+    );
+  }
+
+  function sendBatchControl(action) {
+    window.postMessage(
+      {
+        source:
+          SITE_SOURCE,
+        type:
+          "jobfinitum-batch-control",
+        action,
+      },
+      location.origin
+    );
+  }
+
+  function submitNext() {
+    const state =
+      loadState();
+
+    if (
+      !state?.active
+      || state.current
+    ) {
+      updateControls(state);
+      return;
+    }
+
+    const next =
+      state.remaining.shift();
+
+    if (!next) {
+      const completed =
+        state.completed;
+
+      clearState();
+      updateControls(null);
+      progress.textContent = (
+        `Batch complete: ${completed} processed`
+      );
+      sendBatchControl("stop");
+
+      window.setTimeout(
+        () => location.reload(),
+        700
+      );
+      return;
+    }
+
+    state.current = next;
+    saveState(state);
+    updateControls(state);
+
+    const form =
+      document.createElement("form");
+
+    form.method = "POST";
+    form.action = next.action_url;
+    form.target = RUNNER_NAME;
+    form.hidden = true;
+
+    const csrf =
+      document.createElement("input");
+
+    csrf.type = "hidden";
+    csrf.name = "csrf_token";
+    csrf.value = csrfToken;
+
+    form.appendChild(csrf);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
+  function stopBatch({closeRunner = true} = {}) {
+    clearState();
+    updateControls(null);
+    progress.textContent = "Batch runner stopped";
+
+    if (closeRunner) {
+      try {
+        runnerWindow?.close();
+      } catch (error) {
+        // The extension also closes a registered cross-origin runner.
+      }
+
+      runnerWindow = null;
+      sendBatchControl("stop");
+    }
+  }
+
+  async function startBatch() {
+    if (
+      !agentConnected()
+      || loadState()?.active
+    ) {
+      return;
+    }
+
+    const runner =
+      window.open(
+        "about:blank",
+        RUNNER_NAME
+      );
+
+    if (!runner) {
+      progress.textContent = (
+        "Allow the Jobfinitum worker tab to start Auto Apply"
+      );
+      return;
+    }
+
+    runnerWindow = runner;
+
+    startButton.disabled = true;
+    progress.textContent =
+      "Preparing Auto Apply batch";
+
+    try {
+      const response = await fetch(
+        startButton.dataset.candidatesUrl,
+        {
+          credentials: "same-origin",
+          cache: "no-store",
+        }
+      );
+
+      const payload =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          payload.error
+          || `HTTP ${response.status}`
+        );
+      }
+
+      const candidates =
+        Array.isArray(
+          payload.candidates
+        )
+          ? payload.candidates
+          : [];
+
+      if (!candidates.length) {
+        runner.close();
+        runnerWindow = null;
+        progress.textContent = (
+          payload.skipped_location
+            ? "No eligible jobs; location-restricted jobs were skipped"
+            : "No pending supported jobs to run"
+        );
+        updateControls(null);
+        return;
+      }
+
+      saveState({
+        active: true,
+        total:
+          candidates.length,
+        completed: 0,
+        current: null,
+        remaining:
+          candidates,
+      });
+
+      submitNext();
+    } catch (error) {
+      runner.close();
+      runnerWindow = null;
+      clearState();
+      progress.textContent = (
+        `Could not start batch: ${error.message || error}`
+      );
+      updateControls(null);
+    }
+  }
+
+  startButton.addEventListener(
+    "click",
+    startBatch
+  );
+
+  stopButton.addEventListener(
+    "click",
+    () => stopBatch()
+  );
+
+  window.addEventListener(
+    "message",
+    (event) => {
+      if (
+        event.source !== window
+        || event.origin !== location.origin
+        || !event.data
+      ) {
+        return;
+      }
+
+      if (
+        event.data.source
+          === EXTENSION_SOURCE
+        && event.data.type === "ready"
+      ) {
+        updateControls();
+        return;
+      }
+
+      if (
+        event.data.source
+          !== EXTENSION_SOURCE
+        || event.data.type !== "result"
+      ) {
+        return;
+      }
+
+      const result =
+        event.data.result || {};
+
+      if (
+        !FINAL_STATUSES.has(
+          String(result.status || "")
+        )
+      ) {
+        return;
+      }
+
+      const state =
+        loadState();
+
+      if (!state?.active) {
+        return;
+      }
+
+      if (
+        Number(
+          result.candidate_id
+        )
+        !== Number(
+          state.current?.candidate_id
+        )
+      ) {
+        return;
+      }
+
+      state.completed += 1;
+      state.current = null;
+
+      if (
+        PAUSE_STATUSES.has(
+          result.status
+        )
+      ) {
+        clearState();
+        updateControls(null);
+        progress.textContent = (
+          `Batch paused: ${result.status}`
+        );
+
+        window.setTimeout(
+          () => location.reload(),
+          700
+        );
+        return;
+      }
+
+      saveState(state);
+      updateControls(state);
+
+      window.setTimeout(
+        submitNext,
+        500
+      );
+    }
+  );
+
+  const existingState =
+    loadState();
+
+  updateControls(existingState);
+
+  if (
+    existingState?.active
+    && !existingState.current
+  ) {
+    submitNext();
+  }
+
+  window.setTimeout(
+    updateControls,
+    250
+  );
+})();
+
+(() => {
+  "use strict";
+
+  const EXTENSION_SOURCE =
+    "jobfinitum-chrome-agent";
+
+  const SITE_SOURCE =
+    "jobfinitum-site";
+
+  const inputs = [
+    ...document.querySelectorAll(
+      'input[data-jobfinitum-school-search="true"]'
+    ),
+  ];
+
+  if (
+    !inputs.length
+  ) {
+    return;
+  }
+
+  const pending =
+    new Map();
+
+  let requestCounter = 0;
+
+  function schoolStatus(
+    input,
+    message
+  ) {
+    const id =
+      input.dataset.schoolStatusId;
+
+    if (!id) {
+      return;
+    }
+
+    const node =
+      document.getElementById(
+        id
+      );
+
+    if (node) {
+      node.textContent =
+        message;
+    }
+  }
+
+  function updateDatalist(
+    input,
+    schools
+  ) {
+    const listId =
+      input.getAttribute(
+        "list"
+      );
+
+    const list =
+      listId
+        ? document.getElementById(
+            listId
+          )
+        : null;
+
+    if (!list) {
+      return;
+    }
+
+    list.replaceChildren();
+
+    for (
+      const school
+      of schools
+    ) {
+      const label =
+        String(
+          school?.label
+          || school?.value
+          || ""
+        ).trim();
+
+      if (!label) {
+        continue;
+      }
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+      option.value =
+        label;
+
+      list.appendChild(
+        option
+      );
+    }
+  }
+
+  function sendSchoolSearch(
+    input,
+    query
+  ) {
+    requestCounter += 1;
+
+    const requestId = (
+      `school-${Date.now()}-`
+      + requestCounter
+    );
+
+    pending.set(
+      requestId,
+      {
+        input,
+        query,
+      }
+    );
+
+    schoolStatus(
+      input,
+      "Searching the actual Greenhouse school list..."
+    );
+
+    window.postMessage(
+      {
+        source:
+          SITE_SOURCE,
+        type:
+          "jobfinitum-school-search-request",
+        request_id:
+          requestId,
+        query,
+        greenhouse_url:
+          String(
+            input.dataset.greenhouseUrl
+            || ""
+          ),
+      },
+      location.origin
+    );
+  }
+
+  function setupJobfinitumSchoolSearch(
+    input
+  ) {
+    let timer = null;
+    let lastQuery = "";
+
+    const search = () => {
+      const query =
+        String(
+          input.value
+          || ""
+        ).trim();
+
+      if (
+        query.length < 2
+      ) {
+        lastQuery = "";
+        updateDatalist(
+          input,
+          []
+        );
+
+        schoolStatus(
+          input,
+          "Type at least 2 characters to search the actual Greenhouse school list."
+        );
+
+        return;
+      }
+
+      if (
+        query === lastQuery
+      ) {
+        return;
+      }
+
+      lastQuery =
+        query;
+
+      sendSchoolSearch(
+        input,
+        query
+      );
+    };
+
+    input.addEventListener(
+      "input",
+      () => {
+        if (timer) {
+          window.clearTimeout(
+            timer
+          );
+        }
+
+        timer =
+          window.setTimeout(
+            search,
+            300
+          );
+      }
+    );
+
+    // If a remembered value already exists, leave it alone.
+    // The user can edit it and live search will start.
+  }
+
+  window.addEventListener(
+    "message",
+    (event) => {
+      if (
+        event.source !== window
+        || event.origin
+          !== location.origin
+        || !event.data
+        || event.data.source
+          !== EXTENSION_SOURCE
+        || event.data.type
+          !== "school-search-result"
+      ) {
+        return;
+      }
+
+      const requestId =
+        String(
+          event.data.request_id
+          || ""
+        );
+
+      const request =
+        pending.get(
+          requestId
+        );
+
+      if (!request) {
+        return;
+      }
+
+      pending.delete(
+        requestId
+      );
+
+      const currentValue =
+        String(
+          request.input.value
+          || ""
+        ).trim();
+
+      // Ignore stale results if the user has typed more since
+      // this request was sent.
+      if (
+        currentValue
+        !== request.query
+      ) {
+        return;
+      }
+
+      if (
+        !event.data.ok
+      ) {
+        updateDatalist(
+          request.input,
+          []
+        );
+
+        schoolStatus(
+          request.input,
+          event.data.error
+            ? (
+                "School lookup unavailable: "
+                + event.data.error
+              )
+            : (
+                "School lookup is unavailable."
+              )
+        );
+
+        return;
+      }
+
+      const schools =
+        Array.isArray(
+          event.data.schools
+        )
+          ? event.data.schools
+          : [];
+
+      updateDatalist(
+        request.input,
+        schools
+      );
+
+      schoolStatus(
+        request.input,
+        schools.length
+          ? (
+              `${schools.length} matching `
+              + "Greenhouse schools found."
+            )
+          : (
+              "No matching Greenhouse schools found."
+            )
+      );
+    }
+  );
+
+  for (
+    const input
+    of inputs
+  ) {
+    setupJobfinitumSchoolSearch(
+      input
     );
   }
 })();

@@ -11,11 +11,14 @@
   const SUCCESS_PHRASES = [
     "thank you for applying",
     "thanks for applying",
+    "thanks so much for taking the time to apply",
     "thank you for your application",
     "application submitted",
     "application has been submitted",
     "we have received your application",
     "we received your application",
+    "we've received your application",
+    "your application has been received",
   ];
 
   const VERIFY_PHRASES = [
@@ -29,6 +32,28 @@
   const LAUNCH_STORAGE_KEY =
     "jobfinitum_chrome_agent_launch_v1";
 
+  const BATCH_RUNNER_NAME =
+    "jobfinitum-auto-apply-runner";
+
+  function isBatchRunner() {
+    return window.name === BATCH_RUNNER_NAME;
+  }
+
+  async function registerBatchRunner(
+    launch
+  ) {
+    if (!isBatchRunner()) {
+      return;
+    }
+
+    await send({
+      type:
+        "jobfinitum-batch-register",
+      origin:
+        launch.origin,
+    });
+  }
+
   const sleep = (ms) =>
     new Promise(
       (resolve) => setTimeout(resolve, ms)
@@ -41,6 +66,45 @@
 
   const lower = (value) =>
     normalize(value).toLowerCase();
+
+  function greenhouseSubmissionConfirmed(
+    value
+  ) {
+    const body =
+      lower(value);
+
+    if (
+      SUCCESS_PHRASES.some(
+        (phrase) => body.includes(
+          phrase
+        )
+      )
+    ) {
+      return true;
+    }
+
+    // Normalize punctuation so straight and typographic
+    // apostrophes in Greenhouse confirmations are both recognized.
+    const bodyKey =
+      questionMatchKey(body);
+
+    return (
+      bodyKey.includes(
+        "we ve received your application"
+      )
+      || bodyKey.includes(
+        "thanks so much for taking the time to apply"
+      )
+      || (
+        bodyKey.includes(
+          "track your application"
+        )
+        && bodyKey.includes(
+          "back to job post"
+        )
+      )
+    );
+  }
 
   function statusBox(message, kind = "working") {
     let box = document.getElementById(
@@ -967,17 +1031,44 @@
       input.value = String(value);
     }
 
-    input.dispatchEvent(
-      new Event(
-        "input",
-        {bubbles: true}
-      )
-    );
+    try {
+      input.dispatchEvent(
+        new InputEvent(
+          "input",
+          {
+            bubbles: true,
+            inputType:
+              "insertText",
+            data:
+              String(value),
+          }
+        )
+      );
+    } catch (error) {
+      input.dispatchEvent(
+        new Event(
+          "input",
+          {bubbles: true}
+        )
+      );
+    }
 
     input.dispatchEvent(
       new Event(
         "change",
         {bubbles: true}
+      )
+    );
+
+    input.dispatchEvent(
+      new KeyboardEvent(
+        "keyup",
+        {
+          key:
+            String(value).slice(-1)
+            || " ",
+          bubbles: true,
+        }
       )
     );
 
@@ -1071,12 +1162,35 @@
   async function activateOption(
     option
   ) {
+    const target =
+      option?.closest?.(
+        '[role="option"], [data-value], li, button'
+      )
+      || option;
+
+    if (!target) {
+      return;
+    }
+
     try {
-      option.dispatchEvent(
+      target.scrollIntoView({
+        block:
+          "nearest",
+      });
+    } catch (error) {
+      // No-op.
+    }
+
+    try {
+      target.dispatchEvent(
         new PointerEvent(
           "pointerdown",
           {
             bubbles: true,
+            cancelable: true,
+            composed: true,
+            button: 0,
+            buttons: 1,
           }
         )
       );
@@ -1084,21 +1198,29 @@
       // No-op.
     }
 
-    option.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent(
         "mousedown",
         {
           bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: window,
+          button: 0,
+          buttons: 1,
         }
       )
     );
 
     try {
-      option.dispatchEvent(
+      target.dispatchEvent(
         new PointerEvent(
           "pointerup",
           {
             bubbles: true,
+            cancelable: true,
+            composed: true,
+            button: 0,
           }
         )
       );
@@ -1106,42 +1228,298 @@
       // No-op.
     }
 
-    option.dispatchEvent(
+    target.dispatchEvent(
       new MouseEvent(
         "mouseup",
         {
           bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: window,
+          button: 0,
         }
       )
     );
 
-    option.click();
+    target.click();
 
     await sleep(
-      250
+      450
     );
+  }
+
+  function choiceParts(
+    choice
+  ) {
+    if (
+      choice
+      && typeof choice === "object"
+    ) {
+      return [
+        choice.label,
+        choice.value,
+        choice.platform_value,
+      ]
+        .map(
+          (item) => normalize(item)
+        )
+        .filter(Boolean);
+    }
+
+    const value =
+      normalize(choice);
+
+    return value
+      ? [value]
+      : [];
+  }
+
+  function choiceTokens(
+    choice
+  ) {
+    return choiceParts(
+      choice
+    )
+      .map(
+        (item) => lower(item)
+      )
+      .filter(Boolean);
+  }
+
+  function answerTokens(
+    question,
+    answer
+  ) {
+    const rawValues = (
+      Array.isArray(answer)
+        ? answer
+        : [answer]
+    );
+
+    const tokens =
+      new Set();
+
+    for (const raw of rawValues) {
+      for (
+        const value
+        of choiceParts(raw)
+      ) {
+        tokens.add(
+          lower(value)
+        );
+      }
+
+      const choice =
+        matchingSchemaChoice(
+          question,
+          raw
+        );
+
+      for (
+        const value
+        of choiceParts(choice)
+      ) {
+        tokens.add(
+          lower(value)
+        );
+      }
+    }
+
+    return [
+      ...tokens,
+    ].filter(Boolean);
+  }
+
+  function tokenMatches(
+    candidate,
+    tokens,
+    options = {}
+  ) {
+    const normalized =
+      lower(candidate);
+
+    if (
+      !normalized
+      || !tokens?.length
+    ) {
+      return false;
+    }
+
+    if (
+      tokens.includes(
+        normalized
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      !options.allowContains
+    ) {
+      return false;
+    }
+
+    return tokens.some(
+      (token) => (
+        token
+        && (
+          normalized.includes(token)
+          || token.includes(normalized)
+        )
+      )
+    );
+  }
+
+  function optionMatchesAnswer(
+    option,
+    tokens,
+    options = {}
+  ) {
+    return [
+      option?.innerText,
+      option?.textContent,
+      option?.getAttribute?.("data-value"),
+      option?.getAttribute?.("value"),
+      option?.getAttribute?.("aria-label"),
+    ]
+      .map(
+        (item) => lower(item)
+      )
+      .filter(Boolean)
+      .some(
+        (item) => tokenMatches(
+          item,
+          tokens,
+          options
+        )
+      );
+  }
+
+  function optionNodesForOpened(
+    opened
+  ) {
+    if (
+      typeof greenhouseStructuredOptionNodes
+      === "function"
+    ) {
+      return greenhouseStructuredOptionNodes(
+        opened
+      );
+    }
+
+    return visibleOptionNodes();
+  }
+
+  function findOptionForAnswer(
+    opened,
+    tokens,
+    options = {}
+  ) {
+    const nodes =
+      optionNodesForOpened(
+        opened
+      );
+
+    return (
+      nodes.find(
+        (node) => optionMatchesAnswer(
+          node,
+          tokens
+        )
+      )
+      || (
+        options.allowContains
+          ? nodes.find(
+              (node) => optionMatchesAnswer(
+                node,
+                tokens,
+                {allowContains: true}
+              )
+            )
+          : null
+      )
+      || null
+    );
+  }
+
+  function structuredEducationSelectQuestion(
+    question
+  ) {
+    const field =
+      lower(
+        question?.field_name
+      );
+
+    return (
+      question?.structured_section
+        === "education"
+      || field.startsWith(
+        "greenhouse_education_"
+      )
+    );
+  }
+
+  function primaryChoiceAnswer(
+    question,
+    value
+  ) {
+    const choice =
+      matchingSchemaChoice(
+        question,
+        value
+      );
+
+    if (choice?.label) {
+      return choice.label;
+    }
+
+    if (choice?.value) {
+      return choice.value;
+    }
+
+    if (Array.isArray(value)) {
+      return value[0] || "";
+    }
+
+    if (
+      value
+      && typeof value === "object"
+    ) {
+      return (
+        value.label
+        || value.value
+        || value.platform_value
+        || ""
+      );
+    }
+
+    return value;
   }
 
   function matchingSchemaChoice(
     question,
     answer
   ) {
-    const wanted =
-      lower(
+    const wanted = new Set(
+      choiceTokens(
         answer
-      );
+      )
+    );
+
+    if (!wanted.size) {
+      return null;
+    }
 
     return (
       question?.choices
       || []
     ).find(
-      (choice) => (
-        lower(
-          choice.label
-        ) === wanted
-        || lower(
-          choice.value
-        ) === wanted
+      (choice) => choiceTokens(
+        choice
+      ).some(
+        (token) => wanted.has(
+          token
+        )
       )
     ) || null;
   }
@@ -1182,51 +1560,19 @@
     question,
     answer
   ) {
-    const choice =
-      matchingSchemaChoice(
+    const expected =
+      answerTokens(
         question,
         answer
       );
 
-    const expected = new Set(
-      [
-        String(
-          choice?.platform_value
-          ?? ""
-        ),
-        String(
-          choice?.label
-          ?? answer
-          ?? ""
-        ),
-        String(
-          choice?.value
-          ?? answer
-          ?? ""
-        ),
-      ]
-        .map(
-          (item) => lower(
-            item
-          )
-        )
-        .filter(Boolean)
-    );
-
     const observed =
-      backingFieldValues(
-        question
-      ).map(
-        (item) => lower(
-          item
-        )
-      );
+      backingFieldValues(question);
 
     return observed.some(
-      (value) => (
-        expected.has(
-          value
-        )
+      (value) => tokenMatches(
+        value,
+        expected
       )
     );
   }
@@ -1235,20 +1581,22 @@
     question,
     value
   ) {
-    const wanted =
-      lower(value);
+    const tokens =
+      answerTokens(
+        question,
+        value
+      );
 
     return (
       question?.choices
       || []
     ).findIndex(
-      (choice) => (
-        lower(
-          choice.label
-        ) === wanted
-        || lower(
-          choice.value
-        ) === wanted
+      (choice) => choiceTokens(
+        choice
+      ).some(
+        (token) => tokens.includes(
+          token
+        )
       )
     );
   }
@@ -1313,12 +1661,13 @@
     value,
     question = null
   ) {
-    const wanted =
-      lower(
+    const tokens =
+      answerTokens(
+        question,
         value
       );
 
-    if (!wanted) {
+    if (!tokens.length) {
       return false;
     }
 
@@ -1331,21 +1680,114 @@
       return false;
     }
 
-    const selected =
-      visibleOptionNodes()
-        .find(
-          (option) => (
-            lower(
-              option.innerText
-              || option.textContent
-            ) === wanted
-          )
+    let clickedMatchedOption =
+      false;
+
+    if (
+      structuredEducationSelectQuestion(
+        question
+      )
+      && opened.input
+    ) {
+      const searchValue =
+        primaryChoiceAnswer(
+          question,
+          value
         );
+
+      try {
+        opened.input.focus();
+      } catch (error) {
+        // Continue with event-driven selection.
+      }
+
+      setComboboxSearchText(
+        opened.input,
+        String(
+          searchValue
+        )
+      );
+
+      await sleep(
+        550
+      );
+
+      const filtered =
+        findOptionForAnswer(
+          opened,
+          tokens,
+          {
+            allowContains: true,
+          }
+        );
+
+      if (filtered) {
+        await activateOption(
+          filtered
+        );
+
+        try {
+          opened.input.dispatchEvent(
+            new Event(
+              "change",
+              {bubbles: true}
+            )
+          );
+
+          opened.input.blur();
+        } catch (error) {
+          // Greenhouse validation remains final.
+        }
+
+        await sleep(
+          500
+        );
+
+        let currentElement = (
+          findSchemaControl(question)
+          || element
+        );
+
+        if (
+          (
+            question
+            && backingValueMatches(
+              question,
+              value
+            )
+          )
+          || tokenMatches(
+            visibleControlValue(
+              currentElement
+            ),
+            tokens,
+            {
+              allowContains: true,
+            }
+          )
+        ) {
+          return true;
+        }
+
+        return false;
+      }
+
+      return false;
+    }
+
+    const selected =
+      findOptionForAnswer(
+        opened,
+        tokens
+      );
 
     if (selected) {
       await activateOption(
         selected
       );
+
+      clickedMatchedOption =
+        true;
     } else if (
       opened.input
     ) {
@@ -1361,20 +1803,21 @@
       );
 
       const filtered =
-        visibleOptionNodes()
-          .find(
-            (option) => (
-              lower(
-                option.innerText
-                || option.textContent
-              ) === wanted
-            )
-          );
+        findOptionForAnswer(
+          opened,
+          tokens,
+          {
+            allowContains: true,
+          }
+        );
 
       if (filtered) {
         await activateOption(
           filtered
         );
+
+        clickedMatchedOption =
+          true;
       }
     }
 
@@ -1383,10 +1826,100 @@
     );
 
     if (
-      question
-      && backingValueMatches(
-        question,
-        value
+      (
+        question
+        && backingValueMatches(
+          question,
+          value
+        )
+      )
+      || tokenMatches(
+        visibleControlValue(
+          element
+        ),
+        tokens,
+        {
+          allowContains: true,
+        }
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      clickedMatchedOption
+      && structuredEducationSelectQuestion(
+        question
+      )
+    ) {
+      return true;
+    }
+
+    if (opened.input) {
+      const searchValue =
+        matchingSchemaChoice(
+          question,
+          value
+        )?.label
+        || (
+          Array.isArray(value)
+            ? value[0]
+            : value
+        );
+
+      setComboboxSearchText(
+        opened.input,
+        String(
+          searchValue
+        )
+      );
+
+      await sleep(
+        450
+      );
+
+      const searched =
+        findOptionForAnswer(
+          opened,
+          tokens,
+          {
+            allowContains: true,
+          }
+        );
+
+      if (searched) {
+        await activateOption(
+          searched
+        );
+
+        clickedMatchedOption =
+          true;
+      }
+    }
+
+    if (
+      (
+        question
+        && backingValueMatches(
+          question,
+          value
+        )
+      )
+      || tokenMatches(
+        visibleControlValue(element),
+        tokens,
+        {
+          allowContains: true,
+        }
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      clickedMatchedOption
+      && structuredEducationSelectQuestion(
+        question
       )
     ) {
       return true;
@@ -1406,12 +1939,20 @@
     );
 
     const verified = (
-      question
-      ? backingValueMatches(
+      (
+        question
+        && backingValueMatches(
           question,
           value
         )
-      : false
+      )
+      || tokenMatches(
+        visibleControlValue(element),
+        tokens,
+        {
+          allowContains: true,
+        }
+      )
     );
 
     if (!verified) {
@@ -1558,7 +2099,8 @@
 
   async function setChoice(
     element,
-    value
+    value,
+    question = null
   ) {
     const type =
       lower(
@@ -1568,8 +2110,9 @@
     if (
       type === "radio"
     ) {
-      const wanted =
-        lower(
+      const wantedTokens =
+        answerTokens(
+          question,
           value
         );
 
@@ -1578,17 +2121,15 @@
           element
         ).find(
           (candidate) => (
-            [
-              lower(
-                candidate.value
+            tokenMatches(
+              candidate.value,
+              wantedTokens
+            )
+            || tokenMatches(
+              choiceLabel(
+                candidate
               ),
-              lower(
-                choiceLabel(
-                  candidate
-                )
-              ),
-            ].includes(
-              wanted
+              wantedTokens
             )
           )
         );
@@ -1622,10 +2163,9 @@
 
       const wanted =
         new Set(
-          requested.map(
-            (item) => lower(
-              item
-            )
+          answerTokens(
+            question,
+            requested
           )
         );
 
@@ -1641,24 +2181,26 @@
       const requestedControls =
         controls.filter(
           (box) => (
-            wanted.has(
-              lower(
-                box.value
-              )
+            tokenMatches(
+              box.value,
+              [
+                ...wanted,
+              ]
             )
-            || wanted.has(
-              lower(
+            || tokenMatches(
                 choiceLabel(
                   box
-                )
-              )
+                ),
+                [
+                  ...wanted,
+                ]
             )
           )
         );
 
       if (
         requestedControls.length
-        !== wanted.size
+        !== requested.length
       ) {
         console.warn(
           "JOBFINITUM GREENHOUSE CHECKBOX ANSWER DID NOT MAP",
@@ -1856,41 +2398,25 @@
     }
 
     if (element.tagName === "SELECT") {
-      const wantedValues = [
-        value,
-        resolvedValue,
-      ]
-        .flat()
-        .map(
-          (item) => lower(
-            normalize(
-              item
-            )
-          )
-        )
-        .filter(Boolean);
+      const wantedValues =
+        answerTokens(
+          question,
+          resolvedValue
+        );
 
       for (
         const option
         of element.options
       ) {
-        const optionValue =
-          lower(
-            normalize(
-              option.value
-            )
-          );
-
-        const optionText =
-          lower(
-            normalize(
-              option.textContent
-            )
-          );
-
         if (
-          wantedValues.includes(optionValue)
-          || wantedValues.includes(optionText)
+          tokenMatches(
+            option.value,
+            wantedValues
+          )
+          || tokenMatches(
+            option.textContent,
+            wantedValues
+          )
         ) {
           element.value =
             option.value;
@@ -1917,7 +2443,8 @@
     ) {
       return setChoice(
         element,
-        resolvedValue
+        resolvedValue,
+        question
       );
     }
 
@@ -3004,6 +3531,24 @@
       || text.startsWith(
         "country "
       )
+      || (
+        field.includes(
+          "education"
+        )
+        && [
+          "school",
+          "school name",
+          "degree",
+          "discipline",
+          "field of study",
+          "major",
+          "start date year",
+          "start year",
+          "end date year",
+          "end year",
+          "graduation year",
+        ].includes(text)
+      )
     ) {
       return true;
     }
@@ -3252,6 +3797,226 @@
     return fuzzy;
   }
 
+  function savedQuestionFor(
+    task,
+    question
+  ) {
+    const questions =
+      task.application_questions || [];
+
+    const wantedField =
+      lower(
+        question?.field_name
+      );
+
+    const wantedText =
+      lower(
+        question?.text
+      );
+
+    let fuzzy = null;
+
+    for (const saved of questions) {
+      if (!saved) {
+        continue;
+      }
+
+      if (
+        wantedField
+        && lower(
+          saved.field_name
+        ) === wantedField
+      ) {
+        return saved;
+      }
+
+      const savedText =
+        lower(saved.text);
+
+      if (
+        savedText
+        && savedText === wantedText
+      ) {
+        return saved;
+      }
+
+      if (
+        !fuzzy
+        && savedText
+        && wantedText
+        && (
+          savedText.includes(
+            wantedText
+          )
+          || wantedText.includes(
+            savedText
+          )
+        )
+      ) {
+        fuzzy = saved;
+      }
+    }
+
+    return fuzzy;
+  }
+
+  function uploadFieldMarker(kind) {
+    const wanted = (
+      kind === "resume"
+        ? ["resume", "resume cv", "cv"]
+        : ["cover letter"]
+    );
+
+    const candidates = [
+      ...document.querySelectorAll(
+        [
+          "label",
+          "legend",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "span",
+          "p",
+          "div",
+        ].join(",")
+      ),
+    ]
+      .map((node) => ({
+        node,
+        key:
+          questionMatchKey(
+            node.innerText
+            || node.textContent
+          ),
+      }))
+      .filter(
+        ({node, key}) => (
+          key
+          && isVisible(node)
+          && wanted.some(
+            (value) => (
+              key === value
+              || key.startsWith(
+                `${value} `
+              )
+            )
+          )
+        )
+      )
+      .sort(
+        (left, right) => (
+          left.key.length
+          - right.key.length
+        )
+      );
+
+    return candidates[0]?.node || null;
+  }
+
+  function nodeFollows(
+    node,
+    marker
+  ) {
+    return Boolean(
+      node
+      && marker
+      && (
+        node === marker
+        || marker.contains(node)
+        || (
+          marker.compareDocumentPosition(
+            node
+          )
+          & Node.DOCUMENT_POSITION_FOLLOWING
+        )
+      )
+    );
+  }
+
+  function nodePrecedes(
+    node,
+    marker
+  ) {
+    return Boolean(
+      !marker
+      || node === marker
+      || (
+        node.compareDocumentPosition(
+          marker
+        )
+        & Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    );
+  }
+
+  function inResumeUploadSection(
+    node,
+    resumeMarker = uploadFieldMarker(
+      "resume"
+    ),
+    coverMarker = uploadFieldMarker(
+      "cover_letter"
+    )
+  ) {
+    return (
+      nodeFollows(
+        node,
+        resumeMarker
+      )
+      && nodePrecedes(
+        node,
+        coverMarker
+      )
+    );
+  }
+
+  function uploadControlMeta(element) {
+    const parts = [
+      element.name,
+      element.id,
+      element.getAttribute?.(
+        "aria-label"
+      ),
+      element.getAttribute?.(
+        "data-testid"
+      ),
+      element.getAttribute?.(
+        "data-field"
+      ),
+      rawLabelText(element),
+    ];
+
+    let current =
+      element.parentElement;
+
+    for (
+      let depth = 0;
+      current && depth < 5;
+      depth += 1
+    ) {
+      const text =
+        normalize(
+          current.innerText
+          || current.textContent
+        );
+
+      if (
+        text
+        && text.length <= 600
+      ) {
+        parts.push(text);
+      }
+
+      current =
+        current.parentElement;
+    }
+
+    return lower(
+      parts.join(" ")
+    );
+  }
+
   function resumeInput() {
     const inputs = [
       ...document.querySelectorAll(
@@ -3259,32 +4024,258 @@
       ),
     ];
 
-    const scored =
-      inputs.map(
-        (input) => ({
-          input,
-          meta:
-            lower(
-              [
-                input.name,
-                input.id,
-                rawLabelText(input),
-              ].join(" ")
-            ),
-        })
+    if (!inputs.length) {
+      return null;
+    }
+
+    const resumeMarker =
+      uploadFieldMarker(
+        "resume"
       );
 
-    return (
-      scored.find(
-        ({meta}) => (
-          meta.includes("resume")
-          || meta.includes("cv")
+    const coverMarker =
+      uploadFieldMarker(
+        "cover_letter"
+      );
+
+    const scored =
+      inputs
+        .map(
+          (input, index) => {
+            const meta =
+              uploadControlMeta(
+                input
+              );
+
+            let score = 0;
+
+            if (
+              meta.includes("resume")
+              || /(^|\s)cv($|\s)/.test(
+                meta
+              )
+            ) {
+              score += 120;
+            }
+
+            if (
+              meta.includes(
+                "cover letter"
+              )
+            ) {
+              score -= 160;
+            }
+
+            if (
+              inResumeUploadSection(
+                input,
+                resumeMarker,
+                coverMarker
+              )
+            ) {
+              score += 200;
+            }
+
+            // Greenhouse renders Resume before Cover Letter. Keep
+            // document order only as a low-priority final tiebreaker.
+            score -= index;
+
+            return {
+              input,
+              score,
+            };
+          }
         )
-      )?.input
+        .sort(
+          (left, right) => (
+            right.score
+            - left.score
+          )
+        );
+
+    if (
+      scored[0]?.score > 0
+    ) {
+      return scored[0].input;
+    }
+
+    return (
+      inputs.length === 1
+        ? inputs[0]
+        : null
+    );
+  }
+
+  function resumeAttachControl() {
+    const resumeMarker =
+      uploadFieldMarker(
+        "resume"
+      );
+
+    if (!resumeMarker) {
+      return null;
+    }
+
+    const coverMarker =
+      uploadFieldMarker(
+        "cover_letter"
+      );
+
+    const candidates = [
+      ...document.querySelectorAll(
+        [
+          "button",
+          '[role="button"]',
+          'input[type="button"]',
+          "label",
+        ].join(",")
+      ),
+    ];
+
+    return candidates.find(
+      (node) => {
+        if (
+          !isVisible(node)
+          || !inResumeUploadSection(
+            node,
+            resumeMarker,
+            coverMarker
+          )
+        ) {
+          return false;
+        }
+
+        const text =
+          lower(
+            node.innerText
+            || node.textContent
+            || node.value
+            || node.getAttribute?.(
+              "aria-label"
+            )
+          );
+
+        return (
+          text === "attach"
+          || text === "upload"
+          || text === "browse"
+          || text === "choose file"
+          || text.includes(
+            "attach resume"
+          )
+          || text.includes(
+            "upload resume"
+          )
+        );
+      }
+    ) || null;
+  }
+
+  async function waitForResumeInput(
+    timeoutMs
+  ) {
+    const started =
+      Date.now();
+
+    while (
+      Date.now() - started
+      < timeoutMs
+    ) {
+      const input =
+        resumeInput();
+
+      if (input) {
+        return input;
+      }
+
+      await sleep(100);
+    }
+
+    return null;
+  }
+
+  function resumeAlreadyAttached(file) {
+    const selected =
+      resumeInput();
+
+    if (
+      selected?.files?.length
+    ) {
+      return true;
+    }
+
+    const resumeMarker =
+      uploadFieldMarker(
+        "resume"
+      );
+
+    if (!resumeMarker) {
+      return false;
+    }
+
+    const coverMarker =
+      uploadFieldMarker(
+        "cover_letter"
+      );
+
+    const expectedName =
+      lower(file?.name);
+
+    const controls = [
+      ...document.querySelectorAll(
+        [
+          "button",
+          '[role="button"]',
+          "a",
+          "span",
+        ].join(",")
+      ),
+    ].filter(
+      (node) => inResumeUploadSection(
+        node,
+        resumeMarker,
+        coverMarker
+      )
+    );
+
+    const sectionText =
+      lower(
+        controls
+          .map(
+            (node) => (
+              node.innerText
+              || node.textContent
+              || node.getAttribute?.(
+                "aria-label"
+              )
+              || ""
+            )
+          )
+          .join(" ")
+      );
+
+    return Boolean(
+      (
+        expectedName
+        && sectionText.includes(
+          expectedName
+        )
+      )
       || (
-        inputs.length === 1
-          ? inputs[0]
-          : null
+        !sectionText.includes(
+          "attach"
+        )
+        && (
+          sectionText.includes(
+            "remove"
+          )
+          || sectionText.includes(
+            "replace"
+          )
+          || sectionText.includes(
+            "change file"
+          )
+        )
       )
     );
   }
@@ -3333,12 +4324,66 @@
     );
   }
 
-  function setResumeFile(file) {
-    const selected =
-      resumeInput();
+  async function setResumeFile(file) {
+    if (
+      resumeAlreadyAttached(file)
+    ) {
+      return true;
+    }
+
+    let selected =
+      await waitForResumeInput(
+        4000
+      );
+
+    // Some Greenhouse boards create the hidden file input only
+    // after Attach is activated. Suppress the native picker while
+    // allowing Greenhouse to materialize that input for assignment.
+    if (!selected) {
+      const attach =
+        resumeAttachControl();
+
+      if (attach) {
+        const suppressPicker =
+          (event) => {
+            if (
+              lower(
+                event.target?.type
+              ) === "file"
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          };
+
+        document.addEventListener(
+          "click",
+          suppressPicker,
+          true
+        );
+
+        try {
+          attach.click();
+          await sleep(120);
+        } finally {
+          document.removeEventListener(
+            "click",
+            suppressPicker,
+            true
+          );
+        }
+
+        selected =
+          await waitForResumeInput(
+            2000
+          );
+      }
+    }
 
     if (!selected) {
-      return false;
+      return resumeAlreadyAttached(
+        file
+      );
     }
 
     const transfer =
@@ -3346,11 +4391,50 @@
 
     transfer.items.add(file);
 
-    selected.files =
-      transfer.files;
+    const filesSetter =
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "files"
+      )?.set;
 
-    dispatchEvents(selected);
-    return true;
+    if (filesSetter) {
+      filesSetter.call(
+        selected,
+        transfer.files
+      );
+    } else {
+      selected.files =
+        transfer.files;
+    }
+
+    selected.dispatchEvent(
+      new Event(
+        "input",
+        {
+          bubbles: true,
+          composed: true,
+        }
+      )
+    );
+
+    selected.dispatchEvent(
+      new Event(
+        "change",
+        {
+          bubbles: true,
+          composed: true,
+        }
+      )
+    );
+
+    await sleep(500);
+
+    return Boolean(
+      selected.files?.length
+      || resumeAlreadyAttached(
+        file
+      )
+    );
   }
 
   function selectedCheckboxLabels(
@@ -3637,34 +4721,30 @@
         element.type
       ) === "checkbox"
     ) {
-      const expected =
-        new Set(
-          normalizeChoiceAnswers(
-            expectedAnswer
-          ).map(
-            (item) => lower(
-              item
-            )
-          )
+      const expectedAnswers =
+        normalizeChoiceAnswers(
+          expectedAnswer
         );
 
-      if (!expected.size) {
+      if (!expectedAnswers.length) {
         return false;
       }
 
       const selected =
-        new Set(
-          selectedCheckboxLabels(
-            element
-          )
+        selectedCheckboxLabels(
+          element
         );
 
-      return [
-        ...expected,
-      ].every(
-        (item) => (
-          selected.has(
-            item
+      return expectedAnswers.every(
+        (answer) => (
+          selected.some(
+            (item) => tokenMatches(
+              item,
+              answerTokens(
+                question,
+                answer
+              )
+            )
           )
         )
       );
@@ -3677,7 +4757,8 @@
       ) === "radio"
     ) {
       const wanted =
-        lower(
+        answerTokens(
+          question,
           expectedAnswer
         );
 
@@ -3687,54 +4768,51 @@
         (control) => (
           control.checked
           && (
-            lower(
-              control.value
-            ) === wanted
-            || lower(
+            tokenMatches(
+              control.value,
+              wanted
+            )
+            || tokenMatches(
               choiceLabel(
                 control
-              )
-            ) === wanted
+              ),
+              wanted
+            )
           )
         )
       );
     }
 
-    const actual =
-      lower(
-        visibleControlValue(
-          element
-        )
-      );
-
     const wanted =
-      lower(
+      answerTokens(
+        question,
         expectedAnswer
       );
 
     if (
-      !actual
-      || !wanted
+      !wanted.length
     ) {
       return false;
     }
 
     if (
-      actual === wanted
+      question
+      && backingValueMatches(
+        question,
+        expectedAnswer
+      )
     ) {
       return true;
     }
 
-    // Greenhouse sometimes includes extra explanatory text
-    // inside the visible control. Only accept a containment
-    // match after an exact match failed.
-    return (
-      actual.includes(
-        wanted
-      )
-      || wanted.includes(
-        actual
-      )
+    return tokenMatches(
+      visibleControlValue(
+        element
+      ),
+      wanted,
+      {
+        allowContains: true,
+      }
     );
   }
 
@@ -3756,6 +4834,10 @@
   async function closeCompletedAgentTab(
     launch
   ) {
+    if (isBatchRunner()) {
+      return;
+    }
+
     try {
       await send({
         type:
@@ -4095,6 +5177,1021 @@
     );
   }
 
+  const GREENHOUSE_EDUCATION_FIELDS = [
+    {
+      key: "greenhouse_education_school",
+      field_name: "greenhouse_education_school",
+      text: "School",
+      labels: [
+        "School",
+        "School name",
+        "College",
+        "University",
+      ],
+      preferred_type: "select",
+    },
+    {
+      key: "greenhouse_education_degree",
+      field_name: "greenhouse_education_degree",
+      text: "Degree",
+      labels: [
+        "Degree",
+        "Degree type",
+      ],
+      preferred_type: "select",
+    },
+    {
+      key: "greenhouse_education_discipline",
+      field_name: "greenhouse_education_discipline",
+      text: "Discipline",
+      labels: [
+        "Discipline",
+        "Field of study",
+        "Major",
+      ],
+      preferred_type: "select",
+    },
+    {
+      key: "greenhouse_education_start_year",
+      field_name: "greenhouse_education_start_year",
+      text: "Start date year",
+      labels: [
+        "Start date year",
+        "Start year",
+      ],
+      preferred_type: "number",
+    },
+    {
+      key: "greenhouse_education_end_year",
+      field_name: "greenhouse_education_end_year",
+      text: "End date year",
+      labels: [
+        "End date year",
+        "End year",
+        "Graduation year",
+      ],
+      preferred_type: "number",
+    },
+  ];
+
+  function greenhouseEducationComboboxFromLabel(
+    labelText
+  ) {
+    const wanted =
+      lower(
+        normalize(
+          labelText
+        ).replace(
+          /\s*\*\s*$/,
+          ""
+        )
+      );
+
+    if (!wanted) {
+      return null;
+    }
+
+    for (
+      const label
+      of document.querySelectorAll(
+        "label, legend"
+      )
+    ) {
+      const actual =
+        lower(
+          normalize(
+            label.innerText
+            || label.textContent
+          ).replace(
+            /\s*\*\s*$/,
+            ""
+          )
+        );
+
+      if (
+        actual !== wanted
+      ) {
+        continue;
+      }
+
+      const htmlFor =
+        String(
+          label.getAttribute?.("for")
+          || label.htmlFor
+          || ""
+        ).trim();
+
+      if (htmlFor) {
+        const linked =
+          document.getElementById(
+            htmlFor
+          );
+
+        if (
+          linked
+          && isVisible(linked)
+        ) {
+          const linkedControl =
+            canonicalControl(linked)
+            || linked;
+
+          if (
+            isCombobox(linkedControl)
+            || lower(
+              linked.getAttribute?.(
+                "aria-autocomplete"
+              )
+            ) === "list"
+            || linked.getAttribute?.(
+              "aria-controls"
+            )
+            || linked.getAttribute?.(
+              "aria-owns"
+            )
+          ) {
+            return linkedControl;
+          }
+        }
+      }
+
+      let current =
+        label.parentElement;
+
+      for (
+        let depth = 0;
+        current && depth < 4;
+        depth += 1
+      ) {
+        const relevantLabels =
+          [
+            ...current.querySelectorAll(
+              "label, legend"
+            ),
+          ]
+            .map(
+              (node) =>
+                lower(
+                  normalize(
+                    node.innerText
+                    || node.textContent
+                  ).replace(
+                    /\s*\*\s*$/,
+                    ""
+                  )
+                )
+            )
+            .filter(Boolean);
+
+        const controls =
+          [
+            ...current.querySelectorAll(
+              [
+                '[role="combobox"]',
+                '[aria-haspopup="listbox"]',
+                'input[aria-autocomplete="list"]',
+                'input[aria-controls]',
+                'input[aria-owns]',
+              ].join(",")
+            ),
+          ]
+            .map(
+              (node) =>
+                canonicalControl(node)
+                || node
+            )
+            .filter(
+              (node, index, items) => (
+                node
+                && isVisible(node)
+                && items.indexOf(node)
+                  === index
+              )
+            );
+
+        const containsAnotherEducationLabel =
+          relevantLabels.some(
+            (value) => (
+              value !== wanted
+              && [
+                "school",
+                "school name",
+                "college",
+                "university",
+                "degree",
+                "degree type",
+                "discipline",
+                "field of study",
+                "major",
+                "start date year",
+                "start year",
+                "end date year",
+                "end year",
+                "graduation year",
+              ].includes(value)
+            )
+          );
+
+        if (
+          controls.length === 1
+          && !containsAnotherEducationLabel
+        ) {
+          return controls[0];
+        }
+
+        if (
+          containsAnotherEducationLabel
+        ) {
+          break;
+        }
+
+        current =
+          current.parentElement;
+      }
+    }
+
+    return null;
+  }
+
+  function greenhouseEducationControl(
+    definition
+  ) {
+    const wantsSelect =
+      definition.preferred_type
+      === "select";
+
+    for (
+      const label
+      of definition.labels
+    ) {
+      if (wantsSelect) {
+        const structured =
+          greenhouseEducationComboboxFromLabel(
+            label
+          );
+
+        if (structured) {
+          return structured;
+        }
+      }
+
+      const control =
+        findByLabel(label)
+        || findQuestionContainerControl(
+          label
+        );
+
+      if (
+        !control
+        || !isVisible(control)
+      ) {
+        continue;
+      }
+
+      const canonical =
+        canonicalControl(control)
+        || control;
+
+      if (wantsSelect) {
+        if (
+          isCombobox(canonical)
+          || canonical.tagName
+            === "SELECT"
+          || lower(
+            canonical.getAttribute?.(
+              "aria-autocomplete"
+            )
+          ) === "list"
+          || canonical.getAttribute?.(
+            "aria-controls"
+          )
+          || canonical.getAttribute?.(
+            "aria-owns"
+          )
+        ) {
+          return canonical;
+        }
+
+        continue;
+      }
+
+      if (
+        isCombobox(canonical)
+        || canonical.tagName
+          === "SELECT"
+        || lower(
+          canonical.getAttribute?.(
+            "aria-autocomplete"
+          )
+        ) === "list"
+      ) {
+        continue;
+      }
+
+      return canonical;
+    }
+
+    return null;
+  }
+
+  function greenhouseStructuredListbox(
+    opened
+  ) {
+    const controls = [
+      opened?.input,
+      opened?.target,
+    ].filter(Boolean);
+
+    for (
+      const control
+      of controls
+    ) {
+      for (
+        const attribute
+        of [
+          "aria-controls",
+          "aria-owns",
+        ]
+      ) {
+        const raw =
+          String(
+            control.getAttribute?.(
+              attribute
+            )
+            || ""
+          );
+
+        for (
+          const id
+          of raw.split(/\s+/)
+        ) {
+          if (!id) {
+            continue;
+          }
+
+          const node =
+            document.getElementById(
+              id
+            );
+
+          if (
+            node
+            && isVisible(node)
+          ) {
+            if (
+              lower(
+                node.getAttribute?.(
+                  "role"
+                )
+              ) === "listbox"
+            ) {
+              return node;
+            }
+
+            const listbox =
+              node.querySelector?.(
+                '[role="listbox"]'
+              );
+
+            if (
+              listbox
+              && isVisible(listbox)
+            ) {
+              return listbox;
+            }
+          }
+        }
+      }
+    }
+
+    return (
+      [
+        ...document.querySelectorAll(
+          '[role="listbox"]'
+        ),
+      ].find(
+        (node) => isVisible(node)
+      )
+      || null
+    );
+  }
+
+  function greenhouseStructuredOptionNodes(
+    opened
+  ) {
+    const result = [];
+    const seen = new Set();
+
+    const addNode =
+      (node) => {
+        if (
+          !node
+          || seen.has(node)
+          || !isVisible(node)
+        ) {
+          return;
+        }
+
+        const label =
+          normalize(
+            node.innerText
+            || node.textContent
+          );
+
+        if (!label) {
+          return;
+        }
+
+        seen.add(node);
+        result.push(node);
+      };
+
+    const listbox =
+      greenhouseStructuredListbox(
+        opened
+      );
+
+    if (listbox) {
+      if (
+        lower(
+          listbox.getAttribute?.(
+            "role"
+          )
+        ) === "option"
+      ) {
+        addNode(
+          listbox
+        );
+      }
+
+      for (
+        const selector
+        of [
+          '[role="option"]',
+          '[data-value]',
+          '[id*="-option-"]',
+          'li',
+        ]
+      ) {
+        for (
+          const node
+          of listbox.querySelectorAll(
+            selector
+          )
+        ) {
+          addNode(
+            node
+          );
+        }
+      }
+    }
+
+    for (
+      const node
+      of visibleOptionNodes()
+    ) {
+      addNode(
+        node
+      );
+    }
+
+    return result;
+  }
+
+  function greenhouseStructuredRequired(element) {
+    if (!element) {
+      return false;
+    }
+
+    if (
+      element.required
+      || lower(element.getAttribute?.("aria-required")) === "true"
+      || element.querySelector?.('[required], [aria-required="true"]')
+    ) {
+      return true;
+    }
+
+    const rawLabel =
+      normalize(rawLabelText(element));
+
+    if (rawLabel.includes("*")) {
+      return true;
+    }
+
+    let current = element.parentElement;
+
+    for (
+      let depth = 0;
+      current && depth < 4;
+      depth += 1
+    ) {
+      const labels = [
+        ...current.querySelectorAll("label, legend"),
+      ];
+
+      if (
+        labels.some(
+          (node) =>
+            normalize(
+              node.innerText || node.textContent
+            ).includes("*")
+        )
+      ) {
+        return true;
+      }
+
+      current = current.parentElement;
+    }
+
+    return false;
+  }
+
+  async function greenhouseStructuredChoices(
+    element,
+    definition = null
+  ) {
+    // JOBFINITUM GREENHOUSE SCHOOL USES LIVE SEARCH
+    // The School catalog is large/virtualized. Do not treat the
+    // first rendered rows as the complete school list.
+    if (
+      definition?.field_name
+      === "greenhouse_education_school"
+    ) {
+      return [];
+    }
+
+    if (!element) {
+      return [];
+    }
+
+    if (
+      definition?.searchable_select
+    ) {
+      // School is intentionally a write-in answer in Jobfinitum.
+      // applyValue()/selectCombobox() will type the stored school
+      // name into Greenhouse and choose the matching React option.
+      return [];
+    }
+
+    if (
+      element.tagName === "SELECT"
+    ) {
+      return [
+        ...element.options,
+      ]
+        .map(
+          (option) => {
+            const label =
+              normalize(
+                option.textContent
+                || option.value
+              );
+
+            return {
+              value: label,
+              label,
+              platform_value:
+                normalize(
+                  option.value
+                  || label
+                ),
+            };
+          }
+        )
+        .filter(
+          (item) =>
+            item.label
+            && ![
+              "select",
+              "select...",
+              "choose",
+              "choose...",
+            ].includes(
+              lower(
+                item.label
+              )
+            )
+        );
+    }
+
+    const control =
+      canonicalControl(
+        element
+      )
+      || element;
+
+    if (
+      !isCombobox(control)
+      && !(
+        control.getAttribute?.(
+          "aria-controls"
+        )
+        || control.getAttribute?.(
+          "aria-owns"
+        )
+        || lower(
+          control.getAttribute?.(
+            "aria-autocomplete"
+          )
+        ) === "list"
+      )
+    ) {
+      return [];
+    }
+
+    let opened = null;
+
+    try {
+      opened =
+        await openCombobox(
+          control
+        );
+
+      if (!opened) {
+        return [];
+      }
+
+      await sleep(
+        450
+      );
+
+      let optionNodes =
+        greenhouseStructuredOptionNodes(
+          opened
+        );
+
+      // Some React selects do not materialize their first option
+      // until keyboard navigation begins.
+      if (
+        !optionNodes.length
+      ) {
+        const keyTarget = (
+          opened.input
+          || opened.target
+          || control
+        );
+
+        dispatchKey(
+          keyTarget,
+          "ArrowDown"
+        );
+
+        await sleep(
+          250
+        );
+
+        optionNodes =
+          greenhouseStructuredOptionNodes(
+            opened
+          );
+      }
+
+      const seenLabels =
+        new Set();
+
+      const choices = [];
+
+      const collectVisible =
+        () => {
+          for (
+            const node
+            of greenhouseStructuredOptionNodes(
+              opened
+            )
+          ) {
+            const label =
+              normalize(
+                node.innerText
+                || node.textContent
+              );
+
+            const key =
+              lower(label);
+
+            if (
+              !label
+              || !key
+              || seenLabels.has(key)
+              || [
+                "select",
+                "select...",
+                "choose",
+                "choose...",
+                "no options",
+                "no options available",
+              ].includes(key)
+            ) {
+              continue;
+            }
+
+            seenLabels.add(
+              key
+            );
+
+            choices.push({
+              // Jobfinitum stores the human-readable answer.
+              value: label,
+              label,
+
+              // Keep any real Greenhouse backing value for replay.
+              platform_value:
+                String(
+                  node.getAttribute?.(
+                    "data-value"
+                  )
+                  || node.getAttribute?.(
+                    "value"
+                  )
+                  || label
+                ),
+            });
+          }
+        };
+
+      collectVisible();
+
+      // Degree and Discipline are finite Greenhouse menus. Walk the
+      // listbox so virtualized menus expose all options instead of
+      // only the handful currently visible on screen.
+      const listbox =
+        greenhouseStructuredListbox(
+          opened
+        );
+
+      if (listbox) {
+        let scrollTarget =
+          listbox;
+
+        if (
+          scrollTarget.scrollHeight
+          <= scrollTarget.clientHeight
+        ) {
+          const scrollable =
+            [
+              ...listbox.querySelectorAll(
+                "*"
+              ),
+            ].find(
+              (node) => (
+                node.scrollHeight
+                > node.clientHeight + 4
+              )
+            );
+
+          if (scrollable) {
+            scrollTarget =
+              scrollable;
+          }
+        }
+
+        if (
+          scrollTarget.scrollHeight
+          > scrollTarget.clientHeight + 4
+        ) {
+          let unchanged = 0;
+
+          for (
+            let pass = 0;
+            pass < 120;
+            pass += 1
+          ) {
+            const before =
+              scrollTarget.scrollTop;
+
+            const maxScroll =
+              Math.max(
+                0,
+                scrollTarget.scrollHeight
+                - scrollTarget.clientHeight
+              );
+
+            const next =
+              Math.min(
+                maxScroll,
+                before
+                + Math.max(
+                    80,
+                    Math.floor(
+                      scrollTarget.clientHeight
+                      * 0.8
+                    )
+                  )
+              );
+
+            scrollTarget.scrollTop =
+              next;
+
+            scrollTarget.dispatchEvent(
+              new Event(
+                "scroll",
+                {
+                  bubbles: true,
+                }
+              )
+            );
+
+            await sleep(
+              90
+            );
+
+            collectVisible();
+
+            if (
+              Math.abs(
+                scrollTarget.scrollTop
+                - before
+              ) < 1
+            ) {
+              unchanged += 1;
+            } else {
+              unchanged = 0;
+            }
+
+            if (
+              scrollTarget.scrollTop
+              >= maxScroll - 2
+              || unchanged >= 2
+            ) {
+              break;
+            }
+          }
+        }
+      }
+
+      console.log(
+        "JOBFINITUM GREENHOUSE EDUCATION CHOICES",
+        {
+          field_name:
+            definition?.field_name
+            || null,
+          text:
+            definition?.text
+            || null,
+          choice_count:
+            choices.length,
+          choices:
+            choices.map(
+              (item) => item.label
+            ),
+        }
+      );
+
+      return choices;
+    } finally {
+      const escapeTarget = (
+        opened?.input
+        || opened?.target
+        || control
+      );
+
+      try {
+        dispatchKey(
+          escapeTarget,
+          "Escape"
+        );
+      } catch (error) {
+        // No-op.
+      }
+
+      await sleep(
+        120
+      );
+    }
+  }
+
+  async function greenhouseEducationQuestions(
+    task = null
+  ) {
+    const questions = [];
+
+    for (
+      const definition
+      of GREENHOUSE_EDUCATION_FIELDS
+    ) {
+      const element =
+        greenhouseEducationControl(
+          definition
+        );
+
+      if (!element) {
+        continue;
+      }
+
+      const required =
+        greenhouseStructuredRequired(
+          element
+        );
+
+      const savedQuestion =
+        savedQuestionFor(
+          task,
+          definition
+        );
+
+      const savedChoices = (
+        Array.isArray(
+          savedQuestion?.choices
+        )
+          ? savedQuestion.choices
+          : []
+      );
+
+      const choices = (
+        definition.preferred_type
+        === "select"
+          ? (
+              savedChoices.length
+                ? savedChoices
+                : await greenhouseStructuredChoices(
+                    element,
+                    definition
+                  )
+            )
+          : []
+      );
+
+      const questionType =
+        definition.preferred_type;
+
+      console.log(
+        "JOBFINITUM GREENHOUSE EDUCATION QUESTION",
+        {
+          field_name:
+            definition.field_name,
+          text:
+            definition.text,
+          type:
+            questionType,
+          choice_count:
+            choices.length,
+          element_tag:
+            element.tagName,
+          element_role:
+            element.getAttribute?.(
+              "role"
+            )
+            || null,
+        }
+      );
+
+      questions.push({
+        key:
+          definition.key,
+        field_name:
+          definition.field_name,
+        text:
+          definition.text,
+        type:
+          questionType,
+        required,
+        choices,
+        adapter:
+          "greenhouse_hosted",
+        structured_section:
+          "education",
+      });
+    }
+
+    return questions;
+  }
+
+  function greenhouseInvalidEducationQuestions(
+    educationQuestions
+  ) {
+    const result = [];
+
+    for (const question of educationQuestions) {
+      if (!question.required) {
+        continue;
+      }
+
+      const definition =
+        GREENHOUSE_EDUCATION_FIELDS.find(
+          (item) =>
+            item.field_name === question.field_name
+        );
+
+      if (!definition) {
+        continue;
+      }
+
+      const element =
+        greenhouseEducationControl(definition);
+
+      if (!element) {
+        continue;
+      }
+
+      if (
+        !questionHasAnswer(question, element)
+        || greenhouseControlInvalid(element)
+      ) {
+        result.push(question);
+      }
+    }
+
+    return result;
+  }
+
   async function run(
     launch,
     task
@@ -4114,12 +6211,15 @@
       );
 
     if (
-      SUCCESS_PHRASES.some(
-        (phrase) => (
-          initialBody.includes(phrase)
-        )
+      greenhouseSubmissionConfirmed(
+        initialBody
       )
     ) {
+      statusBox(
+        "Greenhouse application submitted.",
+        "success"
+      );
+
       await report(
         launch,
         {
@@ -4240,7 +6340,7 @@
       );
 
     if (
-      !setResumeFile(resume)
+      !(await setResumeFile(resume))
     ) {
       await report(
         launch,
@@ -4269,6 +6369,14 @@
 
     const unanswered = [];
     const controlMissing = [];
+
+    // GREENHOUSE STRUCTURED EDUCATION:
+    // Standard Education fields are not always included in the
+    // public custom-question schema, so inspect the live form.
+    const educationQuestions =
+      await greenhouseEducationQuestions(
+        task
+      );
 
     for (
       const question
@@ -4387,6 +6495,76 @@
         controlMissing.push(
           question
         );
+      }
+    }
+
+    for (
+      const question
+      of educationQuestions
+    ) {
+      const definition =
+        GREENHOUSE_EDUCATION_FIELDS.find(
+          (item) =>
+            item.field_name === question.field_name
+        );
+
+      if (!definition) {
+        continue;
+      }
+
+      const element =
+        greenhouseEducationControl(definition);
+
+      const answer =
+        savedAnswerFor(
+          task,
+          question
+        );
+
+      const hasAnswer = (
+        answer !== null
+        && answer !== undefined
+        && answer !== ""
+      );
+
+      if (
+        question.required
+        && !hasAnswer
+      ) {
+        unanswered.push(question);
+        continue;
+      }
+
+      if (
+        hasAnswer
+        && element
+      ) {
+        try {
+          await applyValue(
+            element,
+            answer,
+            question
+          );
+        } catch (error) {
+          console.warn(
+            "JOBFINITUM GREENHOUSE EDUCATION APPLY WARNING",
+            {
+              question: question.text,
+              answer,
+              error:
+                String(
+                  error?.message
+                  || error
+                ),
+            }
+          );
+        }
+      } else if (
+        question.required
+        && hasAnswer
+        && !element
+      ) {
+        controlMissing.push(question);
       }
     }
 
@@ -4542,10 +6720,8 @@
         );
 
       if (
-        SUCCESS_PHRASES.some(
-          (phrase) => (
-            body.includes(phrase)
-          )
+        greenhouseSubmissionConfirmed(
+          body
         )
       ) {
         statusBox(
@@ -4589,10 +6765,20 @@
         Date.now() - started
         >= 1500
       ) {
-        const invalidQuestions =
+        const schemaInvalidQuestions =
           greenhouseInvalidQuestions(
             schemaQuestions
           );
+
+        const educationInvalidQuestions =
+          greenhouseInvalidEducationQuestions(
+            educationQuestions
+          );
+
+        const invalidQuestions = [
+          ...schemaInvalidQuestions,
+          ...educationInvalidQuestions,
+        ];
 
         if (
           invalidQuestions.length
@@ -4729,6 +6915,10 @@
     }
 
     try {
+      await registerBatchRunner(
+        launch
+      );
+
       statusBox(
         "connecting to Jobfinitum…"
       );
@@ -4789,6 +6979,362 @@
       }
     }
   }
+
+  function ignoredGreenhouseOption(
+    label
+  ) {
+    return [
+      "select",
+      "select...",
+      "choose",
+      "choose...",
+      "no options",
+      "no options available",
+      "no results",
+      "no results found",
+      "loading",
+      "loading...",
+    ].includes(
+      lower(label)
+    );
+  }
+
+  function optionLabel(
+    node
+  ) {
+    return normalize(
+      node?.innerText
+      || node?.textContent
+      || node?.getAttribute?.(
+        "aria-label"
+      )
+      || ""
+    );
+  }
+
+  function greenhouseSchoolMatchesQuery(
+    label,
+    query
+  ) {
+    const labelKey =
+      questionMatchKey(label);
+
+    const queryKey =
+      questionMatchKey(query);
+
+    if (
+      !labelKey
+      || !queryKey
+    ) {
+      return false;
+    }
+
+    if (
+      labelKey.includes(
+        queryKey
+      )
+      || queryKey.includes(
+        labelKey
+      )
+    ) {
+      return true;
+    }
+
+    return queryKey
+      .split(" ")
+      .filter(Boolean)
+      .every(
+        (part) => labelKey.includes(
+          part
+        )
+      );
+  }
+
+  function greenhouseSchoolFromOption(
+    node
+  ) {
+    const label =
+      optionLabel(node);
+
+    if (
+      !label
+      || ignoredGreenhouseOption(
+        label
+      )
+    ) {
+      return null;
+    }
+
+    return {
+      value:
+        label,
+      label,
+      platform_value:
+        String(
+          node?.getAttribute?.(
+            "data-value"
+          )
+          || node?.getAttribute?.(
+            "value"
+          )
+          || label
+        ),
+    };
+  }
+
+  async function collectGreenhouseSchoolOptions(
+    opened,
+    query
+  ) {
+    const seen =
+      new Set();
+
+    const schools = [];
+
+    const collect = () => {
+      for (
+        const node
+        of optionNodesForOpened(
+          opened
+        )
+      ) {
+        const school =
+          greenhouseSchoolFromOption(
+            node
+          );
+
+        if (!school) {
+          continue;
+        }
+
+        const key =
+          questionMatchKey(
+            school.label
+          );
+
+        if (
+          seen.has(key)
+          || !greenhouseSchoolMatchesQuery(
+            school.label,
+            query
+          )
+        ) {
+          continue;
+        }
+
+        seen.add(key);
+        schools.push(school);
+
+        if (
+          schools.length >= 30
+        ) {
+          break;
+        }
+      }
+
+      return schools.length;
+    };
+
+    for (
+      let attempt = 0;
+      attempt < 20;
+      attempt += 1
+    ) {
+      collect();
+
+      if (
+        schools.length >= 30
+      ) {
+        break;
+      }
+
+      if (
+        schools.length
+        && attempt >= 3
+      ) {
+        break;
+      }
+
+      await sleep(
+        200
+      );
+    }
+
+    return schools;
+  }
+
+  async function jobfinitumSearchGreenhouseSchools(
+    rawQuery
+  ) {
+    const query =
+      normalize(
+        rawQuery
+      );
+
+    if (
+      query.length < 2
+    ) {
+      return [];
+    }
+
+    const definition =
+      GREENHOUSE_EDUCATION_FIELDS.find(
+        (item) =>
+          item.field_name
+          === "greenhouse_education_school"
+      );
+
+    if (!definition) {
+      throw new Error(
+        "Greenhouse School definition was not found."
+      );
+    }
+
+    const element =
+      greenhouseEducationControl(
+        definition
+      );
+
+    if (!element) {
+      throw new Error(
+        "Greenhouse School control is not available in this tab."
+      );
+    }
+
+    const opened =
+      await openCombobox(
+        element
+      );
+
+    if (!opened) {
+      throw new Error(
+        "Greenhouse School dropdown could not be opened."
+      );
+    }
+
+    const searchInput = (
+      opened.input
+      || (
+        element.tagName === "INPUT"
+          ? element
+          : element.querySelector?.(
+              "input"
+            )
+      )
+    );
+
+    if (!searchInput) {
+      throw new Error(
+        "Greenhouse School search input was not found."
+      );
+    }
+
+    try {
+      try {
+        searchInput.focus();
+      } catch (error) {
+        // Continue with event-driven search.
+      }
+
+      setComboboxSearchText(
+        searchInput,
+        query
+      );
+
+      await sleep(
+        150
+      );
+
+      dispatchKey(
+        searchInput,
+        "ArrowDown"
+      );
+
+      const schools =
+        await collectGreenhouseSchoolOptions(
+          opened,
+          query
+        );
+
+      console.log(
+        "JOBFINITUM GREENHOUSE LIVE SCHOOL SEARCH",
+        {
+          query,
+          result_count:
+            schools.length,
+          schools:
+            schools.map(
+              (item) =>
+                item.label
+            ),
+        }
+      );
+
+      return schools;
+    } finally {
+      try {
+        dispatchKey(
+          searchInput,
+          "Escape"
+        );
+      } catch (error) {
+        // No-op.
+      }
+
+      await sleep(
+        80
+      );
+    }
+  }
+
+
+  chrome.runtime.onMessage.addListener(
+    (
+      message,
+      sender,
+      sendResponse
+    ) => {
+      if (
+        !message
+        || message.type
+          !== "jobfinitum-greenhouse-school-search"
+      ) {
+        return;
+      }
+
+      (
+        async () => {
+          try {
+            const schools =
+              await jobfinitumSearchGreenhouseSchools(
+                message.query
+              );
+
+            sendResponse({
+              ok: true,
+              schools,
+              url:
+                location.href,
+            });
+          } catch (error) {
+            sendResponse({
+              ok: false,
+              schools: [],
+              error:
+                String(
+                  error?.message
+                  || error
+                ),
+              url:
+                location.href,
+            });
+          }
+        }
+      )();
+
+      return true;
+    }
+  );
 
   main();
 })();

@@ -4,6 +4,12 @@ import re
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import lru_cache
+
+from services.location_service import (
+    get_countries,
+    get_states,
+)
 
 
 
@@ -557,6 +563,17 @@ def parse_profile_values(value):
     ]
 
 
+def parse_profile_locations(value):
+    if not value:
+        return []
+
+    return [
+        item.strip().lower()
+        for item in re.split(r"[\r\n]+", value)
+        if item.strip()
+    ]
+
+
 def normalize_text(value):
     text = str(value or "").strip().lower()
 
@@ -571,6 +588,151 @@ def normalize_text(value):
         " ",
         text,
     )
+
+
+@lru_cache(maxsize=1)
+def country_location_index():
+    index = {}
+
+    try:
+        for country in get_countries():
+            name = normalize_text(
+                country.get("name")
+            )
+            code = normalize_text(
+                country.get("code")
+            )
+
+            if not name:
+                continue
+
+            record = (name, code)
+            index[name] = record
+
+            if code:
+                index[code] = record
+    except Exception:
+        pass
+
+    for canonical, aliases in LOCATION_ALIASES.items():
+        normalized_canonical = normalize_text(
+            canonical
+        )
+        record = index.get(
+            normalized_canonical,
+            (normalized_canonical, ""),
+        )
+
+        for alias in aliases | {canonical}:
+            index[normalize_text(alias)] = record
+
+    return index
+
+
+def canonical_country_name(value):
+    record = country_location_index().get(
+        normalize_text(value)
+    )
+
+    return record[0] if record else None
+
+
+def location_components(value):
+    return [
+        normalize_text(part)
+        for part in re.split(
+            r"[,|;/]+",
+            str(value or ""),
+        )
+        if normalize_text(part)
+    ]
+
+
+def selected_location_country(value):
+    direct_country = canonical_country_name(
+        value
+    )
+
+    if direct_country:
+        return direct_country
+
+    parts = location_components(value)
+
+    if not parts:
+        return None
+
+    return (
+        canonical_country_name(parts[-1])
+        or (
+            canonical_country_name(parts[0])
+            if len(parts) == 1
+            else None
+        )
+    )
+
+
+@lru_cache(maxsize=256)
+def region_location_index(country_name):
+    country_record = country_location_index().get(
+        normalize_text(country_name)
+    )
+
+    if not country_record:
+        return {}
+
+    _, country_code = country_record
+
+    if not country_code:
+        return {}
+
+    index = {}
+
+    try:
+        for region in get_states(country_code):
+            name = normalize_text(
+                region.get("name")
+            )
+            code = normalize_text(
+                region.get("code")
+            )
+
+            if not name:
+                continue
+
+            index[name] = name
+
+            if code:
+                index[code] = name
+    except Exception:
+        return {}
+
+    return index
+
+
+def selected_location_region(value):
+    parts = location_components(value)
+    country = selected_location_country(value)
+
+    if not country or len(parts) < 2:
+        return None
+
+    return region_location_index(country).get(
+        parts[-2]
+    )
+
+
+def location_region(value, country):
+    region_index = region_location_index(
+        country
+    )
+
+    for part in location_components(value):
+        region = region_index.get(part)
+
+        if region:
+            return region
+
+    return None
 
 
 def normalize_role_phrase(value):
@@ -706,11 +868,19 @@ def location_is_united_states(location):
     if not location:
         return False
 
+    exact_country = canonical_country_name(
+        location
+    )
+
+    if exact_country:
+        return exact_country == "united states"
+
     direct_us_terms = {
         "united states",
         "united states of america",
         "usa",
         "u.s.a.",
+        "us",
         "u.s.",
     }
 
@@ -1326,18 +1496,10 @@ def has_uncertain_remote_location(
 def profile_requests_united_states(
     requested_locations,
 ):
-    united_states_terms = {
-        "united states",
-        "united states of america",
-        "usa",
-        "u.s.a.",
-        "us",
-        "u.s.",
-    }
-
     return any(
-        normalize_text(location)
-        in united_states_terms
+        len(location_components(location)) == 1
+        and selected_location_country(location)
+        == "united states"
         for location in requested_locations
     )
 
@@ -1345,9 +1507,14 @@ def profile_requests_united_states(
 def matches_explicit_location(
     job_location,
     requested_locations,
+    allow_broader_job_location=False,
 ):
     if not job_location:
         return False
+
+    job_location = normalize_text(
+        job_location
+    )
 
     if (
         profile_requests_united_states(
@@ -1365,14 +1532,143 @@ def matches_explicit_location(
         )
     )
 
-    return any(
+    if any(
         contains_phrase(
             job_location,
             requested_location,
         )
         for requested_location
         in expanded_locations
+    ):
+        return True
+
+    job_country = selected_location_country(
+        job_location
     )
+
+    for requested_location in requested_locations:
+        requested_parts = location_components(
+            requested_location
+        )
+
+        if len(requested_parts) != 1:
+            continue
+
+        requested_country = (
+            selected_location_country(
+                requested_location
+            )
+        )
+
+        if not requested_country:
+            continue
+
+        if job_country:
+            if job_country == requested_country:
+                return True
+
+            continue
+
+        if location_region(
+            job_location,
+            requested_country,
+        ):
+            return True
+
+    for requested_location in requested_locations:
+        requested_parts = location_components(
+            requested_location
+        )
+
+        if len(requested_parts) < 2:
+            continue
+
+        requested_country = (
+            selected_location_country(
+                requested_location
+            )
+        )
+
+        job_region_for_requested_country = (
+            location_region(
+                job_location,
+                requested_country,
+            )
+            if requested_country
+            else None
+        )
+
+        if (
+            job_country
+            and requested_country
+            and job_country != requested_country
+            and not job_region_for_requested_country
+        ):
+            continue
+
+        if (
+            allow_broader_job_location
+            and job_country
+            and requested_country == job_country
+            and len(location_components(job_location)) == 1
+        ):
+            return True
+
+        requested_region = (
+            selected_location_region(
+                requested_location
+            )
+        )
+
+        requested_specific = (
+            requested_parts[0]
+        )
+
+        region_index = (
+            region_location_index(
+                requested_country
+            )
+            if requested_country
+            else {}
+        )
+
+        specific_aliases = {
+            alias
+            for alias, canonical
+            in region_index.items()
+            if canonical == requested_region
+        } if (
+            requested_region
+            and requested_specific
+            in region_index
+        ) else {
+            requested_specific
+        }
+
+        if not any(
+            contains_phrase(
+                job_location,
+                alias,
+            )
+            for alias in specific_aliases
+        ):
+            continue
+
+        if requested_region:
+            job_region = (
+                job_region_for_requested_country
+            )
+
+            if (
+                job_region
+                and job_region
+                != requested_region
+            ):
+                continue
+
+        return True
+
+    return False
 
 
 def get_remote_candidate_scope(job):
@@ -1410,6 +1706,32 @@ def get_remote_allowed_locations(job):
         ]
 
     return []
+
+
+def get_remote_allowed_location_type(job):
+    return normalize_text(
+        job.get(
+            "remote_allowed_location_type"
+        )
+    )
+
+
+def country_restriction_matches_locations(
+    allowed_country,
+    requested_locations,
+):
+    allowed_country = canonical_country_name(
+        allowed_country
+    )
+
+    if not allowed_country:
+        return False
+
+    return any(
+        selected_location_country(location)
+        == allowed_country
+        for location in requested_locations
+    )
 
 
 def remote_job_is_worldwide(
@@ -1463,10 +1785,24 @@ def remote_job_matches_locations(
         candidate_scope == "selected_locations"
         and allowed_locations
     ):
+        if (
+            get_remote_allowed_location_type(job)
+            == "countries"
+        ):
+            return any(
+                country_restriction_matches_locations(
+                    allowed_location,
+                    requested_locations,
+                )
+                for allowed_location
+                in allowed_locations
+            )
+
         return any(
             matches_explicit_location(
                 allowed_location,
                 requested_locations,
+                allow_broader_job_location=True,
             )
             for allowed_location
             in allowed_locations
@@ -1487,12 +1823,13 @@ def remote_job_matches_locations(
     return matches_explicit_location(
         job_location,
         requested_locations,
+        allow_broader_job_location=True,
     )
 
 
 def matches_location(job, profile):
     requested_locations = (
-        parse_profile_values(
+        parse_profile_locations(
             profile.locations
         )
     )
@@ -1565,6 +1902,84 @@ def matches_location(job, profile):
         job,
         job_location,
         requested_locations,
+    )
+
+
+def persisted_job_matches_location(
+    discovered_job,
+    profile,
+):
+    if discovered_job is None or profile is None:
+        return False
+
+    location = normalize_text(
+        getattr(
+            discovered_job,
+            "location",
+            None,
+        )
+    )
+
+    source = normalize_text(
+        getattr(
+            discovered_job,
+            "source",
+            None,
+        )
+    )
+
+    payload = {
+        "location": location,
+        "location_source": "persisted_discovery",
+        "location_confidence": 1.0,
+    }
+
+    if source in {
+        "remote ok",
+        "remotive",
+        "we work remotely",
+    }:
+        payload.update(
+            {
+                "workplace_type": "Remote",
+                "is_remote": True,
+            }
+        )
+
+    if source == "himalayas":
+        worldwide = location in {
+            "worldwide",
+            "anywhere",
+            "global",
+            "remote worldwide",
+        }
+
+        payload.update(
+            {
+                "workplace_type": "Remote",
+                "is_remote": True,
+                "remote_candidate_scope": (
+                    "worldwide"
+                    if worldwide
+                    else "selected_locations"
+                ),
+                "remote_allowed_locations": (
+                    []
+                    if worldwide
+                    else [
+                        part.strip()
+                        for part in location.split("|")
+                        if part.strip()
+                    ]
+                ),
+                "remote_allowed_location_type": "countries",
+                "location_source": "himalayas_api",
+            }
+        )
+
+    return matches_location(
+        payload,
+        profile,
     )
 
 

@@ -148,6 +148,9 @@ from services.job_sources.source_utils import (
 from services.job_sources.utils import (
     build_job_fingerprint,
 )
+from services.job_sources.job_match_service import (
+    persisted_job_matches_location,
+)
 from services.job_sources.workday_crawler import (
     WorkdayCrawler,
 )
@@ -3870,6 +3873,83 @@ def auto_apply_queue():
     )
 
 
+def _batch_candidate_location_eligible(candidate):
+    return persisted_job_matches_location(
+        candidate.discovered_job,
+        candidate.search_profile,
+    )
+
+
+@app.route(
+    "/api/auto-apply/batch-candidates",
+    methods=["GET"],
+)
+@login_required
+def auto_apply_batch_candidates_api():
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        return jsonify(
+            {
+                "error": (
+                    "Auto Apply is not enabled for this account tier."
+                )
+            }
+        ), 403
+
+    candidates = (
+        AutoApplyCandidate.query
+        .filter_by(
+            user_id=current_user.id,
+            status="Pending Review",
+            execution_status="Not Started",
+        )
+        .order_by(
+            AutoApplyCandidate.created_at.asc(),
+            AutoApplyCandidate.id.asc(),
+        )
+        .limit(250)
+        .all()
+    )
+
+    batch = []
+    skipped_location = 0
+
+    for candidate in candidates:
+        if not chrome_agent_supports_job(
+            candidate.discovered_job
+        ):
+            continue
+
+        if not _batch_candidate_location_eligible(
+            candidate
+        ):
+            skipped_location += 1
+            continue
+
+        batch.append(
+            {
+                "candidate_id": candidate.id,
+                "action_url": url_for(
+                    "update_auto_apply_candidate",
+                    candidate_id=candidate.id,
+                    action="approve",
+                ),
+            }
+        )
+
+        if len(batch) >= 50:
+            break
+
+    return jsonify(
+        {
+            "candidates": batch,
+            "count": len(batch),
+            "skipped_location": skipped_location,
+        }
+    )
+
+
 @app.route(
     "/auto-apply/<int:candidate_id>/answers",
     methods=["POST"],
@@ -4270,6 +4350,8 @@ def chrome_agent_result_api(token):
             user,
             payload,
         )
+        result = dict(result)
+        result["candidate_id"] = candidate.id
         db.session.commit()
 
         log_action(

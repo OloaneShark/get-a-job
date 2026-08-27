@@ -73,6 +73,21 @@
 
   const LAUNCH_STORAGE_KEY = "jobfinitum_chrome_agent_launch_v1";
 
+  const BATCH_RUNNER_NAME = "jobfinitum-auto-apply-runner";
+
+  function isBatchRunner() {
+    return window.name === BATCH_RUNNER_NAME;
+  }
+
+  async function registerBatchRunner(launch) {
+    if (!isBatchRunner()) return;
+
+    await send({
+      type: "jobfinitum-batch-register",
+      origin: launch.origin,
+    });
+  }
+
   function clearLaunch() {
     try {
       window.sessionStorage.removeItem(
@@ -541,6 +556,8 @@
   async function closeCompletedAgentTab(
     launch
   ) {
+    if (isBatchRunner()) return;
+
     try {
       await send({
         type: "jobfinitum-close-agent-tab",
@@ -784,6 +801,8 @@
 
     try {
       statusBox("connecting to Jobfinitum…");
+      await registerBatchRunner(launch);
+
       const response = await send({
         type: "jobfinitum-task",
         origin: launch.origin,

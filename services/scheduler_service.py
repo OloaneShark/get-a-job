@@ -617,6 +617,47 @@ def save_discovered_jobs(
             )
 
         if existing_job:
+            same_source_listing = (
+                str(existing_job.source or "").strip().lower()
+                == source.lower()
+                and (
+                    not external_id
+                    or str(
+                        existing_job.external_id or ""
+                    ).strip()
+                    == external_id
+                )
+            )
+
+            if same_source_listing:
+                existing_job.location = job.get(
+                    "location"
+                )
+                existing_job.employment_type = job.get(
+                    "employment_type"
+                )
+                existing_job.salary = job.get("salary")
+                existing_job.visa_sponsorship = (
+                    job.get("visa_sponsorship")
+                    or "Unknown"
+                )
+                existing_job.job_description = job.get(
+                    "job_description"
+                )
+
+                current_apply_url = str(
+                    existing_job.apply_url or ""
+                ).strip().lower()
+
+                if (
+                    not current_apply_url
+                    or "himalayas.app/" in current_apply_url
+                ):
+                    existing_job.apply_url = (
+                        job.get("apply_url")
+                        or posting_url
+                    )
+
             if (
                 profile
                 not in existing_job
@@ -701,6 +742,7 @@ def save_discovered_jobs(
             f"Excluded company: {auto_apply_stats['excluded_company']} | "
             f"Daily limit skipped: {auto_apply_stats['daily_limit']} | "
             f"Invalid resume: {auto_apply_stats['invalid_resume']} | "
+            f"Location mismatch: {auto_apply_stats['location_mismatch']} | "
             f"Access denied: {auto_apply_stats['access_denied']}"
         )
 
