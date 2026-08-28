@@ -5,8 +5,12 @@ from datetime import date, datetime, timedelta, timezone
 
 from models import (
     CachedSourceJob,
+    JobPostingHealth,
     JobSourceCacheState,
     db,
+)
+from services.job_identity_service import (
+    job_url_key,
 )
 
 
@@ -704,7 +708,36 @@ def upsert_cached_source_jobs(
     created = 0
     updated = 0
     skipped_expired = 0
+    skipped_closed = 0
     skipped_invalid = 0
+
+    incoming_url_keys = {
+        job_url_key(
+            job.get("posting_url")
+        )
+        for job in unique_jobs.values()
+        if job_url_key(
+            job.get("posting_url")
+        )
+    }
+    closed_url_keys = {
+        row[0]
+        for row in (
+            db.session.query(
+                JobPostingHealth.url_key
+            )
+            .filter(
+                JobPostingHealth.status
+                == "Closed",
+                JobPostingHealth.url_key.in_(
+                    incoming_url_keys
+                ),
+            )
+            .all()
+            if incoming_url_keys
+            else []
+        )
+    }
 
     for (
         cache_key,
@@ -742,6 +775,21 @@ def upsert_cached_source_jobs(
                 cache_key
             )
         )
+
+        if (
+            job_url_key(posting_url)
+            in closed_url_keys
+        ):
+            skipped_closed += 1
+
+            if existing is not None:
+                db.session.delete(existing)
+                existing_by_key.pop(
+                    cache_key,
+                    None,
+                )
+
+            continue
 
         first_seen_at = (
             ensure_utc(
@@ -952,6 +1000,9 @@ def upsert_cached_source_jobs(
         "active": active_count,
         "skipped_expired": (
             skipped_expired
+        ),
+        "skipped_closed": (
+            skipped_closed
         ),
         "skipped_invalid": (
             skipped_invalid

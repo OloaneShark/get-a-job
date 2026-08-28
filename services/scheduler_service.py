@@ -3,7 +3,7 @@ import os
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import inspect
@@ -28,7 +28,6 @@ from services.job_sources.shared_job_cache import (
     cache_state_is_fresh,
     load_source_cache_bundle,
     prepared_job_list,
-    purge_expired_cached_jobs,
     record_source_cache_failure,
     source_refresh_interval,
     upsert_cached_source_jobs,
@@ -55,6 +54,15 @@ from services.job_sources.discovery.candidate_service import (
     validate_pending_himalayas_candidates,
 )
 from services.auto_apply_service import stage_auto_apply_candidates
+from services.job_identity_service import job_url_key
+from services.job_lifecycle_service import (
+    check_job_posting,
+    globally_closed_job_url_keys,
+    postings_due_for_health_check,
+    purge_expired_job_records,
+    record_job_health_result,
+    suppressed_job_identity_sets,
+)
 
 
 scheduler = BackgroundScheduler(
@@ -443,6 +451,19 @@ def save_discovered_jobs(
     saved_count = 0
     auto_apply_jobs = []
     source_discovery_stats = {}
+    (
+        suppressed_fingerprints,
+        suppressed_url_keys,
+    ) = suppressed_job_identity_sets(
+        profile.user_id
+    )
+    globally_closed_url_keys = (
+        globally_closed_job_url_keys(
+            job.get("posting_url")
+            for job in jobs
+            if isinstance(job, dict)
+        )
+    )
 
     existing_jobs = (
         DiscoveredJob.query
@@ -552,6 +573,35 @@ def save_discovered_jobs(
         if not posting_url:
             continue
 
+        source = str(
+            job.get("source")
+            or "Unknown"
+        ).strip() or "Unknown"
+
+        external_id = str(
+            job.get("external_id")
+            or ""
+        ).strip() or None
+
+        fingerprint = (
+            build_job_fingerprint(
+                job.get("company_name"),
+                job.get("position_title"),
+                job.get("location"),
+                posting_url,
+            )
+        )
+
+        if (
+            fingerprint
+            in suppressed_fingerprints
+            or job_url_key(posting_url)
+            in suppressed_url_keys
+            or job_url_key(posting_url)
+            in globally_closed_url_keys
+        ):
+            continue
+
         discovery_results = (
             ingest_himalayas_job_sources(
                 job
@@ -571,25 +621,6 @@ def save_discovered_jobs(
                 )
                 + discovery_count
             )
-
-        source = str(
-            job.get("source")
-            or "Unknown"
-        ).strip() or "Unknown"
-
-        external_id = str(
-            job.get("external_id")
-            or ""
-        ).strip() or None
-
-        fingerprint = (
-            build_job_fingerprint(
-                job.get("company_name"),
-                job.get("position_title"),
-                job.get("location"),
-                posting_url,
-            )
-        )
 
         canonical_url = (
             canonical_posting_url(
@@ -764,6 +795,8 @@ def save_discovered_jobs(
             f"Already queued: {auto_apply_stats['already_queued']} | "
             f"Already applied: {auto_apply_stats['already_applied']} | "
             f"Ignored: {auto_apply_stats['ignored']} | "
+            f"Permanently deleted: {auto_apply_stats['suppressed']} | "
+            f"Closed: {auto_apply_stats['closed']} | "
             f"Excluded company: {auto_apply_stats['excluded_company']} | "
             f"Daily limit skipped: {auto_apply_stats['daily_limit']} | "
             f"Invalid resume: {auto_apply_stats['invalid_resume']} | "
@@ -840,6 +873,8 @@ def persist_global_source_cache(
         f"Active: {stats['active']} | "
         f"Expired skipped: "
         f"{stats['skipped_expired']} | "
+        f"Closed skipped: "
+        f"{stats['skipped_closed']} | "
         f"Invalid skipped: "
         f"{stats['skipped_invalid']} | "
         f"Retention: "
@@ -913,7 +948,7 @@ def prepare_global_sources(
 
     def purge():
         return (
-            purge_expired_cached_jobs()
+            purge_expired_job_records()
         )
 
     purged_count = (
@@ -923,10 +958,14 @@ def prepare_global_sources(
         )
     )
 
-    if purged_count:
+    if any(purged_count.values()):
         print(
-            "GLOBAL SOURCE DB CACHE PURGE | "
-            f"Removed: {purged_count}"
+            "JOB LIFECYCLE EXPIRY PURGE | "
+            f"Cached: {purged_count['cached_jobs']} | "
+            "Discovered: "
+            f"{purged_count['discovered_jobs']} | "
+            "Queue candidates: "
+            f"{purged_count['candidates']}"
         )
 
     for source_type in GLOBAL_SOURCE_TYPES:
@@ -2277,10 +2316,96 @@ def queue_automatic_source_discovery(
     return True, get_automatic_source_discovery_status()
 
 
-def start_scheduler(app):
-    if scheduler.running:
-        return
+def process_job_lifecycle_maintenance(app):
+    with app.app_context():
+        try:
+            purge_stats = run_database_transaction(
+                "purge expired and closed jobs",
+                purge_expired_job_records,
+            )
+            posting_urls = run_database_transaction(
+                "select job posting health checks",
+                postings_due_for_health_check,
+            )
+        except Exception as error:
+            print(
+                "JOB LIFECYCLE DATABASE ERROR | "
+                f"{error}"
+            )
+            return
 
+        checked = 0
+        closed = 0
+        removed = dict(purge_stats)
+
+        for posting_url in posting_urls:
+            result = check_job_posting(
+                posting_url
+            )
+
+            try:
+                cleanup_stats = run_database_transaction(
+                    "record job posting health check",
+                    lambda result=result: (
+                        record_job_health_result(
+                            result
+                        )
+                    ),
+                )
+            except Exception as error:
+                print(
+                    "JOB LIFECYCLE RESULT ERROR | "
+                    f"URL: {posting_url} | "
+                    f"Error: {error}"
+                )
+                continue
+
+            checked += 1
+
+            if result["status"] == "Closed":
+                closed += 1
+
+            for key in removed:
+                removed[key] += cleanup_stats[key]
+
+        print(
+            "JOB LIFECYCLE COMPLETE | "
+            f"Checked: {checked} | "
+            f"Closed: {closed} | "
+            f"Cached removed: "
+            f"{removed['cached_jobs']} | "
+            f"Discovered removed: "
+            f"{removed['discovered_jobs']} | "
+            f"Queue candidates removed: "
+            f"{removed['candidates']}"
+        )
+
+
+def _add_job_lifecycle_schedule(app):
+    scheduler.add_job(
+        process_job_lifecycle_maintenance,
+        "interval",
+        hours=6,
+        args=[app],
+        id="process_job_lifecycle_maintenance",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        next_run_time=(
+            datetime.now(timezone.utc)
+            + timedelta(seconds=15)
+        ),
+    )
+
+
+def start_job_lifecycle_scheduler(app):
+    _add_job_lifecycle_schedule(app)
+
+    if not scheduler.running:
+        scheduler.start()
+
+
+def start_scheduler(app):
     scheduler.add_job(
         process_active_search_profiles,
         "interval",
@@ -2295,4 +2420,7 @@ def start_scheduler(app):
         ),
     )
 
-    scheduler.start()
+    _add_job_lifecycle_schedule(app)
+
+    if not scheduler.running:
+        scheduler.start()

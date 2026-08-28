@@ -603,6 +603,62 @@
     }
   }
 
+  async function handOffToManualApply(
+    launch,
+    message,
+    detail = {}
+  ) {
+    statusBox(
+      "this Lever page needs Manual Apply.",
+      "warning"
+    );
+
+    await report(
+      launch,
+      {
+        status: "unsupported",
+        message,
+        detail: {
+          url: location.href,
+          executor: "chrome_agent",
+          manual_application: true,
+          ...detail,
+        },
+      }
+    );
+
+    clearLaunch();
+    await closeCompletedAgentTab(
+      launch
+    );
+  }
+
+  function leverApplyLink() {
+    for (const link of document.querySelectorAll(
+      'a[href*="/apply"]'
+    )) {
+      try {
+        const target = new URL(
+          link.href,
+          location.href
+        );
+
+        if (
+          target.hostname === location.hostname
+          && /\/apply\/?$/.test(
+            target.pathname
+          )
+        ) {
+          return target.href;
+        }
+      } catch (error) {
+        // Ignore malformed links and continue looking.
+      }
+    }
+
+    return "";
+  }
+
   async function run(launch, task) {
     const initialBody = lower(
       document.body?.innerText
@@ -656,6 +712,42 @@
     }
 
     statusBox("filling Lever application…");
+    if (
+      !document.querySelector(
+        'input[type="file"]'
+      )
+    ) {
+      await sleep(1200);
+    }
+
+    if (
+      !document.querySelector(
+        'input[type="file"]'
+      )
+    ) {
+      const applyUrl = leverApplyLink();
+
+      if (applyUrl) {
+        statusBox(
+          "opening the Lever application form..."
+        );
+        location.assign(applyUrl);
+        return;
+      }
+
+      await handOffToManualApply(
+        launch,
+        (
+          "Lever did not expose a standard application "
+          + "form Jobfinitum can automate."
+        ),
+        {
+          reason: "missing_application_form",
+        }
+      );
+      return;
+    }
+
     const identity = task.identity || {};
 
     fillFirst(['input[name="name"]', 'input[autocomplete="name"]'], identity.full_name);
@@ -675,12 +767,17 @@
     statusBox("uploading resume…");
     const resume = await fetchResume(launch, task);
     if (!setResumeFile(resume)) {
-      await report(launch, {
-        status: "needs_user_action",
-        message: "Chrome Agent could not locate the Lever resume upload field.",
-        detail: {url: location.href},
-      });
-      throw new Error("Resume upload field was not found.");
+      await handOffToManualApply(
+        launch,
+        (
+          "Chrome Agent could not locate a supported "
+          + "Lever resume upload field."
+        ),
+        {
+          reason: "missing_resume_field",
+        }
+      );
+      return;
     }
 
     statusBox("applying saved answers…");
@@ -747,6 +844,10 @@
           required_fields: stillInvalid.map((element) => labelText(element)),
         },
       });
+      clearLaunch();
+      await closeCompletedAgentTab(
+        launch
+      );
       return;
     }
 
@@ -755,12 +856,16 @@
       || document.querySelector("button.template-btn-submit");
 
     if (!submit || submit.disabled) {
-      statusBox("Lever submit button was not available.", "warning");
-      await report(launch, {
-        status: "needs_user_action",
-        message: "Chrome Agent could not find the Lever Submit Application button.",
-        detail: {url: location.href},
-      });
+      await handOffToManualApply(
+        launch,
+        (
+          "Chrome Agent could not find an enabled standard "
+          + "Lever Submit Application button."
+        ),
+        {
+          reason: "missing_submit_button",
+        }
+      );
       return;
     }
 
@@ -770,7 +875,7 @@
     const started = Date.now();
     let verificationReported = false;
 
-    while (Date.now() - started < 300000) {
+    while (Date.now() - started < 30000) {
       await sleep(750);
       const body = lower(document.body?.innerText);
 
@@ -820,13 +925,25 @@
       }
     }
 
-    await report(launch, {
-      status: verificationReported ? "waiting_verification" : "needs_user_action",
-      message: verificationReported
-        ? "Lever verification is still waiting for completion."
-        : "Lever did not return a recognizable submission confirmation.",
-      detail: {url: location.href, executor: "chrome_agent"},
-    });
+    if (verificationReported) {
+      await report(launch, {
+        status: "waiting_verification",
+        message: "Lever verification is still waiting for completion.",
+        detail: {url: location.href, executor: "chrome_agent"},
+      });
+      return;
+    }
+
+    await handOffToManualApply(
+      launch,
+      (
+        "Lever did not return a recognizable submission "
+        + "confirmation within 30 seconds. Review it from Manual Apply."
+      ),
+      {
+        reason: "submission_confirmation_timeout",
+      }
+    );
   }
 
   async function main() {
@@ -859,6 +976,10 @@
           message: `Chrome Agent failed: ${error.message || error}`,
           detail: {url: location.href},
         });
+        clearLaunch();
+        await closeCompletedAgentTab(
+          launch
+        );
       } catch (reportError) {
         console.error("Jobfinitum failure report also failed:", reportError);
       }

@@ -17,6 +17,11 @@ from services.job_sources.job_match_service import (
     parse_profile_locations,
     persisted_job_matches_location,
 )
+from services.job_identity_service import job_url_key
+from services.job_lifecycle_service import (
+    globally_closed_job_url_keys,
+    suppressed_job_identity_sets,
+)
 
 
 PREMIUM_AUTO_APPLY_DAILY_MAX = 50
@@ -161,6 +166,8 @@ def stage_auto_apply_candidates(profile, jobs):
         "already_queued": 0,
         "already_applied": 0,
         "ignored": 0,
+        "suppressed": 0,
+        "closed": 0,
         "excluded_company": 0,
         "daily_limit": 0,
         "invalid_resume": 0,
@@ -397,9 +404,60 @@ def stage_auto_apply_candidates(profile, jobs):
         profile,
         access,
     )
+    (
+        suppressed_fingerprints,
+        suppressed_url_keys,
+    ) = suppressed_job_identity_sets(
+        profile.user_id
+    )
+    globally_closed_url_keys = (
+        globally_closed_job_url_keys(
+            getattr(
+                job,
+                "posting_url",
+                None,
+            )
+            for job in jobs_by_id.values()
+        )
+    )
 
     for job_id, job in jobs_by_id.items():
         if job_id in existing_ids:
+            continue
+
+        if (
+            str(
+                getattr(
+                    job,
+                    "fingerprint",
+                    "",
+                )
+                or ""
+            ).strip()
+            in suppressed_fingerprints
+            or job_url_key(
+                getattr(
+                    job,
+                    "posting_url",
+                    None,
+                )
+            )
+            in suppressed_url_keys
+        ):
+            stats["suppressed"] += 1
+            continue
+
+        if (
+            job_url_key(
+                getattr(
+                    job,
+                    "posting_url",
+                    None,
+                )
+            )
+            in globally_closed_url_keys
+        ):
+            stats["closed"] += 1
             continue
 
         if getattr(job, "is_ignored", False):

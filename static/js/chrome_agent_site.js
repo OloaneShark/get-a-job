@@ -244,6 +244,8 @@
       "Needs User Action",
       "Unsupported",
       "Failed",
+      "Rejected",
+      "Closed",
       "Waiting for Verification",
       "Waiting for Sign-In",
     ]);
@@ -493,12 +495,21 @@
 
   function stopBatch({closeRunner = true} = {}) {
     clearState();
+    preparedBatch = null;
+    batchPreparationStarted = false;
     updateControls(null);
-    progress.textContent = "Batch runner stopped";
+    progress.textContent = (
+      "Batch stopped; refreshing available jobs"
+    );
 
     if (closeRunner) {
       sendBatchControl("stop");
     }
+
+    window.setTimeout(
+      prepareBatch,
+      closeRunner ? 300 : 0
+    );
   }
 
   async function prepareBatch() {
@@ -611,6 +622,19 @@
   );
 
   window.addEventListener(
+    "jobfinitum:queue-changed",
+    () => {
+      if (loadState()?.active) {
+        return;
+      }
+
+      preparedBatch = null;
+      batchPreparationStarted = false;
+      prepareBatch();
+    }
+  );
+
+  window.addEventListener(
     "message",
     (event) => {
       if (
@@ -716,6 +740,164 @@
   );
 
   prepareBatch();
+})();
+
+(() => {
+  "use strict";
+
+  const forms = [
+    ...document.querySelectorAll(
+      'form[data-jobfinitum-single-reject="true"]'
+    ),
+  ];
+
+  if (!forms.length) {
+    return;
+  }
+
+  function changeStatusCount(
+    status,
+    difference
+  ) {
+    if (!status) {
+      return;
+    }
+
+    const count =
+      document.querySelector(
+        `[data-jobfinitum-status-count="${CSS.escape(status)}"]`
+      );
+
+    if (!count) {
+      return;
+    }
+
+    const current = Number(
+      count.textContent || "0"
+    );
+
+    count.textContent = String(
+      Math.max(
+        0,
+        current + difference
+      )
+    );
+  }
+
+  for (const form of forms) {
+    form.addEventListener(
+      "submit",
+      async (event) => {
+        event.preventDefault();
+
+        const card = form.closest(
+          "[data-jobfinitum-candidate-card]"
+        );
+
+        const button = form.querySelector(
+          'button[type="submit"]'
+        );
+
+        if (!card || !button || button.disabled) {
+          return;
+        }
+
+        const originalLabel = button.textContent;
+        button.disabled = true;
+        button.textContent = "Rejecting...";
+
+        try {
+          const response = await fetch(
+            form.action,
+            {
+              method: "POST",
+              body: new FormData(form),
+              credentials: "same-origin",
+              cache: "no-store",
+              headers: {
+                "X-Requested-With":
+                  "XMLHttpRequest",
+                "Accept":
+                  "application/json",
+              },
+            }
+          );
+
+          const payload = await response.json();
+
+          if (!response.ok || !payload.success) {
+            throw new Error(
+              payload.message
+              || `HTTP ${response.status}`
+            );
+          }
+
+          const previousStatus = String(
+            card.dataset.jobfinitumCandidateStatus
+            || ""
+          );
+
+          const previousExecution = String(
+            card.dataset.jobfinitumCandidateExecution
+            || ""
+          );
+
+          if (previousStatus === "Pending Review") {
+            changeStatusCount(
+              "Pending Review",
+              -1
+            );
+          }
+
+          if (
+            previousExecution
+            && previousExecution !== "Not Started"
+            && previousExecution !== "Submitted"
+          ) {
+            changeStatusCount(
+              previousExecution,
+              -1
+            );
+          }
+
+          changeStatusCount(
+            "Rejected",
+            1
+          );
+
+          card.remove();
+          window.dispatchEvent(
+            new CustomEvent(
+              "jobfinitum:queue-changed"
+            )
+          );
+
+          const cards = document.getElementById(
+            "jobfinitum-auto-apply-cards"
+          );
+
+          if (
+            cards
+            && !cards.querySelector(
+              "[data-jobfinitum-candidate-card]"
+            )
+          ) {
+            cards.innerHTML = (
+              '<div class="alert alert-info mb-0">'
+              + "No jobs remain on this page."
+              + "</div>"
+            );
+          }
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = originalLabel;
+          window.alert(
+            `Could not reject this job: ${error.message || error}`
+          );
+        }
+      }
+    );
+  }
 })();
 
 (() => {

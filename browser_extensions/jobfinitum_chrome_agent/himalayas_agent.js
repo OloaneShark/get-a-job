@@ -201,6 +201,84 @@
     }
   }
 
+  function isHimalayasJobsIndex() {
+    return (
+      HIMALAYAS_HOSTS.has(
+        location.hostname.toLowerCase()
+      )
+      && location.pathname.replace(
+        /\/+$/,
+        ""
+      ) === "/jobs"
+    );
+  }
+
+  async function closeCompletedAgentTab(
+    launch
+  ) {
+    if (isBatchRunner()) {
+      return;
+    }
+
+    try {
+      await send({
+        type:
+          "jobfinitum-close-agent-tab",
+        origin:
+          launch.origin,
+      });
+    } catch (error) {
+      console.warn(
+        "Jobfinitum could not close the completed Himalayas tab:",
+        error
+      );
+    }
+  }
+
+  async function reportPostingClosed(
+    launch,
+    originalUrl
+  ) {
+    statusBox(
+      "this Himalayas posting is no longer available.",
+      "warning"
+    );
+
+    await send({
+      type:
+        "jobfinitum-result",
+      origin:
+        launch.origin,
+      token:
+        launch.token,
+      payload: {
+        status:
+          "posting_closed",
+        message:
+          "Himalayas redirected this removed posting to its jobs index.",
+        final_url:
+          location.href,
+        detail: {
+          url:
+            location.href,
+          final_url:
+            location.href,
+          original_url:
+            String(
+              originalUrl || ""
+            ),
+          resolver:
+            "himalayas_browser_agent",
+        },
+      },
+    });
+
+    clearLaunch();
+    await closeCompletedAgentTab(
+      launch
+    );
+  }
+
   function isExternalUrl(value) {
     try {
       const parsed =
@@ -513,6 +591,14 @@
         );
       }
 
+      if (isHimalayasJobsIndex()) {
+        await reportPostingClosed(
+          launch,
+          task.target_url
+        );
+        return;
+      }
+
       await send({
         type:
           "jobfinitum-himalayas-watch",
@@ -536,6 +622,14 @@
         Date.now() - started
         < 25000
       ) {
+        if (isHimalayasJobsIndex()) {
+          await reportPostingClosed(
+            launch,
+            task.target_url
+          );
+          return;
+        }
+
         if (
           await scanForTarget(
             launch
@@ -612,6 +706,9 @@
       });
 
       clearLaunch();
+      await closeCompletedAgentTab(
+        launch
+      );
     } catch (error) {
       console.error(
         "Jobfinitum Himalayas resolver failed:",
@@ -659,6 +756,9 @@
       }
 
       clearLaunch();
+      await closeCompletedAgentTab(
+        launch
+      );
     }
   }
 

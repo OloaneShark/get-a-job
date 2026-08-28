@@ -20,6 +20,9 @@ from services.auto_apply_submission.engine import (
     get_or_create_package,
     resume_path,
 )
+from services.job_lifecycle_service import (
+    record_job_health_result,
+)
 
 
 
@@ -160,6 +163,15 @@ def build_chrome_agent_launch_url(
 
 
 def prepare_chrome_agent_candidate(candidate, user):
+    if candidate.status == "Rejected":
+        return {
+            "ok": False,
+            "message": (
+                "This application was rejected. Reset it to "
+                "Pending Review before running Auto Apply again."
+            ),
+        }
+
     if not get_auto_apply_access(user)["allowed"]:
         return {
             "ok": False,
@@ -617,7 +629,31 @@ def _record_himalayas_manual_handoff(
     }
 
 
+def _is_himalayas_jobs_index(value):
+    parts = urlsplit(
+        str(value or "").strip()
+    )
+    host = (
+        parts.hostname or ""
+    ).lower()
+
+    return (
+        host in HIMALAYAS_HOSTS
+        and parts.path.rstrip("/")
+        == "/jobs"
+    )
+
+
 def apply_chrome_agent_result(candidate, user, payload):
+    if candidate.status == "Rejected":
+        return {
+            "status": "Rejected",
+            "message": (
+                "The application stayed rejected; a late Chrome "
+                "Agent result was ignored."
+            ),
+        }
+
     prepared = prepare_chrome_agent_candidate(candidate, user)
     if not prepared["ok"]:
         raise ValueError(prepared["message"])
@@ -634,13 +670,62 @@ def apply_chrome_agent_result(candidate, user, payload):
         resolver_status = str(
             payload.get("status") or ""
         ).strip().lower()
+        detail = payload.get("detail")
+
+        if not isinstance(detail, dict):
+            detail = {}
+
+        final_url = str(
+            payload.get("final_url")
+            or detail.get("final_url")
+            or detail.get("url")
+            or ""
+        ).strip()
+
+        if (
+            resolver_status
+            == "posting_closed"
+            or _is_himalayas_jobs_index(
+                final_url
+            )
+        ):
+            posting_url = str(
+                candidate.discovered_job.posting_url
+                or candidate.discovered_job.apply_url
+                or ""
+            ).strip()
+            message = (
+                "Himalayas redirected this posting to its jobs "
+                "index, confirming that the job is no longer available."
+            )
+            cleanup_stats = (
+                record_job_health_result(
+                    {
+                        "posting_url": posting_url,
+                        "status": "Closed",
+                        "reason": (
+                            "Himalayas redirected the posting "
+                            "to its jobs index"
+                        ),
+                        "final_url": (
+                            final_url
+                            or "https://himalayas.app/jobs"
+                        ),
+                        "http_status": None,
+                        "checked_at": utcnow_naive(),
+                    }
+                )
+            )
+            db.session.flush()
+
+            return {
+                "status": "Closed",
+                "message": message,
+                "posting_removed": True,
+                "cleanup": cleanup_stats,
+            }
 
         if resolver_status == "needs_manual_destination":
-            detail = payload.get("detail")
-
-            if not isinstance(detail, dict):
-                detail = {}
-
             message = str(
                 payload.get("message")
                 or (
@@ -767,6 +852,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         "waiting_verification": "Waiting for Verification",
         "needs_application_answer": "Needs Application Answer",
         "needs_user_action": "Needs User Action",
+        "unsupported": "Unsupported",
         "failed": "Failed",
     }
     status = status_map.get(
@@ -791,6 +877,10 @@ def apply_chrome_agent_result(candidate, user, payload):
         "Needs User Action": (
             f"{platform_name} requires additional "
             "user action."
+        ),
+        "Unsupported": (
+            f"{platform_name} did not expose a form "
+            "Jobfinitum can automate safely."
         ),
         "Failed": (
             "Chrome Agent submission failed."
@@ -942,6 +1032,10 @@ def apply_chrome_agent_result(candidate, user, payload):
     }:
         application.status = f"Auto Apply - {status}"
         package.status = status
+        package.failure_reason = message
+    elif status == "Unsupported":
+        application.status = "Auto Apply - Unsupported"
+        package.status = "Unsupported"
         package.failure_reason = message
     else:
         application.status = "Auto Apply - Failed"

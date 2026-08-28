@@ -124,6 +124,16 @@ def execute_candidate_submission(
     user,
     resume_mode=False,
 ):
+    if candidate.status == "Rejected":
+        return {
+            "status": "Rejected",
+            "message": (
+                "This application is rejected. Reset it to "
+                "Pending Review before submitting it."
+            ),
+            "category": "info",
+        }
+
     access = get_auto_apply_access(user)
     now = utcnow_naive()
 

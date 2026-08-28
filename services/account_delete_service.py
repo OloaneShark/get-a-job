@@ -15,6 +15,7 @@ from models import (
     JobSearchProfile,
     Resume,
     SavedJobDescription,
+    SuppressedJob,
     TwoFactorRecoveryCode,
 )
 
@@ -30,6 +31,7 @@ def delete_user_account(user):
         AIReport,
         ApplicationPackage,
         AutoApplyCandidate,
+        SuppressedJob,
     ):
         model.query.filter_by(user_id=user_id).delete(
             synchronize_session=False

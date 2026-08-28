@@ -424,6 +424,122 @@ class DiscoveredJob(db.Model):
     
     
 
+class SuppressedJob(db.Model):
+    __tablename__ = "suppressed_job"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    fingerprint = db.Column(
+        db.String(64),
+        nullable=False,
+        index=True,
+    )
+    url_key = db.Column(
+        db.String(64),
+        nullable=False,
+        index=True,
+    )
+    posting_url = db.Column(
+        db.String(1000),
+        nullable=True,
+    )
+    source = db.Column(db.String(80), nullable=True)
+    company_name = db.Column(db.String(150), nullable=True)
+    position_title = db.Column(db.String(150), nullable=True)
+    reason = db.Column(
+        db.String(80),
+        nullable=False,
+        default="Deleted by user",
+    )
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "user_id",
+            "fingerprint",
+            name="uq_suppressed_job_user_fingerprint",
+        ),
+        db.UniqueConstraint(
+            "user_id",
+            "url_key",
+            name="uq_suppressed_job_user_url",
+        ),
+    )
+
+
+class JobPostingHealth(db.Model):
+    __tablename__ = "job_posting_health"
+
+    url_key = db.Column(db.String(64), primary_key=True)
+    posting_url = db.Column(
+        db.String(1000),
+        nullable=False,
+    )
+    status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+        index=True,
+    )
+    reason = db.Column(db.String(255), nullable=True)
+    final_url = db.Column(db.String(1000), nullable=True)
+    http_status = db.Column(db.Integer, nullable=True)
+    consecutive_failures = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+    )
+    last_checked_at = db.Column(
+        db.DateTime,
+        nullable=True,
+        index=True,
+    )
+    closed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
+class JobLifecycleScanState(db.Model):
+    __tablename__ = "job_lifecycle_scan_state"
+
+    name = db.Column(db.String(80), primary_key=True)
+    cursor_id = db.Column(
+        db.Integer,
+        nullable=False,
+        default=0,
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
 class CachedSourceJob(db.Model):
     __tablename__ = "cached_source_job"
 

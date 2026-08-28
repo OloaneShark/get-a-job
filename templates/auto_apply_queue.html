@@ -169,22 +169,31 @@
             <a
                 href="{{ url_for('auto_apply_queue', status=value) }}"
                 class="btn {% if selected_status == value %}btn-primary{% else %}btn-outline-primary{% endif %}"
+                data-jobfinitum-status-filter="{{ value }}"
             >
                 {{ label }}
                 {% if value != "all" %}
-                    ({{ status_counts.get(value, 0) }})
+                    (<span data-jobfinitum-status-count="{{ value }}">{{ status_counts.get(value, 0) }}</span>)
                 {% endif %}
             </a>
         {% endfor %}
     </div>
 
     {% if candidates %}
-        <div class="d-grid gap-3">
+        <div
+            id="jobfinitum-auto-apply-cards"
+            class="d-grid gap-3"
+        >
             {% for candidate in candidates %}
                 {% set execution = candidate.execution_status or "Not Started" %}
                 {% set latest_attempt = latest_attempts.get(candidate.id) %}
 
-                <div class="card">
+                <div
+                    class="card"
+                    data-jobfinitum-candidate-card="{{ candidate.id }}"
+                    data-jobfinitum-candidate-status="{{ candidate.status }}"
+                    data-jobfinitum-candidate-execution="{{ execution }}"
+                >
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between gap-3">
                             <div class="d-flex align-items-start gap-3 flex-grow-1">
@@ -554,10 +563,27 @@
                             {% endif %}
 
                             {% if candidate.status != "Rejected" and execution != "Submitted" %}
-                                <form method="POST" action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reject') }}">
+                                <form
+                                    method="POST"
+                                    action="{{ url_for('update_auto_apply_candidate', candidate_id=candidate.id, action='reject') }}"
+                                    data-jobfinitum-single-reject="true"
+                                >
                                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-outline-danger">
                                         Reject
+                                    </button>
+                                </form>
+                            {% endif %}
+
+                            {% if candidate.status == "Rejected" %}
+                                <form
+                                    method="POST"
+                                    action="{{ url_for('delete_rejected_auto_apply_candidate', candidate_id=candidate.id) }}"
+                                    onsubmit="return confirm('Permanently delete this rejected job? It will not be discovered or queued again.');"
+                                >
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-danger">
+                                        Delete Permanently
                                     </button>
                                 </form>
                             {% endif %}

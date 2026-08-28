@@ -58,6 +58,7 @@ from models import (
     JobSourceCompany,
     JobSourceCandidate,
     CachedSourceJob,
+    SuppressedJob,
     AutoApplyCandidate,
     ApplicantProfile,
     ApplicationSubmissionAttempt
@@ -139,6 +140,7 @@ from services.account_delete_service import (
 from services.scheduler_service import (
     get_automatic_source_discovery_status,
     queue_automatic_source_discovery,
+    start_job_lifecycle_scheduler,
     start_scheduler,
 )
 from services.job_sources.source_utils import (
@@ -196,6 +198,11 @@ from services.auto_apply_submission.chrome_agent_service import (
 from services.auto_apply_submission.executor_router import (
     EXECUTOR_CHROME_AGENT,
     get_submission_executor,
+)
+from services.job_lifecycle_service import (
+    job_is_suppressed,
+    job_is_globally_closed,
+    remove_discovered_job,
 )
 from services.phone_service import (
     country_region_from_name,
@@ -3718,8 +3725,10 @@ def auto_apply_queue():
     elif selected_status == "Rejected":
         query = query.filter_by(status="Rejected")
     elif selected_status != "all":
-        query = query.filter_by(
-            execution_status=selected_status
+        query = query.filter(
+            AutoApplyCandidate.execution_status
+            == selected_status,
+            AutoApplyCandidate.status != "Rejected",
         )
 
     pagination = (
@@ -3762,9 +3771,12 @@ def auto_apply_queue():
     ):
         status_counts[execution_value] = (
             AutoApplyCandidate.query
-            .filter_by(
-                user_id=current_user.id,
-                execution_status=execution_value,
+            .filter(
+                AutoApplyCandidate.user_id
+                == current_user.id,
+                AutoApplyCandidate.execution_status
+                == execution_value,
+                AutoApplyCandidate.status != "Rejected",
             )
             .count()
         )
@@ -4029,6 +4041,79 @@ def reject_checked_auto_apply_candidates():
     return redirect(
         request.referrer
         or url_for("auto_apply_queue")
+    )
+
+
+@app.route(
+    "/auto-apply/<int:candidate_id>/delete-rejected",
+    methods=["POST"],
+)
+@login_required
+def delete_rejected_auto_apply_candidate(candidate_id):
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users "
+            "and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=candidate_id,
+            user_id=current_user.id,
+        )
+        .first_or_404()
+    )
+
+    if candidate.status != "Rejected":
+        flash(
+            "Only rejected jobs can be permanently deleted here.",
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Rejected",
+            )
+        )
+
+    job = candidate.discovered_job
+    job_label = (
+        f"{job.position_title} at "
+        f"{job.company_name}"
+    )
+
+    remove_discovered_job(
+        job,
+        reason="Deleted from rejected queue",
+    )
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        (
+            "Permanently deleted rejected Auto Apply "
+            f"candidate {candidate_id}"
+        ),
+    )
+
+    flash(
+        (
+            f"Deleted {job_label}. This exact job "
+            "will not be discovered again."
+        ),
+        "info",
+    )
+
+    return redirect(
+        url_for(
+            "auto_apply_queue",
+            status="Rejected",
+        )
     )
 
 
@@ -4543,6 +4628,7 @@ def chrome_agent_result_api(token):
         return jsonify({"error": error}), 404
 
     payload = request.get_json(silent=True) or {}
+    candidate_id = candidate.id
 
     try:
         result = apply_chrome_agent_result(
@@ -4550,14 +4636,14 @@ def chrome_agent_result_api(token):
             user,
             payload,
         )
-        result["candidate_id"] = candidate.id
+        result["candidate_id"] = candidate_id
         db.session.commit()
 
         log_action(
             user.id,
             (
                 "Chrome Agent result for "
-                f"Auto Apply candidate {candidate.id}: "
+                f"Auto Apply candidate {candidate_id}: "
                 f"{result['status']}"
             ),
         )
@@ -4842,6 +4928,21 @@ def update_auto_apply_candidate(candidate_id, action):
         current_user.id,
         f"Auto Apply candidate {candidate.id}: {action}",
     )
+
+    if (
+        action == "reject"
+        and request.headers.get(
+            "X-Requested-With"
+        ) == "XMLHttpRequest"
+    ):
+        return jsonify(
+            {
+                "success": True,
+                "candidate_id": candidate.id,
+                "status": "Rejected",
+                "message": message,
+            }
+        )
 
     flash(message, category)
 
@@ -5957,6 +6058,20 @@ def get_or_create_user_job_from_cache(cached_job):
         posting_url,
     )
 
+    if job_is_suppressed(
+        current_user.id,
+        fingerprint=fingerprint,
+        posting_url=posting_url,
+    ):
+        raise ValueError(
+            "This job was permanently deleted from your account."
+        )
+
+    if job_is_globally_closed(posting_url):
+        raise ValueError(
+            "This job posting is closed and is no longer available."
+        )
+
     discovered_job = (
         DiscoveredJob.query
         .filter_by(
@@ -6173,11 +6288,34 @@ def job_bazaar():
         )
     )
 
+    suppressed_job_exists = db.exists().where(
+        db.and_(
+            SuppressedJob.user_id
+            == current_user.id,
+            SuppressedJob.posting_url.isnot(
+                None
+            ),
+            db.func.lower(
+                db.func.rtrim(
+                    SuppressedJob.posting_url,
+                    "/",
+                )
+            )
+            == db.func.lower(
+                db.func.rtrim(
+                    CachedSourceJob.posting_url,
+                    "/",
+                )
+            ),
+        )
+    )
+
     query = (
         CachedSourceJob.query
         .filter(
             CachedSourceJob.expires_at > now,
             ~ignored_job_exists,
+            ~suppressed_job_exists,
         )
     )
 
@@ -6649,7 +6787,10 @@ def bulk_discovered_jobs():
                 job.is_ignored = False
                 job.ignored_at = None
             else:
-                db.session.delete(job)
+                remove_discovered_job(
+                    job,
+                    reason="Deleted by user",
+                )
 
             changed_count += 1
 
@@ -6956,6 +7097,24 @@ scheduler_enabled = (
         "on",
     }
 )
+lifecycle_scheduler_enabled = (
+    os.getenv(
+        "JOB_LIFECYCLE_ENABLED",
+        "true",
+    )
+    .strip()
+    .lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
+
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
 
 if scheduler_enabled:
     print(
@@ -6963,14 +7122,16 @@ if scheduler_enabled:
         "JOB_SCHEDULER_ENABLED."
     )
     start_scheduler(app)
+elif lifecycle_scheduler_enabled:
+    print(
+        "JOB LIFECYCLE SCHEDULER: enabled by "
+        "JOB_LIFECYCLE_ENABLED."
+    )
+    start_job_lifecycle_scheduler(app)
 else:
     print(
-        "JOB SEARCH SCHEDULER: disabled by "
-        "JOB_SCHEDULER_ENABLED."
+        "JOB SEARCH AND LIFECYCLE SCHEDULERS: disabled."
     )
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
