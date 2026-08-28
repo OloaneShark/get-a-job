@@ -202,12 +202,48 @@ def parse_published_at(value):
     if parsed is not None:
         return parsed
 
+    if isinstance(value, (int, float)):
+        timestamp = float(value)
+
+        if timestamp > 100_000_000_000:
+            timestamp /= 1000
+
+        try:
+            return datetime.fromtimestamp(
+                timestamp,
+                tz=timezone.utc,
+            )
+        except (
+            OverflowError,
+            OSError,
+            ValueError,
+        ):
+            return None
+
     text = normalized_text(
         value
     )
 
     if not text:
         return None
+
+    if text.isdigit():
+        timestamp = float(text)
+
+        if timestamp > 100_000_000_000:
+            timestamp /= 1000
+
+        try:
+            return datetime.fromtimestamp(
+                timestamp,
+                tz=timezone.utc,
+            )
+        except (
+            OverflowError,
+            OSError,
+            ValueError,
+        ):
+            return None
 
     if text.endswith("Z"):
         text = (

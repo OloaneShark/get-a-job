@@ -269,12 +269,39 @@
       "jobfinitum-batch-progress"
     );
 
+  const rejectCheckedButton =
+    document.getElementById(
+      "jobfinitum-reject-checked"
+    );
+
+  const resetCheckedButton =
+    document.getElementById(
+      "jobfinitum-reset-checked"
+    );
+
+  const resetAllRejectedButton =
+    document.getElementById(
+      "jobfinitum-reset-all-rejected"
+    );
+
+  const selectPageControl =
+    document.getElementById(
+      "jobfinitum-select-page"
+    );
+
+  const reviewCheckboxes = [
+    ...document.querySelectorAll(
+      "[data-jobfinitum-review-select]"
+    ),
+  ];
+
   const csrfToken =
     document.getElementById(
       "jobfinitum-batch-csrf-token"
     )?.value || "";
 
-  let runnerWindow = null;
+  let preparedBatch = null;
+  let batchPreparationStarted = false;
 
   if (
     !startButton
@@ -326,10 +353,54 @@
     startButton.disabled = (
       active
       || !agentConnected()
+      || !Array.isArray(
+        preparedBatch?.candidates
+      )
     );
 
     stopButton.disabled =
       !active;
+
+    if (rejectCheckedButton) {
+      rejectCheckedButton.dataset.batchActive = (
+        active ? "1" : "0"
+      );
+      rejectCheckedButton.disabled = (
+        active
+        || Number(
+          rejectCheckedButton.dataset.selectedCount
+          || "0"
+        ) < 1
+      );
+    }
+
+    if (resetCheckedButton) {
+      resetCheckedButton.dataset.batchActive = (
+        active ? "1" : "0"
+      );
+      resetCheckedButton.disabled = (
+        active
+        || Number(
+          resetCheckedButton.dataset.selectedCount
+          || "0"
+        ) < 1
+      );
+    }
+
+    if (resetAllRejectedButton) {
+      resetAllRejectedButton.disabled = active;
+    }
+
+    for (const checkbox of reviewCheckboxes) {
+      checkbox.disabled = active;
+    }
+
+    if (selectPageControl) {
+      selectPageControl.disabled = (
+        active
+        || reviewCheckboxes.length < 1
+      );
+    }
 
     if (!active) {
       return;
@@ -406,6 +477,15 @@
     csrf.value = csrfToken;
 
     form.appendChild(csrf);
+
+    const batchMode =
+      document.createElement("input");
+
+    batchMode.type = "hidden";
+    batchMode.name = "jobfinitum_batch";
+    batchMode.value = "1";
+
+    form.appendChild(batchMode);
     document.body.appendChild(form);
     form.submit();
     form.remove();
@@ -417,43 +497,19 @@
     progress.textContent = "Batch runner stopped";
 
     if (closeRunner) {
-      try {
-        runnerWindow?.close();
-      } catch (error) {
-        // The extension also closes a registered cross-origin runner.
-      }
-
-      runnerWindow = null;
       sendBatchControl("stop");
     }
   }
 
-  async function startBatch() {
-    if (
-      !agentConnected()
-      || loadState()?.active
-    ) {
+  async function prepareBatch() {
+    if (batchPreparationStarted) {
       return;
     }
 
-    const runner =
-      window.open(
-        "about:blank",
-        RUNNER_NAME
-      );
-
-    if (!runner) {
-      progress.textContent = (
-        "Allow the Jobfinitum worker tab to start Auto Apply"
-      );
-      return;
-    }
-
-    runnerWindow = runner;
-
-    startButton.disabled = true;
-    progress.textContent =
-      "Preparing Auto Apply batch";
+    batchPreparationStarted = true;
+    progress.textContent = (
+      "Preparing Auto Apply batch"
+    );
 
     try {
       const response = await fetch(
@@ -464,8 +520,7 @@
         }
       );
 
-      const payload =
-        await response.json();
+      const payload = await response.json();
 
       if (!response.ok) {
         throw new Error(
@@ -474,45 +529,75 @@
         );
       }
 
-      const candidates =
-        Array.isArray(
+      preparedBatch = {
+        ...payload,
+        candidates: Array.isArray(
           payload.candidates
         )
           ? payload.candidates
-          : [];
+          : [],
+      };
 
-      if (!candidates.length) {
-        runner.close();
-        runnerWindow = null;
-        progress.textContent = (
-          payload.skipped_location
-            ? "No eligible jobs; location-restricted jobs were skipped"
-            : "No pending supported jobs to run"
-        );
-        updateControls(null);
-        return;
-      }
-
-      saveState({
-        active: true,
-        total:
-          candidates.length,
-        completed: 0,
-        current: null,
-        remaining:
-          candidates,
-      });
-
-      submitNext();
-    } catch (error) {
-      runner.close();
-      runnerWindow = null;
-      clearState();
       progress.textContent = (
-        `Could not start batch: ${error.message || error}`
+        preparedBatch.candidates.length
+          ? (
+              `${preparedBatch.candidates.length} jobs ready`
+            )
+          : (
+              preparedBatch.skipped_out_of_spec
+                ? "No eligible jobs; out-of-spec jobs were skipped"
+                : "No pending supported jobs to run"
+            )
+      );
+    } catch (error) {
+      preparedBatch = null;
+      progress.textContent = (
+        `Could not prepare batch: ${error.message || error}`
+      );
+    }
+
+    updateControls();
+  }
+
+  function startBatch() {
+    if (
+      !agentConnected()
+      || loadState()?.active
+      || !Array.isArray(
+        preparedBatch?.candidates
+      )
+    ) {
+      return;
+    }
+
+    startButton.disabled = true;
+    const payload = preparedBatch;
+    const candidates = payload.candidates;
+
+    if (!candidates.length) {
+      progress.textContent = (
+        payload.skipped_out_of_spec
+          ? "No eligible jobs; out-of-spec jobs were skipped"
+          : "No pending supported jobs to run"
       );
       updateControls(null);
+      return;
     }
+
+    preparedBatch = null;
+
+    saveState({
+      active: true,
+      total: candidates.length,
+      completed: 0,
+      current: null,
+      remaining: candidates,
+    });
+
+    // This synchronous form submission runs directly inside the
+    // user's click, so Chrome opens the first real application
+    // instead of an intermediate about:blank worker tab.
+    submitNext();
   }
 
   startButton.addEventListener(
@@ -629,6 +714,169 @@
     updateControls,
     250
   );
+
+  prepareBatch();
+})();
+
+(() => {
+  "use strict";
+
+  const form =
+    document.getElementById(
+      "jobfinitum-bulk-review-form"
+    );
+
+  const rejectButton =
+    document.getElementById(
+      "jobfinitum-reject-checked"
+    );
+
+  const rejectLabel =
+    document.getElementById(
+      "jobfinitum-reject-checked-label"
+    );
+
+  const resetButton =
+    document.getElementById(
+      "jobfinitum-reset-checked"
+    );
+
+  const resetLabel =
+    document.getElementById(
+      "jobfinitum-reset-checked-label"
+    );
+
+  const selectPage =
+    document.getElementById(
+      "jobfinitum-select-page"
+    );
+
+  const checkboxes = [
+    ...document.querySelectorAll(
+      "[data-jobfinitum-review-select]"
+    ),
+  ];
+
+  if (
+    !form
+    || !rejectButton
+    || !rejectLabel
+    || !selectPage
+  ) {
+    return;
+  }
+
+  function selectedCheckboxes() {
+    return checkboxes.filter(
+      (checkbox) => checkbox.checked
+    );
+  }
+
+  function updateSelection() {
+    const selected =
+      selectedCheckboxes().length;
+
+    rejectButton.dataset.selectedCount =
+      String(selected);
+
+    rejectButton.disabled = (
+      selected < 1
+      || rejectButton.dataset.batchActive
+        === "1"
+    );
+
+    rejectLabel.textContent = (
+      selected
+        ? `Reject Checked Jobs (${selected})`
+        : "Reject Checked Jobs"
+    );
+
+    if (resetButton) {
+      resetButton.dataset.selectedCount =
+        String(selected);
+
+      resetButton.disabled = (
+        selected < 1
+        || resetButton.dataset.batchActive
+          === "1"
+      );
+    }
+
+    if (resetLabel) {
+      resetLabel.textContent = (
+        selected
+          ? `Reset Checked for Review (${selected})`
+          : "Reset Checked for Review"
+      );
+    }
+
+    const checkedCount =
+      checkboxes.filter(
+        (checkbox) => checkbox.checked
+      ).length;
+
+    selectPage.checked = (
+      checkboxes.length > 0
+      && checkedCount === checkboxes.length
+    );
+    selectPage.indeterminate = (
+      checkedCount > 0
+      && checkedCount < checkboxes.length
+    );
+    selectPage.disabled = (
+      checkboxes.length < 1
+      || rejectButton.dataset.batchActive
+        === "1"
+    );
+  }
+
+  selectPage.addEventListener(
+    "change",
+    () => {
+      for (const checkbox of checkboxes) {
+        checkbox.checked = selectPage.checked;
+      }
+
+      updateSelection();
+    }
+  );
+
+  for (const checkbox of checkboxes) {
+    checkbox.addEventListener(
+      "change",
+      updateSelection
+    );
+  }
+
+  form.addEventListener(
+    "submit",
+    (event) => {
+      const selected =
+        selectedCheckboxes().length;
+
+      if (!selected) {
+        event.preventDefault();
+        updateSelection();
+        return;
+      }
+
+      if (
+        !window.confirm(
+          event.submitter === resetButton
+            ? (
+                `Return ${selected} checked Manual Apply job${selected === 1 ? "" : "s"} to Pending Review?`
+              )
+            : (
+                `Reject ${selected} checked job${selected === 1 ? "" : "s"}?`
+              )
+        )
+      ) {
+        event.preventDefault();
+      }
+    }
+  );
+
+  updateSelection();
 })();
 
 (() => {

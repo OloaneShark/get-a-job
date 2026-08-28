@@ -37,7 +37,9 @@ def detect_source_type(url):
 
     if hostname in {
         "boards.greenhouse.io",
-        "job-boards.greenhouse.io"
+        "boards.eu.greenhouse.io",
+        "job-boards.greenhouse.io",
+        "job-boards.eu.greenhouse.io",
     }:
         return (
             "greenhouse",
@@ -97,4 +99,3 @@ def detect_source_type(url):
         "Unsupported job-board URL. "
         "Currently supported: Greenhouse, Lever, Ashby, Workday, Recruitee, BambooHR, and Workable."
     )
-    

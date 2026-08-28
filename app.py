@@ -11,6 +11,7 @@
 #Ok so automation is somewhat coming along but it is still a damn hassle and doesn't want to work fully
 #August 24, 2026, making first commit in 3 days because automation is a bitch to do on your own
 #since I'm working on this solo
+#August 26, 2026, it looks like greenhouse MIGHT be working properly after 2 days of testing
 
 import os
 import bcrypt
@@ -148,9 +149,6 @@ from services.job_sources.source_utils import (
 from services.job_sources.utils import (
     build_job_fingerprint,
 )
-from services.job_sources.job_match_service import (
-    persisted_job_matches_location,
-)
 from services.job_sources.workday_crawler import (
     WorkdayCrawler,
 )
@@ -177,6 +175,7 @@ from services.auto_apply_submission.application_answer_memory_service import (
 )
 
 from services.auto_apply_service import (
+    candidate_matches_current_profile,
     get_auto_apply_access,
     stage_existing_auto_apply_matches,
 )
@@ -1756,10 +1755,7 @@ def reject_job_source_candidate(candidate_id):
     )
 
 
-@app.route(
-    "/admin/job-source-candidates/run-discovery",
-    methods=["POST"],
-)
+@app.route("/admin/job-source-candidates/run-discovery", methods=["POST"],)
 @login_required
 def run_job_source_discovery():
     ajax_request = (
@@ -1832,10 +1828,7 @@ def run_job_source_discovery():
     return redirect(url_for("job_source_candidates"))
 
 
-@app.route(
-    "/admin/job-source-candidates/discovery-status",
-    methods=["GET"],
-)
+@app.route("/admin/job-source-candidates/discovery-status", methods=["GET"],)
 @login_required
 def job_source_discovery_status():
     if not current_user.is_admin:
@@ -3873,10 +3866,9 @@ def auto_apply_queue():
     )
 
 
-def _batch_candidate_location_eligible(candidate):
-    return persisted_job_matches_location(
-        candidate.discovered_job,
-        candidate.search_profile,
+def _batch_candidate_profile_eligible(candidate):
+    return candidate_matches_current_profile(
+        candidate,
     )
 
 
@@ -3913,7 +3905,7 @@ def auto_apply_batch_candidates_api():
     )
 
     batch = []
-    skipped_location = 0
+    skipped_out_of_spec = 0
 
     for candidate in candidates:
         if not chrome_agent_supports_job(
@@ -3921,10 +3913,10 @@ def auto_apply_batch_candidates_api():
         ):
             continue
 
-        if not _batch_candidate_location_eligible(
+        if not _batch_candidate_profile_eligible(
             candidate
         ):
-            skipped_location += 1
+            skipped_out_of_spec += 1
             continue
 
         batch.append(
@@ -3945,15 +3937,231 @@ def auto_apply_batch_candidates_api():
         {
             "candidates": batch,
             "count": len(batch),
-            "skipped_location": skipped_location,
+            "skipped_out_of_spec": skipped_out_of_spec,
         }
     )
 
 
+def _selected_auto_apply_candidate_ids():
+    candidate_ids = []
+    seen_ids = set()
+
+    for raw_candidate_id in request.form.getlist(
+        "candidate_ids"
+    ):
+        try:
+            candidate_id = int(raw_candidate_id)
+        except (TypeError, ValueError):
+            continue
+
+        if candidate_id <= 0 or candidate_id in seen_ids:
+            continue
+
+        seen_ids.add(candidate_id)
+        candidate_ids.append(candidate_id)
+
+    return candidate_ids
+
+
 @app.route(
-    "/auto-apply/<int:candidate_id>/answers",
+    "/auto-apply/reject-checked",
     methods=["POST"],
 )
+@login_required
+def reject_checked_auto_apply_candidates():
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users "
+            "and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidate_ids = _selected_auto_apply_candidate_ids()
+
+    if not candidate_ids:
+        flash("Select at least one job to reject.", "warning")
+        return redirect(
+            request.referrer
+            or url_for("auto_apply_queue")
+        )
+
+    candidates = (
+        AutoApplyCandidate.query
+        .filter(
+            AutoApplyCandidate.user_id == current_user.id,
+            AutoApplyCandidate.id.in_(candidate_ids),
+            AutoApplyCandidate.status != "Rejected",
+            AutoApplyCandidate.execution_status != "Submitted",
+        )
+        .all()
+    )
+
+    now = datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
+
+    for candidate in candidates:
+        candidate.status = "Rejected"
+        candidate.reviewed_at = now
+
+    db.session.commit()
+
+    rejected_count = len(candidates)
+    log_action(
+        current_user.id,
+        (
+            "Bulk rejected Auto Apply candidates: "
+            f"{rejected_count}"
+        ),
+    )
+
+    flash(
+        (
+            f"Rejected {rejected_count} checked "
+            f"job{'s' if rejected_count != 1 else ''}."
+        ),
+        "info" if rejected_count else "warning",
+    )
+
+    return redirect(
+        request.referrer
+        or url_for("auto_apply_queue")
+    )
+
+
+@app.route(
+    "/auto-apply/reset-all-rejected",
+    methods=["POST"],
+)
+@login_required
+def reset_all_rejected_auto_apply_candidates():
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users "
+            "and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidates = (
+        AutoApplyCandidate.query
+        .filter(
+            AutoApplyCandidate.user_id == current_user.id,
+            AutoApplyCandidate.status == "Rejected",
+            AutoApplyCandidate.execution_status != "Submitted",
+        )
+        .all()
+    )
+
+    for candidate in candidates:
+        reset_candidate_submission(candidate)
+
+    db.session.commit()
+
+    reset_count = len(candidates)
+    log_action(
+        current_user.id,
+        (
+            "Reset rejected Auto Apply candidates: "
+            f"{reset_count}"
+        ),
+    )
+
+    flash(
+        (
+            f"Returned {reset_count} rejected "
+            f"job{'s' if reset_count != 1 else ''} "
+            "to Pending Review."
+        ),
+        "success" if reset_count else "info",
+    )
+
+    return redirect(
+        url_for(
+            "auto_apply_queue",
+            status="Pending Review",
+        )
+    )
+
+
+@app.route(
+    "/auto-apply/reset-checked",
+    methods=["POST"],
+)
+@login_required
+def reset_checked_auto_apply_candidates():
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users "
+            "and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    candidate_ids = _selected_auto_apply_candidate_ids()
+
+    if not candidate_ids:
+        flash(
+            "Select at least one Manual Apply job to reset.",
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Unsupported",
+            )
+        )
+
+    candidates = (
+        AutoApplyCandidate.query
+        .filter(
+            AutoApplyCandidate.user_id == current_user.id,
+            AutoApplyCandidate.id.in_(candidate_ids),
+            AutoApplyCandidate.status != "Rejected",
+            AutoApplyCandidate.execution_status == "Unsupported",
+        )
+        .all()
+    )
+
+    for candidate in candidates:
+        reset_candidate_submission(candidate)
+
+    db.session.commit()
+
+    reset_count = len(candidates)
+    log_action(
+        current_user.id,
+        (
+            "Reset selected Manual Apply candidates: "
+            f"{reset_count}"
+        ),
+    )
+
+    flash(
+        (
+            f"Returned {reset_count} Manual Apply "
+            f"job{'s' if reset_count != 1 else ''} "
+            "to Pending Review."
+        ),
+        "success" if reset_count else "warning",
+    )
+
+    return redirect(
+        url_for(
+            "auto_apply_queue",
+            status="Pending Review",
+        )
+    )
+
+
+@app.route("/auto-apply/<int:candidate_id>/answers", methods=["POST"],)
 @login_required
 def save_auto_apply_candidate_answers(candidate_id):
     auto_apply_access = get_auto_apply_access(current_user)
@@ -4144,13 +4352,6 @@ def save_auto_apply_candidate_answers(candidate_id):
     )
 
 
-# ---------------------------------------------------------------------------
-# NORMAL CHROME AUTO APPLY AGENT
-# ---------------------------------------------------------------------------
-@app.route(
-    "/auto-apply/<int:candidate_id>/chrome-agent",
-    methods=["POST"],
-)
 @app.route("/browser-agent")
 @login_required
 def browser_agent_settings():
@@ -4159,6 +4360,10 @@ def browser_agent_settings():
     )
 
 
+@app.route(
+    "/auto-apply/<int:candidate_id>/chrome-agent",
+    methods=["POST"],
+)
 @login_required
 def launch_auto_apply_chrome_agent(candidate_id):
     access = get_auto_apply_access(current_user)
@@ -4212,6 +4417,10 @@ def launch_auto_apply_chrome_agent(candidate_id):
         prepared["target"],
         token,
         request.host_url.rstrip("/"),
+        batch_mode=(
+            request.form.get("jobfinitum_batch")
+            == "1"
+        ),
     )
 
     db.session.commit()
@@ -4253,10 +4462,7 @@ def _chrome_agent_candidate_from_token(token):
     return candidate, user, None
 
 
-@app.route(
-    "/api/chrome-agent/task/<token>",
-    methods=["GET"],
-)
+@app.route("/api/chrome-agent/task/<token>", methods=["GET"],)
 @csrf.exempt
 def chrome_agent_task_api(token):
     try:
@@ -4288,10 +4494,7 @@ def chrome_agent_task_api(token):
         return jsonify({"error": str(task_error)}), 400
 
 
-@app.route(
-    "/api/chrome-agent/resume/<token>",
-    methods=["GET"],
-)
+@app.route("/api/chrome-agent/resume/<token>", methods=["GET"],)
 @csrf.exempt
 def chrome_agent_resume_api(token):
     try:
@@ -4326,10 +4529,7 @@ def chrome_agent_resume_api(token):
     )
 
 
-@app.route(
-    "/api/chrome-agent/result/<token>",
-    methods=["POST"],
-)
+@app.route("/api/chrome-agent/result/<token>", methods=["POST"],)
 @csrf.exempt
 def chrome_agent_result_api(token):
     try:
@@ -4350,7 +4550,6 @@ def chrome_agent_result_api(token):
             user,
             payload,
         )
-        result = dict(result)
         result["candidate_id"] = candidate.id
         db.session.commit()
 
@@ -4370,13 +4569,6 @@ def chrome_agent_result_api(token):
         return jsonify({"error": str(result_error)}), 400
 
 
-# ---------------------------------------------------------------------------
-# AUTO APPLY INTERACTIVE HANDOFF WORKER
-#
-# Human verification must not block the Flask request that launched it.
-# This in-process registry prevents duplicate local Resume sessions for the
-# same candidate while a background browser session is already active.
-# ---------------------------------------------------------------------------
 import threading as _auto_apply_handoff_threading
 import traceback as _auto_apply_handoff_traceback
 
@@ -5314,11 +5506,7 @@ def discovered_jobs():
     )
 
 
-
-@app.route(
-    "/discovered-jobs/<int:job_id>/mark-applied",
-    methods=["POST"],
-)
+@app.route("/discovered-jobs/<int:job_id>/mark-applied", methods=["POST"],)
 @login_required
 def mark_discovered_job_applied(job_id):
     job = DiscoveredJob.query.filter_by(
@@ -6169,10 +6357,7 @@ def job_bazaar():
     )
 
 
-@app.route(
-    "/jobs/<int:cached_job_id>/save",
-    methods=["POST"],
-)
+@app.route("/jobs/<int:cached_job_id>/save", methods=["POST"],)
 @login_required
 def save_job_bazaar_job(cached_job_id):
     cached_job = (
@@ -6248,10 +6433,7 @@ def save_job_bazaar_job(cached_job_id):
     )
 
 
-@app.route(
-    "/jobs/<int:cached_job_id>/ignore",
-    methods=["POST"],
-)
+@app.route("/jobs/<int:cached_job_id>/ignore", methods=["POST"],)
 @login_required
 def ignore_job_bazaar_job(cached_job_id):
     cached_job = (
@@ -6517,6 +6699,7 @@ def bulk_discovered_jobs():
         request.referrer
         or url_for("discovered_jobs")
     )
+
 
 @app.route("/job-match", methods=["GET", "POST"])
 @login_required

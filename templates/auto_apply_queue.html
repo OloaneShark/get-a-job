@@ -80,6 +80,69 @@
         >
             Stop Auto Apply
         </button>
+        <form
+            id="jobfinitum-bulk-review-form"
+            method="POST"
+            action="{{ url_for('reject_checked_auto_apply_candidates') }}"
+            class="d-flex flex-wrap align-items-center gap-2"
+        >
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ csrf_token() }}"
+            >
+            <label class="form-check d-flex align-items-center gap-2 mb-0">
+                <input
+                    id="jobfinitum-select-page"
+                    class="form-check-input mt-0"
+                    type="checkbox"
+                >
+                <span class="form-check-label">Select page</span>
+            </label>
+            <button
+                id="jobfinitum-reject-checked"
+                type="submit"
+                class="btn btn-outline-danger"
+                disabled
+            >
+                <span id="jobfinitum-reject-checked-label">
+                    Reject Checked Jobs
+                </span>
+            </button>
+            {% if selected_status == "Unsupported" %}
+                <button
+                    id="jobfinitum-reset-checked"
+                    type="submit"
+                    class="btn btn-outline-warning"
+                    formaction="{{ url_for('reset_checked_auto_apply_candidates') }}"
+                    disabled
+                >
+                    <span id="jobfinitum-reset-checked-label">
+                        Reset Checked for Review
+                    </span>
+                </button>
+            {% endif %}
+        </form>
+        {% if status_counts.get("Rejected", 0) %}
+            <form
+                method="POST"
+                action="{{ url_for('reset_all_rejected_auto_apply_candidates') }}"
+                onsubmit="return confirm('Return all {{ status_counts.get('Rejected', 0) }} rejected jobs to Pending Review?');"
+            >
+                <input
+                    type="hidden"
+                    name="csrf_token"
+                    value="{{ csrf_token() }}"
+                >
+                <button
+                    id="jobfinitum-reset-all-rejected"
+                    type="submit"
+                    class="btn btn-outline-warning"
+                >
+                    Reset All Rejected
+                </button>
+            </form>
+        {% endif %}
         <span
             id="jobfinitum-batch-progress"
             class="helper-text"
@@ -124,16 +187,29 @@
                 <div class="card">
                     <div class="card-body">
                         <div class="d-flex flex-wrap justify-content-between gap-3">
-                            <div>
-                                <h4 class="mb-1">
-                                    {{ candidate.discovered_job.position_title }}
-                                </h4>
-                                <h6 class="mb-1">
-                                    {{ candidate.discovered_job.company_name }}
-                                </h6>
-                                <div class="helper-text">
-                                    {{ candidate.discovered_job.location or "Location not listed" }}
-                                    - {{ candidate.discovered_job.source }}
+                            <div class="d-flex align-items-start gap-3 flex-grow-1">
+                                {% if candidate.status != "Rejected" and execution != "Submitted" %}
+                                    <input
+                                        class="form-check-input mt-1"
+                                        type="checkbox"
+                                        name="candidate_ids"
+                                        value="{{ candidate.id }}"
+                                        form="jobfinitum-bulk-review-form"
+                                        data-jobfinitum-review-select="true"
+                                        aria-label="Select {{ candidate.discovered_job.position_title }} at {{ candidate.discovered_job.company_name }}"
+                                    >
+                                {% endif %}
+                                <div>
+                                    <h4 class="mb-1">
+                                        {{ candidate.discovered_job.position_title }}
+                                    </h4>
+                                    <h6 class="mb-1">
+                                        {{ candidate.discovered_job.company_name }}
+                                    </h6>
+                                    <div class="helper-text">
+                                        {{ candidate.discovered_job.location or "Location not listed" }}
+                                        - {{ candidate.discovered_job.source }}
+                                    </div>
                                 </div>
                             </div>
 

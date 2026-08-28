@@ -36,7 +36,21 @@
     "jobfinitum-auto-apply-runner";
 
   function isBatchRunner() {
-    return window.name === BATCH_RUNNER_NAME;
+    if (window.name === BATCH_RUNNER_NAME) {
+      return true;
+    }
+
+    try {
+      const saved = JSON.parse(
+        window.sessionStorage.getItem(
+          LAUNCH_STORAGE_KEY
+        ) || "null"
+      );
+
+      return saved?.batch === true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async function registerBatchRunner(
@@ -195,9 +209,22 @@
 
     const token = params.get("jobfinitum_agent");
     const origin = params.get("jobfinitum_origin");
+    const batch = (
+      params.get("jobfinitum_batch")
+      === "1"
+      || isBatchRunner()
+    );
 
     if (token && origin) {
-      const launch = {token, origin};
+      const launch = {
+        token,
+        origin,
+        batch,
+      };
+
+      if (batch) {
+        window.name = BATCH_RUNNER_NAME;
+      }
 
       try {
         window.sessionStorage.setItem(
@@ -232,9 +259,14 @@
         && saved.token
         && saved.origin
       ) {
+        if (saved.batch === true) {
+          window.name = BATCH_RUNNER_NAME;
+        }
+
         return {
           token: String(saved.token),
           origin: String(saved.origin),
+          batch: saved.batch === true,
         };
       }
     } catch (error) {
@@ -1601,6 +1633,28 @@
     );
   }
 
+  function binaryYesNoQuestion(
+    question
+  ) {
+    const labels = new Set(
+      (question?.choices || [])
+        .map(
+          (choice) => lower(
+            choice?.label
+            ?? choice?.value
+            ?? choice
+          )
+        )
+        .filter(Boolean)
+    );
+
+    return (
+      labels.size === 2
+      && labels.has("yes")
+      && labels.has("no")
+    );
+  }
+
   async function keyboardSelectFallback(
     element,
     value,
@@ -1634,9 +1688,16 @@
       return false;
     }
 
+    dispatchKey(
+      opened.input,
+      "Home"
+    );
+
+    await sleep(100);
+
     for (
       let step = 0;
-      step <= index;
+      step < index;
       step += 1
     ) {
       dispatchKey(
@@ -1855,6 +1916,19 @@
       return true;
     }
 
+    // A second keyboard pass can invert a binary answer when
+    // React-select already accepted the exact visible option.
+    // Trust that exact click for Yes/No and never advance to
+    // the neighboring option afterward.
+    if (
+      clickedMatchedOption
+      && binaryYesNoQuestion(
+        question
+      )
+    ) {
+      return true;
+    }
+
     if (opened.input) {
       const searchValue =
         matchingSchemaChoice(
@@ -1919,6 +1993,15 @@
     if (
       clickedMatchedOption
       && structuredEducationSelectQuestion(
+        question
+      )
+    ) {
+      return true;
+    }
+
+    if (
+      clickedMatchedOption
+      && binaryYesNoQuestion(
         question
       )
     ) {
@@ -3157,6 +3240,39 @@
     );
   }
 
+  function salaryAcknowledgementQuestion(
+    questionText
+  ) {
+    const question =
+      lower(questionText);
+
+    const mentionsCompensation = [
+      "salary",
+      "compensation",
+      "pay range",
+      "base range",
+    ].some(
+      (pattern) => question.includes(pattern)
+    );
+
+    const asksForAcknowledgement = [
+      "acknowledge",
+      "agree that",
+      "aligns with",
+      "acceptable to you",
+      "comfortable with",
+      "does this range",
+      "is this range",
+    ].some(
+      (pattern) => question.includes(pattern)
+    );
+
+    return (
+      mentionsCompensation
+      && asksForAcknowledgement
+    );
+  }
+
   function reusableAnswer(
     task,
     questionText
@@ -3296,6 +3412,9 @@
         (pattern) => (
           question.includes(pattern)
         )
+      )
+      && !salaryAcknowledgementQuestion(
+        question
       )
       && values.salary_expectation
     ) {
@@ -3686,10 +3805,13 @@
     }
 
     if (
-      text.includes("salary expectation")
-      || text.includes("expected salary")
-      || text.includes("desired salary")
-      || text.includes("compensation expectation")
+      !salaryAcknowledgementQuestion(text)
+      && (
+        text.includes("salary expectation")
+        || text.includes("expected salary")
+        || text.includes("desired salary")
+        || text.includes("compensation expectation")
+      )
     ) {
       return firstValue(
         reusable.salary_expectation,
@@ -5071,7 +5193,11 @@
       }
 
       if (
-        greenhouseControlInvalid(
+        !questionHasAnswer(
+          question,
+          element
+        )
+        || greenhouseControlInvalid(
           element
         )
       ) {
@@ -6360,6 +6486,12 @@
         }
       );
 
+      clearLaunch();
+
+      await closeCompletedAgentTab(
+        launch
+      );
+
       return;
     }
 
@@ -6369,6 +6501,7 @@
 
     const unanswered = [];
     const controlMissing = [];
+    const uncommitted = [];
 
     // GREENHOUSE STRUCTURED EDUCATION:
     // Standard Education fields are not always included in the
@@ -6394,6 +6527,15 @@
         findSchemaControl(
           question
         );
+
+      if (
+        element
+        && greenhouseStructuredRequired(
+          element
+        )
+      ) {
+        question.required = true;
+      }
 
       const savedApplicationAnswer =
         savedAnswerFor(
@@ -6462,16 +6604,21 @@
         hasAnswer
         && element
       ) {
-        // Greenhouse is the final authority on whether its
-        // controlled React form accepted this value. Attempt
-        // the fill, but do not block submission merely because
-        // our local verification cannot read React's state.
         try {
-          await applyValue(
+          const applied = await applyValue(
             element,
             answer,
             question
           );
+
+          if (
+            question.required
+            && !applied
+          ) {
+            uncommitted.push(
+              question
+            );
+          }
         } catch (error) {
           console.warn(
             "JOBFINITUM GREENHOUSE APPLY WARNING",
@@ -6486,6 +6633,12 @@
                 ),
             }
           );
+
+          if (question.required) {
+            uncommitted.push(
+              question
+            );
+          }
         }
       } else if (
         question.required
@@ -6540,11 +6693,20 @@
         && element
       ) {
         try {
-          await applyValue(
+          const applied = await applyValue(
             element,
             answer,
             question
           );
+
+          if (
+            question.required
+            && !applied
+          ) {
+            uncommitted.push(
+              question
+            );
+          }
         } catch (error) {
           console.warn(
             "JOBFINITUM GREENHOUSE EDUCATION APPLY WARNING",
@@ -6558,6 +6720,12 @@
                 ),
             }
           );
+
+          if (question.required) {
+            uncommitted.push(
+              question
+            );
+          }
         }
       } else if (
         question.required
@@ -6568,9 +6736,62 @@
       }
     }
 
+    const pendingQuestions = [];
+    const pendingQuestionKeys = new Set();
+
+    for (const question of unanswered) {
+      const key = (
+        question?.key
+        || question?.field_name
+        || question?.text
+      );
+
+      if (
+        !key
+        || pendingQuestionKeys.has(key)
+      ) {
+        continue;
+      }
+
+      pendingQuestionKeys.add(key);
+      pendingQuestions.push(question);
+    }
+
     if (
-      unanswered.length
+      controlMissing.length
+      || uncommitted.length
     ) {
+      console.warn(
+        "JOBFINITUM GREENHOUSE ANSWER APPLICATION WARNINGS",
+        {
+          missing_controls:
+            controlMissing.map(
+              (item) => item.text
+            ),
+          uncommitted_fields:
+            uncommitted.map(
+              (item) => item.text
+            ),
+        }
+      );
+    }
+
+    if (pendingQuestions.length) {
+      // Fill the final identity controls even when an employer
+      // question still needs user input, so the visible handoff
+      // page remains as complete as possible.
+      await fillGreenhouseLocationCity(
+        identity
+      );
+
+      await sleep(300);
+
+      await fillGreenhousePhone(
+        identity
+      );
+
+      await sleep(500);
+
       statusBox(
         "more Greenhouse answers are required in Jobfinitum.",
         "warning"
@@ -6584,19 +6805,27 @@
           message:
             (
               "Greenhouse still needs answers Jobfinitum does not have: "
-              + unanswered
+              + pendingQuestions
                   .map(
                     (item) => item.text
                   )
                   .join("; ")
             ),
           questions:
-            unanswered,
+            pendingQuestions,
           detail: {
             url:
               location.href,
             required_fields:
-              unanswered.map(
+              pendingQuestions.map(
+                (item) => item.text
+              ),
+            uncommitted_fields:
+              uncommitted.map(
+                (item) => item.text
+              ),
+            missing_controls:
+              controlMissing.map(
                 (item) => item.text
               ),
             executor:
@@ -6609,25 +6838,13 @@
         }
       );
 
-      return;
-    }
+      clearLaunch();
 
-    if (
-      controlMissing.length
-    ) {
-      console.warn(
-        "JOBFINITUM GREENHOUSE CONTROLS NOT FOUND BEFORE SUBMIT",
-        controlMissing.map(
-          (item) => ({
-            text:
-              item.text,
-            field_name:
-              item.field_name,
-            type:
-              item.type,
-          })
-        )
+      await closeCompletedAgentTab(
+        launch
       );
+
+      return;
     }
 
     // Every employer-specific/schema answer has now been
@@ -6819,6 +7036,12 @@
                   "greenhouse_hosted",
               },
             }
+          );
+
+          clearLaunch();
+
+          await closeCompletedAgentTab(
+            launch
           );
 
           return;

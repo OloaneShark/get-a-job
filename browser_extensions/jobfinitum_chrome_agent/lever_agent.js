@@ -76,7 +76,21 @@
   const BATCH_RUNNER_NAME = "jobfinitum-auto-apply-runner";
 
   function isBatchRunner() {
-    return window.name === BATCH_RUNNER_NAME;
+    if (window.name === BATCH_RUNNER_NAME) {
+      return true;
+    }
+
+    try {
+      const saved = JSON.parse(
+        window.sessionStorage.getItem(
+          LAUNCH_STORAGE_KEY
+        ) || "null"
+      );
+
+      return saved?.batch === true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async function registerBatchRunner(launch) {
@@ -105,9 +119,22 @@
 
     const token = params.get("jobfinitum_agent");
     const origin = params.get("jobfinitum_origin");
+    const batch = (
+      params.get("jobfinitum_batch")
+      === "1"
+      || isBatchRunner()
+    );
 
     if (token && origin) {
-      const launch = {token, origin};
+      const launch = {
+        token,
+        origin,
+        batch,
+      };
+
+      if (batch) {
+        window.name = BATCH_RUNNER_NAME;
+      }
 
       try {
         window.sessionStorage.setItem(
@@ -138,9 +165,14 @@
       );
 
       if (saved && saved.token && saved.origin) {
+        if (saved.batch === true) {
+          window.name = BATCH_RUNNER_NAME;
+        }
+
         return {
           token: String(saved.token),
           origin: String(saved.origin),
+          batch: saved.batch === true,
         };
       }
     } catch (error) {
@@ -672,14 +704,12 @@
 
     await sleep(600);
 
-    const customDescriptors = [];
     const unresolved = [];
 
     for (const element of requiredControls()) {
       if (!customQuestion(element, task)) continue;
 
       const item = descriptor(element);
-      customDescriptors.push(item);
 
       if (!element.checkValidity()) {
         unresolved.push(item);
@@ -691,13 +721,17 @@
       await report(launch, {
         status: "needs_application_answer",
         message: "Lever requires additional application answers before submission.",
-        questions: customDescriptors,
+        questions: unresolved,
         detail: {
           url: location.href,
           required_fields: unresolved.map((item) => item.text),
           executor: "chrome_agent",
         },
       });
+      clearLaunch();
+      await closeCompletedAgentTab(
+        launch
+      );
       return;
     }
 

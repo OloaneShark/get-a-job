@@ -545,8 +545,7 @@ function chainedAgentUrl(
       resolvedUrl
     );
 
-  parsed.hash =
-    new URLSearchParams({
+  const launchParams = {
       jobfinitum_agent:
         String(
           session.token || ""
@@ -555,7 +554,16 @@ function chainedAgentUrl(
         String(
           session.origin || ""
         ),
-    }).toString();
+    };
+
+  if (session.batch === true) {
+    launchParams.jobfinitum_batch = "1";
+  }
+
+  parsed.hash =
+    new URLSearchParams(
+      launchParams
+    ).toString();
 
   return parsed.href;
 }
@@ -626,6 +634,39 @@ async function resolveHimalayasTargetOnce(
   if (
     result.continue_in_chrome_agent
   ) {
+    const resolverTabId = Number(
+      currentSession.resolverTabId
+    );
+
+    if (currentSession.batch === true) {
+      // Transfer batch ownership before removing the listing
+      // tab, so Stop Auto Apply always targets the live tab.
+      await saveBatchRunner(
+        tabId,
+        origin
+      );
+    }
+
+    if (
+      Number.isInteger(resolverTabId)
+      && resolverTabId !== tabId
+    ) {
+      await deleteHimalayasResolverSession(
+        resolverTabId
+      );
+
+      try {
+        await chrome.tabs.remove(
+          resolverTabId
+        );
+      } catch (error) {
+        console.warn(
+          "Jobfinitum could not close the completed Himalayas resolver tab:",
+          error
+        );
+      }
+    }
+
     await chrome.tabs.update(
       tabId,
       {
@@ -641,6 +682,49 @@ async function resolveHimalayasTargetOnce(
     result.manual_application
     && result.resolved_url
   ) {
+    if (currentSession.batch === true) {
+      const resolverTabId = Number(
+        currentSession.resolverTabId
+      );
+
+      if (
+        Number.isInteger(resolverTabId)
+        && resolverTabId !== tabId
+      ) {
+        try {
+          await chrome.tabs.remove(tabId);
+        } catch (error) {
+          // The unsupported child may already be closed.
+        }
+      }
+
+      return true;
+    }
+
+    const resolverTabId = Number(
+      currentSession.resolverTabId
+    );
+
+    if (
+      Number.isInteger(resolverTabId)
+      && resolverTabId !== tabId
+    ) {
+      await deleteHimalayasResolverSession(
+        resolverTabId
+      );
+
+      try {
+        await chrome.tabs.remove(
+          resolverTabId
+        );
+      } catch (error) {
+        console.warn(
+          "Jobfinitum could not close the completed Himalayas resolver tab:",
+          error
+        );
+      }
+    }
+
     await chrome.tabs.update(
       tabId,
       {
@@ -859,6 +943,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               message.token || ""
             ),
           origin,
+          batch:
+            message.batch === true,
+          resolverTabId:
+            tabId,
         }
       );
 
@@ -894,6 +982,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               message.token || ""
             ),
           origin,
+          batch:
+            message.batch === true,
+          resolverTabId:
+            tabId,
         }
       );
 

@@ -13,7 +13,21 @@
     "jobfinitum-auto-apply-runner";
 
   function isBatchRunner() {
-    return window.name === BATCH_RUNNER_NAME;
+    if (window.name === BATCH_RUNNER_NAME) {
+      return true;
+    }
+
+    try {
+      const saved = JSON.parse(
+        window.sessionStorage.getItem(
+          LAUNCH_STORAGE_KEY
+        ) || "null"
+      );
+
+      return saved?.batch === true;
+    } catch (error) {
+      return false;
+    }
   }
 
   const normalize = (value) =>
@@ -105,9 +119,22 @@
 
     const origin =
       params.get("jobfinitum_origin");
+    const batch = (
+      params.get("jobfinitum_batch")
+      === "1"
+      || isBatchRunner()
+    );
 
     if (token && origin) {
-      const launch = {token, origin};
+      const launch = {
+        token,
+        origin,
+        batch,
+      };
+
+      if (batch) {
+        window.name = BATCH_RUNNER_NAME;
+      }
 
       try {
         window.sessionStorage.setItem(
@@ -141,11 +168,17 @@
         saved?.token
         && saved?.origin
       ) {
+        if (saved.batch === true) {
+          window.name = BATCH_RUNNER_NAME;
+        }
+
         return {
           token:
             String(saved.token),
           origin:
             String(saved.origin),
+          batch:
+            saved.batch === true,
         };
       }
     } catch (error) {
@@ -363,6 +396,8 @@
         launch.token,
       url:
         resolvedUrl,
+      batch:
+        launch.batch === true,
     });
 
     clearLaunch();
@@ -384,6 +419,56 @@
     return true;
   }
 
+  async function activateApplyControl(
+    control
+  ) {
+    if (!control) {
+      return false;
+    }
+
+    try {
+      control.scrollIntoView({
+        block: "center",
+        inline: "center",
+      });
+    } catch (error) {
+      // Continue with direct activation.
+    }
+
+    try {
+      control.focus({
+        preventScroll: true,
+      });
+    } catch (error) {
+      // Focus is optional.
+    }
+
+    for (const eventName of [
+      "pointerdown",
+      "mousedown",
+      "pointerup",
+      "mouseup",
+    ]) {
+      try {
+        control.dispatchEvent(
+          new MouseEvent(
+            eventName,
+            {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+            }
+          )
+        );
+      } catch (error) {
+        // The final click remains the fallback.
+      }
+    }
+
+    control.click();
+    return true;
+  }
+
   async function run() {
     const launch =
       parseLaunch();
@@ -392,166 +477,190 @@
       return;
     }
 
-    if (isBatchRunner()) {
+    try {
+      if (isBatchRunner()) {
+        await send({
+          type:
+            "jobfinitum-batch-register",
+          origin:
+            launch.origin,
+        });
+      }
+
+      statusBox(
+        "resolving the real employer application URL."
+      );
+
+      const taskResponse =
+        await send({
+          type:
+            "jobfinitum-task",
+          origin:
+            launch.origin,
+          token:
+            launch.token,
+        });
+
+      const task =
+        taskResponse.task || {};
+
+      if (
+        task.adapter
+        !== "himalayas_resolver"
+      ) {
+        throw new Error(
+          "This is not a Himalayas resolver task."
+        );
+      }
+
       await send({
         type:
-          "jobfinitum-batch-register",
-        origin:
-          launch.origin,
-      });
-    }
-
-    statusBox(
-      "resolving the real employer application URL."
-    );
-
-    const taskResponse =
-      await send({
-        type:
-          "jobfinitum-task",
+          "jobfinitum-himalayas-watch",
         origin:
           launch.origin,
         token:
           launch.token,
+        batch:
+          launch.batch === true,
       });
 
-    const task =
-      taskResponse.task || {};
+      const started =
+        Date.now();
 
-    if (
-      task.adapter
-      !== "himalayas_resolver"
-    ) {
-      throw new Error(
-        "This is not a Himalayas resolver task."
-      );
-    }
+      const clickedControls =
+        new WeakSet();
 
-    await send({
-      type:
-        "jobfinitum-himalayas-watch",
-      origin:
-        launch.origin,
-      token:
-        launch.token,
-    });
+      let lastWaitingUpdate = 0;
 
-    const started =
-      Date.now();
-
-    const clickedControls =
-      new WeakSet();
-
-    let lastWaitingUpdate = 0;
-
-    while (
-      Date.now() - started
-      < 60000
-    ) {
-      if (
-        await scanForTarget(
-          launch
-        )
+      while (
+        Date.now() - started
+        < 25000
       ) {
-        return;
-      }
-
-      const control =
-        applyControl();
-
-      if (control) {
         if (
-          !clickedControls.has(
-            control
+          await scanForTarget(
+            launch
           )
         ) {
-          clickedControls.add(
-            control
-          );
+          return;
+        }
+
+        const control =
+          applyControl();
+
+        if (control) {
+          if (
+            !clickedControls.has(
+              control
+            )
+          ) {
+            clickedControls.add(
+              control
+            );
+
+            statusBox(
+              "opening Himalayas Apply to resolve the employer target."
+            );
+
+            await activateApplyControl(
+              control
+            );
+          }
+        } else if (
+          Date.now() - lastWaitingUpdate
+          >= 3000
+        ) {
+          lastWaitingUpdate =
+            Date.now();
 
           statusBox(
-            "opening Himalayas Apply to resolve the employer target."
+            "waiting for Himalayas to load its Apply control."
           );
-
-          try {
-            control.scrollIntoView({
-              block: "center",
-              inline: "center",
-            });
-          } catch (error) {
-            // Continue with direct activation.
-          }
-
-          try {
-            control.focus({
-              preventScroll: true,
-            });
-          } catch (error) {
-            // Focus is optional for ordinary buttons and links.
-          }
-
-          control.click();
         }
-      } else if (
-        Date.now() - lastWaitingUpdate
-        >= 3000
-      ) {
-        lastWaitingUpdate =
-          Date.now();
 
-        statusBox(
-          "waiting for Himalayas to load its Apply control."
+        await new Promise(
+          (resolve) => setTimeout(
+            resolve,
+            400
+          )
         );
       }
 
-      await new Promise(
-        (resolve) => setTimeout(
-          resolve,
-          400
-        )
+      statusBox(
+        "Himalayas did not expose an employer Apply destination. This job needs a manual destination check.",
+        "warning"
       );
-    }
 
-    statusBox(
-      "Himalayas did not expose an employer Apply destination. This job needs a manual destination check.",
-      "warning"
-    );
-
-    await send({
-      type:
-        "jobfinitum-result",
-      origin:
-        launch.origin,
-      token:
-        launch.token,
-      payload: {
-        status:
-          "needs_manual_destination",
-        message:
-          "Himalayas did not expose the employer application destination automatically. Open the saved Himalayas listing from Manual Apply to continue.",
-        detail: {
-          url:
-            location.href,
-          resolver:
-            "himalayas_browser_agent",
+      await send({
+        type:
+          "jobfinitum-result",
+        origin:
+          launch.origin,
+        token:
+          launch.token,
+        payload: {
+          status:
+            "needs_manual_destination",
+          message:
+            "Himalayas did not expose the employer application destination automatically. Open the saved Himalayas listing from Manual Apply to continue.",
+          detail: {
+            url:
+              location.href,
+            resolver:
+              "himalayas_browser_agent",
+          },
         },
-      },
-    });
+      });
 
-    clearLaunch();
+      clearLaunch();
+    } catch (error) {
+      console.error(
+        "Jobfinitum Himalayas resolver failed:",
+        error
+      );
+
+      statusBox(
+        String(
+          error.message || error
+        ),
+        "error"
+      );
+
+      try {
+        await send({
+          type:
+            "jobfinitum-result",
+          origin:
+            launch.origin,
+          token:
+            launch.token,
+          payload: {
+            status:
+              "needs_manual_destination",
+            message:
+              "Himalayas could not resolve this employer application automatically. Open the saved listing from Manual Apply to continue.",
+            detail: {
+              url:
+                location.href,
+              resolver:
+                "himalayas_browser_agent",
+              error:
+                String(
+                  error.message
+                  || error
+                ),
+            },
+          },
+        });
+      } catch (reportError) {
+        console.error(
+          "Jobfinitum Himalayas failure report also failed:",
+          reportError
+        );
+      }
+
+      clearLaunch();
+    }
   }
 
-  run().catch((error) => {
-    console.error(
-      "Jobfinitum Himalayas resolver failed:",
-      error
-    );
-
-    statusBox(
-      String(
-        error.message || error
-      ),
-      "error"
-    );
-  });
+  run();
 })();

@@ -50,6 +50,10 @@ from services.job_sources.utils import (
 from services.job_sources.discovery.common_crawl_discovery import (
     run_common_crawl_discovery,
 )
+from services.job_sources.discovery.candidate_service import (
+    ingest_himalayas_job_sources,
+    validate_pending_himalayas_candidates,
+)
 from services.auto_apply_service import stage_auto_apply_candidates
 
 
@@ -438,6 +442,7 @@ def save_discovered_jobs(
 ):
     saved_count = 0
     auto_apply_jobs = []
+    source_discovery_stats = {}
 
     existing_jobs = (
         DiscoveredJob.query
@@ -546,6 +551,26 @@ def save_discovered_jobs(
 
         if not posting_url:
             continue
+
+        discovery_results = (
+            ingest_himalayas_job_sources(
+                job
+            )
+        )
+
+        for (
+            discovery_status,
+            discovery_count,
+        ) in discovery_results.items():
+            source_discovery_stats[
+                discovery_status
+            ] = (
+                source_discovery_stats.get(
+                    discovery_status,
+                    0,
+                )
+                + discovery_count
+            )
 
         source = str(
             job.get("source")
@@ -744,6 +769,19 @@ def save_discovered_jobs(
             f"Invalid resume: {auto_apply_stats['invalid_resume']} | "
             f"Location mismatch: {auto_apply_stats['location_mismatch']} | "
             f"Access denied: {auto_apply_stats['access_denied']}"
+        )
+
+    if source_discovery_stats:
+        print(
+            "HIMALAYAS ATS DISCOVERY | "
+            f"Profile: {profile.name} | "
+            + " | ".join(
+                f"{status}: {count}"
+                for status, count
+                in sorted(
+                    source_discovery_stats.items()
+                )
+            )
         )
 
     return saved_count
@@ -2029,6 +2067,38 @@ def process_active_search_profiles(app):
         finalize_global_source_db_cache(
             global_sources
         )
+
+        try:
+            validation_stats = (
+                run_database_transaction(
+                    (
+                        "validate pending Himalayas "
+                        "ATS candidates"
+                    ),
+                    lambda: (
+                        validate_pending_himalayas_candidates(
+                            limit=5
+                        )
+                    ),
+                )
+            )
+
+            if validation_stats["checked"]:
+                print(
+                    "HIMALAYAS ATS VALIDATION | "
+                    f"Checked: "
+                    f"{validation_stats['checked']} | "
+                    f"Valid: "
+                    f"{validation_stats['valid']} | "
+                    f"Invalid: "
+                    f"{validation_stats['invalid']}"
+                )
+
+        except Exception as error:
+            print(
+                "HIMALAYAS ATS VALIDATION ERROR | "
+                f"{error}"
+            )
 
 
 def serialize_datetime(value):

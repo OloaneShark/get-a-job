@@ -108,6 +108,47 @@ def _snapshot(profile, access):
     )
 
 
+def candidate_matches_current_profile(
+    candidate,
+):
+    if (
+        candidate is None
+        or candidate.discovered_job is None
+        or candidate.search_profile is None
+    ):
+        return False
+
+    excluded = {
+        normalize_identity_text(name)
+        for name in _split(
+            getattr(
+                candidate.search_profile,
+                "auto_apply_excluded_companies",
+                None,
+            )
+        )
+        if normalize_identity_text(name)
+    }
+    company = normalize_identity_text(
+        getattr(
+            candidate.discovered_job,
+            "company_name",
+            None,
+        )
+    )
+
+    if company and company in excluded:
+        return False
+
+    # Persisted queue rows do not retain every piece of normalized
+    # source metadata used by the discovery matcher. Recheck only
+    # rules that remain authoritative after persistence.
+    return persisted_job_matches_location(
+        candidate.discovered_job,
+        candidate.search_profile,
+    )
+
+
 def stage_auto_apply_candidates(profile, jobs):
     stats = {
         "enabled": bool(

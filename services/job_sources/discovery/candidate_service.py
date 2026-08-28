@@ -12,7 +12,8 @@ def ingest_source_url(
     url,
     discovery_method="automatic_discovery",
     auto_validate=True,
-    keep_invalid=False
+    keep_invalid=False,
+    company_name=None,
 ):
     cleaned_url = (url or "").strip()
 
@@ -37,6 +38,27 @@ def ingest_source_url(
     ).first()
 
     if candidate:
+        normalized_company_name = str(
+            company_name or ""
+        ).strip()
+
+        if (
+            normalized_company_name
+            and normalized_company_name.lower()
+            not in {
+                "unknown",
+                "unknown company",
+            }
+            and (
+                not candidate.company_name
+                or candidate.company_name
+                == candidate.source_identifier
+            )
+        ):
+            candidate.company_name = (
+                normalized_company_name
+            )
+
         if candidate.validation_status == "dismissed":
             return candidate, "already_blocked"
 
@@ -46,7 +68,10 @@ def ingest_source_url(
         return candidate, "already_candidate"
 
     candidate = JobSourceCandidate(
-        company_name=source_identifier,
+        company_name=(
+            str(company_name or "").strip()
+            or source_identifier
+        ),
         source_type=source_type,
         source_identifier=source_identifier,
         discovered_url=cleaned_url,
@@ -108,3 +133,117 @@ def ingest_source_urls(
     db.session.commit()
 
     return results
+
+
+def ingest_himalayas_job_sources(job):
+    if not isinstance(job, dict):
+        return {}
+
+    if str(
+        job.get("source") or ""
+    ).strip().lower() != "himalayas":
+        return {}
+
+    urls = []
+
+    for record in (
+        job.get("source_candidates")
+        or []
+    ):
+        if isinstance(record, dict):
+            url = record.get("url")
+        else:
+            url = record
+
+        normalized_url = str(
+            url or ""
+        ).strip()
+
+        if normalized_url:
+            urls.append(normalized_url)
+
+    apply_url = str(
+        job.get("apply_url") or ""
+    ).strip()
+
+    if apply_url:
+        urls.append(apply_url)
+
+    results = {}
+
+    for url in dict.fromkeys(urls):
+        try:
+            _, status = ingest_source_url(
+                url=url,
+                discovery_method=(
+                    "himalayas_feed_scan"
+                ),
+                auto_validate=False,
+                company_name=job.get(
+                    "company_name"
+                ),
+            )
+        except ValueError:
+            continue
+
+        results[status] = (
+            results.get(status, 0)
+            + 1
+        )
+
+    return results
+
+
+def validate_pending_himalayas_candidates(
+    limit=5,
+):
+    normalized_limit = max(
+        0,
+        min(int(limit), 25),
+    )
+
+    if not normalized_limit:
+        return {
+            "checked": 0,
+            "valid": 0,
+            "invalid": 0,
+        }
+
+    candidates = (
+        JobSourceCandidate.query
+        .filter(
+            JobSourceCandidate
+            .validation_status
+            == "pending",
+            JobSourceCandidate
+            .discovery_method
+            .in_([
+                "himalayas_feed_scan",
+                "himalayas_browser_resolver",
+            ]),
+        )
+        .order_by(
+            JobSourceCandidate
+            .discovered_at.asc()
+        )
+        .limit(normalized_limit)
+        .all()
+    )
+    stats = {
+        "checked": 0,
+        "valid": 0,
+        "invalid": 0,
+    }
+
+    for candidate in candidates:
+        valid, _ = validate_source_candidate(
+            candidate
+        )
+        stats["checked"] += 1
+        stats[
+            "valid"
+            if valid
+            else "invalid"
+        ] += 1
+
+    return stats

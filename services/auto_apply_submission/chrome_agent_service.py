@@ -127,17 +127,32 @@ def decode_chrome_agent_token(secret_key, token):
         raise ValueError("Chrome Agent launch token is malformed.") from error
 
 
-def build_chrome_agent_launch_url(target, token, bridge_origin):
+def build_chrome_agent_launch_url(
+    target,
+    token,
+    bridge_origin,
+    *,
+    batch_mode=False,
+):
     target = str(target or "").strip()
     if not target:
         raise ValueError("No application URL is available.")
 
     parts = urlsplit(target)
+    launch_params = {
+        "jobfinitum_agent": token,
+        "jobfinitum_origin": str(
+            bridge_origin or ""
+        ).rstrip("/"),
+    }
+
+    if batch_mode:
+        launch_params[
+            "jobfinitum_batch"
+        ] = "1"
+
     fragment = urlencode(
-        {
-            "jobfinitum_agent": token,
-            "jobfinitum_origin": str(bridge_origin or "").rstrip("/"),
-        }
+        launch_params
     )
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path, parts.query, fragment)
@@ -501,6 +516,45 @@ def _compatible_profile_answer_for_question(question, answer):
 
     return None
 
+
+def _discover_himalayas_resolved_source(
+    job,
+    resolved_url,
+):
+    from services.job_sources.discovery.candidate_service import (
+        ingest_source_url,
+    )
+
+    try:
+        source, status = ingest_source_url(
+            url=resolved_url,
+            discovery_method=(
+                "himalayas_browser_resolver"
+            ),
+            auto_validate=False,
+            company_name=getattr(
+                job,
+                "company_name",
+                None,
+            ),
+        )
+    except ValueError:
+        return None
+
+    return {
+        "status": status,
+        "source_type": getattr(
+            source,
+            "source_type",
+            None,
+        ),
+        "source_identifier": getattr(
+            source,
+            "source_identifier",
+            None,
+        ),
+    }
+
 def _record_himalayas_manual_handoff(
     *,
     candidate,
@@ -635,6 +689,12 @@ def apply_chrome_agent_result(candidate, user, payload):
 
         job = candidate.discovered_job
         job.apply_url = resolved_url
+        source_discovery = (
+            _discover_himalayas_resolved_source(
+                job,
+                resolved_url,
+            )
+        )
         db.session.flush()
 
         continue_in_chrome_agent = (
@@ -649,6 +709,20 @@ def apply_chrome_agent_result(candidate, user, payload):
             resolved_adapter = chrome_agent_adapter(job)
 
         if not continue_in_chrome_agent:
+            manual_detail = (
+                dict(payload.get("detail"))
+                if isinstance(
+                    payload.get("detail"),
+                    dict,
+                )
+                else {}
+            )
+
+            if source_discovery:
+                manual_detail[
+                    "source_discovery"
+                ] = source_discovery
+
             return _record_himalayas_manual_handoff(
                 candidate=candidate,
                 user=user,
@@ -660,14 +734,7 @@ def apply_chrome_agent_result(candidate, user, payload):
                     "Jobfinitum Auto Apply adapter yet. Continue "
                     "from Manual Apply."
                 ),
-                detail=(
-                    payload.get("detail")
-                    if isinstance(
-                        payload.get("detail"),
-                        dict,
-                    )
-                    else {}
-                ),
+                detail=manual_detail,
                 resolved_url=resolved_url,
                 resolved_host=resolved_host,
             )
@@ -681,6 +748,7 @@ def apply_chrome_agent_result(candidate, user, payload):
             "resolved_url": resolved_url,
             "resolved_host": resolved_host,
             "resolved_adapter": resolved_adapter,
+            "source_discovery": source_discovery,
             "continue_in_chrome_agent": (
                 continue_in_chrome_agent
             ),

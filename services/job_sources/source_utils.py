@@ -4,7 +4,9 @@ from urllib.parse import urlparse
 
 GREENHOUSE_HOSTS = {
     "boards.greenhouse.io",
-    "job-boards.greenhouse.io"
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
 }
 
 LEVER_HOSTS = {
