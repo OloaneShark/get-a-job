@@ -8211,10 +8211,16 @@ body.app-authenticated .form-page {
     background: transparent;
 }
 
+body.app-authenticated .workspace-container > .form-page {
+    border: 0;
+    box-shadow: none;
+}
+
 body.app-authenticated .work-main > .form-page {
     background: var(--jf-surface);
-    border-color: var(--jf-line);
+    border: 0;
     border-radius: var(--jf-radius) !important;
+    box-shadow: none;
 }
 
 body.app-authenticated .card-header,

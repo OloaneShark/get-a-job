@@ -1,46 +1,10 @@
-
 import os
 
 import boto3
+import resend
 
 
-def send_verification_email(recipient_email, code):
-    backend = os.getenv(
-        "EMAIL_BACKEND",
-        "console"
-    ).strip().lower()
-
-    if backend == "console":
-        print(
-            "\n"
-            "========================================\n"
-            "JOBFINITUM EMAIL VERIFICATION\n"
-            f"Recipient: {recipient_email}\n"
-            f"Verification code: {code}\n"
-            "========================================\n"
-        )
-        return
-
-    if backend != "ses":
-        raise RuntimeError(
-            "EMAIL_BACKEND must be either 'console' or 'ses'."
-        )
-
-    sender = os.getenv(
-        "EMAIL_FROM",
-        "security@jobfinitum.com"
-    ).strip()
-
-    region = os.getenv(
-        "AWS_SES_REGION",
-        os.getenv("AWS_REGION", "us-east-1")
-    ).strip()
-
-    client = boto3.client(
-        "sesv2",
-        region_name=region
-    )
-
+def _build_verification_message(code):
     subject = "Your JobFinitum verification code"
 
     text_body = (
@@ -64,27 +28,72 @@ def send_verification_email(recipient_email, code):
         'you can ignore this email.</p></div>'
     )
 
-    client.send_email(
-        FromEmailAddress=sender,
-        Destination={
-            "ToAddresses": [recipient_email]
-        },
-        Content={
-            "Simple": {
-                "Subject": {
-                    "Data": subject,
-                    "Charset": "UTF-8"
-                },
-                "Body": {
-                    "Text": {
-                        "Data": text_body,
-                        "Charset": "UTF-8"
+    return subject, text_body, html_body
+
+
+def send_verification_email(recipient_email, code):
+    backend = os.getenv("EMAIL_BACKEND", "console").strip().lower()
+    subject, text_body, html_body = _build_verification_message(code)
+
+    if backend == "console":
+        print(
+            "\n"
+            "========================================\n"
+            "JOBFINITUM EMAIL VERIFICATION\n"
+            f"Recipient: {recipient_email}\n"
+            f"Verification code: {code}\n"
+            "========================================\n"
+        )
+        return
+
+    sender = os.getenv(
+        "EMAIL_FROM",
+        "JobFinitum <security@mail.jobfinitum.com>"
+    ).strip()
+
+    if backend == "resend":
+        api_key = os.getenv("RESEND_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("RESEND_API_KEY is not set.")
+
+        resend.api_key = api_key
+        result = resend.Emails.send({
+            "from": sender,
+            "to": [recipient_email],
+            "subject": subject,
+            "text": text_body,
+            "html": html_body,
+        })
+
+        print(
+            "RESEND VERIFICATION EMAIL SENT | "
+            f"Recipient: {recipient_email} | "
+            f"Result: {result}"
+        )
+        return
+
+    if backend == "ses":
+        region = os.getenv(
+            "AWS_SES_REGION",
+            os.getenv("AWS_REGION", "us-east-1")
+        ).strip()
+
+        client = boto3.client("sesv2", region_name=region)
+        client.send_email(
+            FromEmailAddress=sender,
+            Destination={"ToAddresses": [recipient_email]},
+            Content={
+                "Simple": {
+                    "Subject": {"Data": subject, "Charset": "UTF-8"},
+                    "Body": {
+                        "Text": {"Data": text_body, "Charset": "UTF-8"},
+                        "Html": {"Data": html_body, "Charset": "UTF-8"},
                     },
-                    "Html": {
-                        "Data": html_body,
-                        "Charset": "UTF-8"
-                    }
                 }
-            }
-        }
+            },
+        )
+        return
+
+    raise RuntimeError(
+        "EMAIL_BACKEND must be 'console', 'resend', or 'ses'."
     )
