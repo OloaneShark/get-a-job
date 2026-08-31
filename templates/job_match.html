@@ -69,7 +69,7 @@
                     <ul class="list-group mb-4">
                         {% for keyword in matched_keywords %}
                             <li class="list-group-item">
-                                ✓ {{ keyword }}
+                                {{ keyword }}
                             </li>
                         {% endfor %}
                     </ul>
@@ -83,7 +83,7 @@
                     <ul class="list-group mb-4">
                         {% for keyword in missing_keywords %}
                             <li class="list-group-item">
-                                ⚠ {{ keyword }}
+                                {{ keyword }}
                             </li>
                         {% endfor %}
                     </ul>

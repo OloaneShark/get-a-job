@@ -170,24 +170,55 @@ class TwoFactorRecoveryCode(db.Model):
     )
 
 
+JOB_APPLICATION_STRING_LIMITS = {
+    "company_name": 150,
+    "position_title": 150,
+    "company_website": 1000,
+    "job_posting_url": 1000,
+    "recruiter_email": 255,
+    "salary": 100,
+    "location": 150,
+    "visa_sponsorship": 20,
+}
+
+
 class JobApplication(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
-    company_name = db.Column(db.String(100), nullable=False)
-    position_title = db.Column(db.String(100), nullable=False)
+    company_name = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["company_name"]),
+        nullable=False,
+    )
+    position_title = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["position_title"]),
+        nullable=False,
+    )
     
-    company_website = db.Column(db.String(255))
-    job_posting_url = db.Column(db.String(255))
+    company_website = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["company_website"])
+    )
+    job_posting_url = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["job_posting_url"])
+    )
     job_description = db.Column(db.Text)
-    recruiter_email = db.Column(db.String(120))
+    recruiter_email = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["recruiter_email"])
+    )
     
     legitimacy_score = db.Column(db.Integer, default=0)
     risk_level = db.Column(db.String(50), default="Unknown")
     
     status = db.Column(db.String(50), nullable=False, default="Applied")
-    salary = db.Column(db.String(50))
-    location = db.Column(db.String(100))
-    visa_sponsorship = db.Column(db.String(20), default="Unknown")
+    salary = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["salary"])
+    )
+    location = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["location"])
+    )
+    visa_sponsorship = db.Column(
+        db.String(JOB_APPLICATION_STRING_LIMITS["visa_sponsorship"]),
+        default="Unknown",
+    )
     application_date = db.Column(db.DateTime, default=datetime.utcnow)
     notes = db.Column(db.Text)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)

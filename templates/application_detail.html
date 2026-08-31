@@ -128,7 +128,7 @@
                         >
                             <div class="pipeline-marker">
                                 {% if stage_index < current_index %}
-                                    ✓
+                                    <i class="bi bi-check-lg" aria-hidden="true"></i>
                                 {% else %}
                                     {{ loop.index }}
                                 {% endif %}
@@ -258,7 +258,7 @@
                     <div class="readiness-item
                         {% if readiness.resume %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.resume %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.resume %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Active resume uploaded</span>
@@ -267,7 +267,7 @@
                     <div class="readiness-item
                         {% if readiness.job_description %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.job_description %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.job_description %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Job description saved</span>
@@ -276,7 +276,7 @@
                     <div class="readiness-item
                         {% if readiness.job_match %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.job_match %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.job_match %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Job match completed</span>
@@ -285,7 +285,7 @@
                     <div class="readiness-item
                         {% if readiness.resume_review %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.resume_review %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.resume_review %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Resume review completed</span>
@@ -294,7 +294,7 @@
                     <div class="readiness-item
                         {% if readiness.cover_letter %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.cover_letter %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.cover_letter %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Cover letter generated</span>
@@ -303,7 +303,7 @@
                     <div class="readiness-item
                         {% if readiness.interview_coach %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.interview_coach %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.interview_coach %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Interview guide generated</span>
@@ -312,7 +312,7 @@
                     <div class="readiness-item
                         {% if readiness.company_intelligence %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.company_intelligence %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.company_intelligence %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Company intelligence generated</span>
@@ -321,7 +321,7 @@
                     <div class="readiness-item
                         {% if readiness.interview_prep %}complete{% endif %}">
                         <span class="readiness-icon">
-                            {% if readiness.interview_prep %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.interview_prep %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>Interview prep completed</span>
@@ -381,7 +381,7 @@
 
                     {% for item in application_summary %}
                         <div class="application-summary-item">
-                            <span class="application-summary-marker">→</span>
+                            <i class="bi bi-arrow-right application-summary-marker" aria-hidden="true"></i>
                             <span>{{ item }}</span>
                         </div>
                     {% endfor %}
@@ -689,7 +689,7 @@
                     class="quick-action-link {% if readiness.job_match %}complete{% endif %}"
                 >
                     <span class="quick-action-status">
-                        {% if readiness.job_match %}✓{% else %}○{% endif %}
+                        <i class="bi {% if readiness.job_match %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                     </span>
 
                     <span>Job Match</span>
@@ -700,7 +700,7 @@
                     class="quick-action-link {% if readiness.resume_review %}complete{% endif %}"
                 >
                     <span class="quick-action-status">
-                        {% if readiness.resume_review %}✓{% else %}○{% endif %}
+                        <i class="bi {% if readiness.resume_review %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                     </span>
 
                     <span>AI Resume Review</span>
@@ -711,7 +711,7 @@
                     class="quick-action-link {% if readiness.cover_letter %}complete{% endif %}"
                 >
                     <span class="quick-action-status">
-                        {% if readiness.cover_letter %}✓{% else %}○{% endif %}
+                        <i class="bi {% if readiness.cover_letter %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                     </span>
 
                     <span>Cover Letter</span>
@@ -722,7 +722,7 @@
                     class="quick-action-link {% if readiness.interview_coach %}complete{% endif %}"
                 >
                     <span class="quick-action-status">
-                        {% if readiness.interview_coach %}✓{% else %}○{% endif %}
+                        <i class="bi {% if readiness.interview_coach %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                     </span>
 
                     <span>AI Interview Coach</span>
@@ -733,7 +733,7 @@
                     class="quick-action-link {% if readiness.interview_prep %}complete{% endif %}"
                 >
                     <span class="quick-action-status">
-                        {% if readiness.interview_prep %}✓{% else %}○{% endif %}
+                        <i class="bi {% if readiness.interview_prep %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                     </span>
 
                     <span>Interview Prep Center</span>
@@ -758,7 +758,7 @@
                         {% if readiness.company_intelligence %}complete{% endif %}"
                     >
                         <span class="quick-action-status">
-                            {% if readiness.company_intelligence %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.company_intelligence %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>
@@ -790,7 +790,7 @@
                         {% if readiness.application_intelligence %}complete{% endif %}"
                     >
                         <span class="quick-action-status">
-                            {% if readiness.application_intelligence %}✓{% else %}○{% endif %}
+                            <i class="bi {% if readiness.application_intelligence %}bi-check-lg{% else %}bi-square{% endif %}" aria-hidden="true"></i>
                         </span>
 
                         <span>

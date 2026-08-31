@@ -39,7 +39,8 @@
 
     const showStatus = (message, category = "info") => {
         statusElement.className = (
-            `alert ${categoryClass(category)}`
+            "alert source-discovery-runtime "
+            + categoryClass(category)
         );
         statusElement.textContent = message;
         statusElement.classList.remove("d-none");
@@ -307,6 +308,51 @@
             );
         }
     };
+
+    const candidateFilterUrl = (form) => {
+        const url = new URL(
+            form.action,
+            window.location.origin
+        );
+        const source = (
+            form.querySelector('[name="source"]')
+            ?.value
+            || ""
+        ).trim();
+
+        if (source) {
+            url.searchParams.set("source", source);
+        } else {
+            url.searchParams.delete("source");
+        }
+
+        return url.toString();
+    };
+
+    document.addEventListener(
+        "submit",
+        (event) => {
+            const filterForm = event.target.closest(
+                "[data-candidate-source-filter-form]"
+            );
+
+            if (!filterForm) {
+                return;
+            }
+
+            event.preventDefault();
+
+            const url = candidateFilterUrl(
+                filterForm
+            );
+
+            loadCandidateSource(
+                url,
+                true
+            );
+            syncScopedBulkActions(url);
+        }
+    );
 
     document.addEventListener(
         "click",

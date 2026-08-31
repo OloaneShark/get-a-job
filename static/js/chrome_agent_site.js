@@ -237,6 +237,9 @@
   const RUNNER_NAME =
     "jobfinitum-auto-apply-runner";
 
+  const BATCH_ITEM_TIMEOUT_MS =
+    90000;
+
   const FINAL_STATUSES =
     new Set([
       "Submitted",
@@ -304,6 +307,7 @@
 
   let preparedBatch = null;
   let batchPreparationStarted = false;
+  let batchWatchdog = null;
 
   if (
     !startButton
@@ -338,14 +342,16 @@
     );
   }
 
+  function agentVersion() {
+    return String(
+      document.documentElement.dataset
+        .jobfinitumChromeAgentVersion
+      || ""
+    ).trim();
+  }
+
   function agentConnected() {
-    return Boolean(
-      String(
-        document.documentElement.dataset
-          .jobfinitumChromeAgentVersion
-        || ""
-      ).trim()
-    );
+    return Boolean(agentVersion());
   }
 
   function updateControls(state = loadState()) {
@@ -426,6 +432,170 @@
     );
   }
 
+  function clearBatchWatchdog() {
+    if (batchWatchdog === null) {
+      return;
+    }
+
+    window.clearTimeout(
+      batchWatchdog
+    );
+    batchWatchdog = null;
+  }
+
+  function interruptUrlFor(candidate) {
+    if (candidate?.interrupt_url) {
+      return candidate.interrupt_url;
+    }
+
+    const candidateId = Number(
+      candidate?.candidate_id
+    );
+
+    if (!Number.isInteger(candidateId)) {
+      return "";
+    }
+
+    return (
+      "/api/auto-apply/batch-candidates/"
+      + encodeURIComponent(candidateId)
+      + "/interrupt"
+    );
+  }
+
+  async function interruptCandidate(
+    candidate,
+    reason
+  ) {
+    const url =
+      interruptUrlFor(candidate);
+
+    if (!url) {
+      throw new Error(
+        "The interrupted application could not be identified."
+      );
+    }
+
+    const response = await fetch(
+      url,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrfToken,
+        },
+        body: JSON.stringify({reason}),
+      }
+    );
+
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        payload.error
+        || `HTTP ${response.status}`
+      );
+    }
+
+    return payload;
+  }
+
+  async function handleBatchTimeout(
+    candidateId
+  ) {
+    const state = loadState();
+
+    if (
+      !state?.active
+      || Number(
+        state.current?.candidate_id
+      ) !== Number(candidateId)
+    ) {
+      return;
+    }
+
+    progress.textContent = (
+      "The Browser Agent did not report back; moving to the next job"
+    );
+
+    try {
+      await interruptCandidate(
+        state.current,
+        "timeout"
+      );
+    } catch (error) {
+      await stopBatch({
+        closeRunner: true,
+        recoverCurrent: false,
+      });
+      progress.textContent = (
+        `Batch stopped: ${error.message || error}`
+      );
+      return;
+    }
+
+    const latestState = loadState();
+
+    if (
+      !latestState?.active
+      || Number(
+        latestState.current?.candidate_id
+      ) !== Number(candidateId)
+    ) {
+      return;
+    }
+
+    latestState.completed += 1;
+    latestState.current = null;
+    latestState.current_started_at = null;
+    saveState(latestState);
+    updateControls(latestState);
+
+    window.setTimeout(
+      submitNext,
+      300
+    );
+  }
+
+  function scheduleBatchWatchdog(state) {
+    clearBatchWatchdog();
+
+    if (
+      !state?.active
+      || !state.current
+    ) {
+      return;
+    }
+
+    const startedAt = Number(
+      state.current_started_at
+      || 0
+    );
+
+    const elapsed = startedAt
+      ? Date.now() - startedAt
+      : BATCH_ITEM_TIMEOUT_MS;
+
+    const delay = Math.max(
+      0,
+      BATCH_ITEM_TIMEOUT_MS - elapsed
+    );
+
+    const candidateId =
+      state.current.candidate_id;
+
+    batchWatchdog = window.setTimeout(
+      () => {
+        batchWatchdog = null;
+        handleBatchTimeout(
+          candidateId
+        );
+      },
+      delay
+    );
+  }
+
   function submitNext() {
     const state =
       loadState();
@@ -445,6 +615,7 @@
       const completed =
         state.completed;
 
+      clearBatchWatchdog();
       clearState();
       updateControls(null);
       progress.textContent = (
@@ -460,6 +631,8 @@
     }
 
     state.current = next;
+    state.current_started_at =
+      Date.now();
     saveState(state);
     updateControls(state);
 
@@ -491,9 +664,16 @@
     document.body.appendChild(form);
     form.submit();
     form.remove();
+    scheduleBatchWatchdog(state);
   }
 
-  function stopBatch({closeRunner = true} = {}) {
+  async function stopBatch({
+    closeRunner = true,
+    recoverCurrent = true,
+  } = {}) {
+    const state = loadState();
+
+    clearBatchWatchdog();
     clearState();
     preparedBatch = null;
     batchPreparationStarted = false;
@@ -504,6 +684,22 @@
 
     if (closeRunner) {
       sendBatchControl("stop");
+    }
+
+    if (
+      recoverCurrent
+      && state?.current
+    ) {
+      try {
+        await interruptCandidate(
+          state.current,
+          "stopped"
+        );
+      } catch (error) {
+        progress.textContent = (
+          "Batch stopped; reset the interrupted job before retrying"
+        );
+      }
     }
 
     window.setTimeout(
@@ -552,7 +748,12 @@
       progress.textContent = (
         preparedBatch.candidates.length
           ? (
-              `${preparedBatch.candidates.length} jobs ready`
+              preparedBatch.recovered_interrupted
+                ? (
+                    `${preparedBatch.candidates.length} jobs ready; `
+                    + `${preparedBatch.recovered_interrupted} interrupted jobs restored`
+                  )
+                : `${preparedBatch.candidates.length} jobs ready`
             )
           : (
               preparedBatch.skipped_out_of_spec
@@ -599,9 +800,11 @@
 
     saveState({
       active: true,
+      agent_version: agentVersion(),
       total: candidates.length,
       completed: 0,
       current: null,
+      current_started_at: null,
       remaining: candidates,
     });
 
@@ -651,6 +854,7 @@
         && event.data.type === "ready"
       ) {
         updateControls();
+        resumePersistedBatch();
         return;
       }
 
@@ -693,6 +897,8 @@
 
       state.completed += 1;
       state.current = null;
+      state.current_started_at = null;
+      clearBatchWatchdog();
 
       if (
         PAUSE_STATUSES.has(
@@ -704,7 +910,6 @@
         progress.textContent = (
           `Batch paused: ${result.status}`
         );
-
         window.setTimeout(
           () => location.reload(),
           700
@@ -722,24 +927,50 @@
     }
   );
 
+  function resumePersistedBatch() {
+    const state = loadState();
+    const version = agentVersion();
+
+    if (!state?.active || !version) {
+      return;
+    }
+
+    if (state.agent_version !== version) {
+      stopBatch();
+      return;
+    }
+
+    if (!state.current) {
+      submitNext();
+      return;
+    }
+
+    if (
+      Number(
+        state.current_started_at
+        || 0
+      ) > 0
+    ) {
+      scheduleBatchWatchdog(state);
+    } else {
+      stopBatch();
+    }
+  }
+
   const existingState =
     loadState();
 
   updateControls(existingState);
-
-  if (
-    existingState?.active
-    && !existingState.current
-  ) {
-    submitNext();
-  }
+  resumePersistedBatch();
 
   window.setTimeout(
     updateControls,
     250
   );
 
-  prepareBatch();
+  if (!existingState?.active) {
+    prepareBatch();
+  }
 })();
 
 (() => {

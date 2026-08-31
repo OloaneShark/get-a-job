@@ -687,14 +687,25 @@ async function resolveHimalayasTargetOnce(
         currentSession.resolverTabId
       );
 
-      if (
-        Number.isInteger(resolverTabId)
-        && resolverTabId !== tabId
-      ) {
+      const tabsToClose = [tabId];
+
+      if (Number.isInteger(resolverTabId)) {
+        await deleteHimalayasResolverSession(
+          resolverTabId
+        );
+
+        if (resolverTabId !== tabId) {
+          tabsToClose.push(resolverTabId);
+        }
+      }
+
+      for (const closingTabId of tabsToClose) {
         try {
-          await chrome.tabs.remove(tabId);
+          await chrome.tabs.remove(
+            closingTabId
+          );
         } catch (error) {
-          // The unsupported child may already be closed.
+          // A completed resolver tab may already be closed.
         }
       }
 
@@ -915,6 +926,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         result
       );
 
+      const resultStatus = String(
+        message.payload?.status || ""
+      ).toLowerCase();
+
+      const senderTabId = sender?.tab?.id;
+
+      if (
+        typeof senderTabId === "number"
+        && [
+          "needs_manual_destination",
+          "posting_closed",
+        ].includes(resultStatus)
+      ) {
+        const resolverSession =
+          await getHimalayasResolverSession(
+            senderTabId
+          );
+
+        await deleteHimalayasResolverSession(
+          senderTabId
+        );
+
+        const resolverTabId = Number(
+          resolverSession?.resolverTabId
+        );
+
+        if (
+          Number.isInteger(resolverTabId)
+          && resolverTabId !== senderTabId
+        ) {
+          await deleteHimalayasResolverSession(
+            resolverTabId
+          );
+
+          try {
+            await chrome.tabs.remove(
+              resolverTabId
+            );
+          } catch (error) {
+            // The listing tab may already be closed.
+          }
+        }
+      }
+
       sendResponse({ok: true, result});
       return;
     }
@@ -1062,12 +1117,109 @@ chrome.tabs.onCreated.addListener(
         );
 
       if (!openerSession) {
+        let openerOrigin = "";
+
+        try {
+          const openerTab =
+            await chrome.tabs.get(
+              tab.openerTabId
+            );
+
+          openerOrigin = normalizeOrigin(
+            openerTab.url
+          );
+        } catch (error) {
+          return;
+        }
+
+        setTimeout(
+          async () => {
+            try {
+              const currentTab =
+                await chrome.tabs.get(
+                  tab.id
+                );
+
+              const currentUrl = String(
+                currentTab.url || ""
+              );
+
+              if (
+                !currentUrl
+                || currentUrl === "about:blank"
+              ) {
+                const runner =
+                  await getBatchRunner();
+
+                if (
+                  runner?.tabId === tab.id
+                  && runner.origin === openerOrigin
+                ) {
+                  await clearBatchRunner();
+                }
+
+                await chrome.tabs.remove(
+                  tab.id
+                );
+              }
+            } catch (error) {
+              // The child tab may have navigated or closed already.
+            }
+          },
+          12000
+        );
+
         return;
       }
 
       await saveHimalayasResolverSession(
         tab.id,
         openerSession
+      );
+
+      setTimeout(
+        async () => {
+          try {
+            const session =
+              await getHimalayasResolverSession(
+                tab.id
+              );
+
+            if (!session) {
+              return;
+            }
+
+            const currentTab =
+              await chrome.tabs.get(
+                tab.id
+              );
+
+            const currentUrl = String(
+              currentTab.url || ""
+            );
+
+            if (
+              tab.id !== Number(
+                session.resolverTabId
+              )
+              && (
+                !currentUrl
+                || currentUrl === "about:blank"
+              )
+            ) {
+              await deleteHimalayasResolverSession(
+                tab.id
+              );
+
+              await chrome.tabs.remove(
+                tab.id
+              );
+            }
+          } catch (error) {
+            // The child tab may have navigated or closed already.
+          }
+        },
+        12000
       );
     } catch (error) {
       console.warn(
@@ -1119,6 +1271,19 @@ chrome.tabs.onUpdated.addListener(
         new URL(
           changeInfo.url
         );
+
+      if (
+        parsed.origin
+        === normalizeOrigin(
+          session.origin
+        )
+      ) {
+        await deleteHimalayasResolverSession(
+          tabId
+        );
+
+        return;
+      }
 
       const host =
         parsed.hostname.toLowerCase();

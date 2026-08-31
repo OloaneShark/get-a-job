@@ -5,15 +5,23 @@
 
 {% block content %}
 
-<div class="form-page">
+<div class="form-page source-discovery-page">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2>Job Source Discovery Queue</h2>
+    <section class="source-discovery-overview">
 
-            <p class="helper-text mb-0">
-                Discover, import, validate, and approve public ATS job boards.
-            </p>
+    <div class="source-page-header">
+        <div class="source-page-title-group">
+            <span class="source-page-icon" aria-hidden="true">
+                <i class="bi bi-file-earmark-text"></i>
+            </span>
+
+            <div>
+                <h1>Job Source Discovery Queue</h1>
+
+                <p class="helper-text mb-0">
+                    Discover, import, validate, and approve public ATS job boards.
+                </p>
+            </div>
         </div>
 
         <a
@@ -24,17 +32,11 @@
         </a>
     </div>
 
-    <div class="card mb-4">
+    <div id="bulk-import" class="card source-import-card">
         <div class="card-body">
 
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <div>
-                    <h4 class="mb-1">Bulk Import Job Boards</h4>
-
-                    <p class="helper-text mb-0">
-                        Paste one supported ATS board URL per line.
-                    </p>
-                </div>
+            <div class="source-section-title-row">
+                <h2>Bulk Import Job Boards</h2>
 
                 <form
                     id="automatic-discovery-form"
@@ -59,6 +61,10 @@
                     </button>
                 </form>
             </div>
+
+            <p class="source-import-instructions">
+                Paste one supported ATS board URL per line.
+            </p>
 
             <form method="POST">
                 {{ form.hidden_tag() }}
@@ -87,7 +93,7 @@
                     {% endfor %}
                 </div>
 
-                {{ form.submit(class="btn btn-outline-primary") }}
+                {{ form.submit(class="btn btn-primary") }}
             </form>
 
         </div>
@@ -95,21 +101,87 @@
 
     <div
         id="candidate-action-status"
-        class="alert d-none"
+        class="alert source-discovery-runtime {% if discovery_queue_state == 'failed' %}alert-danger{% elif discovery_queue_state in ['queued', 'running'] %}alert-info{% else %}alert-success{% endif %}"
         role="status"
         aria-live="polite"
-    ></div>
+    >
+        <span class="source-runtime-copy">
+            <span class="source-runtime-indicator" aria-hidden="true"></span>
+            <strong>
+                {{ discovery_status.message or 'Automatic discovery is ready.' }}
+            </strong>
+        </span>
+        <span class="source-runtime-time">
+            {% if last_discovery_at %}
+                Last activity {{ last_discovery_at.strftime('%m/%d/%Y %I:%M %p') }}
+            {% else %}
+                No discovery activity recorded
+            {% endif %}
+        </span>
+    </div>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-            <h4 class="mb-1">Discovered Candidates</h4>
+    </section>
 
-            <p class="helper-text mb-0">
-                Valid candidates can be approved and immediately added to the active job-source registry.
-            </p>
-        </div>
+    <section class="source-candidates-panel">
 
-        <div class="d-flex gap-2">
+    <div class="source-candidates-heading">
+        <h2>Discovered Candidates</h2>
+    </div>
+
+    <div class="source-candidates-content">
+        <p class="source-candidates-description">
+            Valid candidates can be approved and immediately added to the active job-source registry.
+        </p>
+
+        <div class="source-candidates-toolbar">
+            <div id="candidate-source-filter" class="source-filter-control">
+            <form
+                class="source-filter-form"
+                method="GET"
+                action="{{ url_for('job_source_candidates') }}"
+                data-candidate-source-filter-form
+                aria-label="Filter discovery queue by source"
+            >
+                <label for="candidate-source-select">Filter by source:</label>
+                <select
+                    id="candidate-source-select"
+                    name="source"
+                    class="form-select"
+                >
+                    <option value="" {% if not selected_source %}selected{% endif %}>
+                        All Sources ({{ candidate_total }})
+                    </option>
+                    {% for source_type, source_count in source_filters %}
+                        <option
+                            value="{{ source_type }}"
+                            {% if selected_source == source_type %}selected{% endif %}
+                        >
+                            {{ source_type|replace('_', ' ')|title }} ({{ source_count }})
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline-secondary">
+                    Go
+                </button>
+            </form>
+
+            {% if selected_source %}
+                <p class="source-filter-summary">
+                    Showing
+                    <strong>{{ candidates|length }}</strong>
+                    candidate{% if candidates|length != 1 %}s{% endif %}
+                    from
+                    <strong>
+                        {{ selected_source|replace('_', ' ')|title }}
+                    </strong>.
+                    <a href="{{ url_for('job_source_candidates') }}">
+                        Show all sources
+                    </a>
+                </p>
+            {% endif %}
+            </div>
+
+            <div class="source-bulk-actions">
 
             <form
                 method="POST"
@@ -167,61 +239,8 @@
                 </button>
             </form>
 
+            </div>
         </div>
-    </div>
-
-    <div
-        id="candidate-source-filter"
-        class="mb-3"
-    >
-        <div
-            class="d-flex flex-wrap align-items-center gap-2"
-            aria-label="Filter discovery queue by source"
-        >
-            <span class="helper-text me-1">
-                Filter by source:
-            </span>
-
-            <a
-                href="{{ url_for('job_source_candidates') }}"
-                class="btn btn-sm {% if not selected_source %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-            >
-                All
-                <span class="badge bg-dark ms-1">
-                    {{ candidate_total }}
-                </span>
-            </a>
-
-            {% for source_type, source_count in source_filters %}
-                <a
-                    href="{{ url_for(
-                        'job_source_candidates',
-                        source=source_type
-                    ) }}"
-                    class="btn btn-sm {% if selected_source == source_type %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-                >
-                    {{ source_type|replace('_', ' ')|title }}
-                    <span class="badge bg-dark ms-1">
-                        {{ source_count }}
-                    </span>
-                </a>
-            {% endfor %}
-        </div>
-
-        {% if selected_source %}
-            <p class="helper-text mt-2 mb-0">
-                Showing
-                <strong>{{ candidates|length }}</strong>
-                candidate{% if candidates|length != 1 %}s{% endif %}
-                from
-                <strong>
-                    {{ selected_source|replace('_', ' ')|title }}
-                </strong>.
-                <a href="{{ url_for('job_source_candidates') }}">
-                    Show all sources
-                </a>
-            </p>
-        {% endif %}
     </div>
 
     <div
@@ -425,8 +444,19 @@
                 No source candidates are awaiting review.
             </p>
 
+            <div class="source-table-footer">
+                <span>
+                    Showing
+                    {% if candidates %}1{% else %}0{% endif %}
+                    to {{ candidates|length }} of {{ candidates|length }} candidates
+                </span>
+                <span>Page 1 of 1</span>
+            </div>
+
         </div>
     </div>
+
+    </section>
 
 </div>
 

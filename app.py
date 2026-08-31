@@ -18,7 +18,7 @@ import bcrypt
 import json
 import csv
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from io import StringIO
 from werkzeug.utils import secure_filename
@@ -61,7 +61,8 @@ from models import (
     SuppressedJob,
     AutoApplyCandidate,
     ApplicantProfile,
-    ApplicationSubmissionAttempt
+    ApplicationSubmissionAttempt,
+    JOB_APPLICATION_STRING_LIMITS,
 )
 from utils.encryption import encrypt_text, decrypt_text
 from services.legitimacy_service import calculate_legitimacy_score
@@ -370,7 +371,8 @@ def inject_ai_usage():
             "ai_daily_limit": None,
             "ai_requests_remaining": None,
             "ai_usage_unlimited": False,
-            "user_plan": None
+            "user_plan": None,
+            "shell_last_sync": datetime.now().astimezone(),
         }
 
     daily_limit = get_daily_ai_limit(current_user)
@@ -386,7 +388,8 @@ def inject_ai_usage():
         "ai_daily_limit": daily_limit,
         "ai_requests_remaining": remaining,
         "ai_usage_unlimited": daily_limit is None,
-        "user_plan": user_plan
+        "user_plan": user_plan,
+        "shell_last_sync": datetime.now().astimezone(),
     }
 
 
@@ -1495,13 +1498,71 @@ def job_source_candidates():
         .all()
     )
 
+    today_start = (
+        datetime.now(timezone.utc)
+        .replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+            tzinfo=None,
+        )
+    )
+    discovered_today = (
+        JobSourceCandidate.query
+        .filter(
+            JobSourceCandidate.discovered_at
+            >= today_start
+        )
+        .count()
+    )
+    approved_today = (
+        JobSourceCompany.query
+        .filter(
+            JobSourceCompany.created_at
+            >= today_start
+        )
+        .count()
+    )
+    discovery_status = (
+        get_automatic_source_discovery_status()
+    )
+    discovery_queue_state = str(
+        discovery_status.get("state")
+        or "ready"
+    ).strip().lower()
+
+    if discovery_queue_state in {
+        "idle",
+        "completed",
+    }:
+        discovery_queue_state = "ready"
+
+    latest_candidate = (
+        JobSourceCandidate.query
+        .order_by(
+            JobSourceCandidate.discovered_at.desc()
+        )
+        .first()
+    )
+    last_discovery_at = (
+        latest_candidate.discovered_at
+        if latest_candidate
+        else None
+    )
+
     return render_template(
         "job_source_candidates.html",
         form=form,
         candidates=candidates,
         source_filters=source_filters,
         selected_source=selected_source,
-        candidate_total=candidate_total
+        candidate_total=candidate_total,
+        discovery_status=discovery_status,
+        discovery_queue_state=discovery_queue_state,
+        last_discovery_at=last_discovery_at,
+        discovered_today=discovered_today,
+        approved_today=approved_today,
     )
 
 
@@ -3901,6 +3962,38 @@ def auto_apply_batch_candidates_api():
             }
         ), 403
 
+    stale_before = (
+        datetime.now(timezone.utc)
+        .replace(tzinfo=None)
+        - timedelta(minutes=2)
+    )
+    interrupted_candidates = (
+        AutoApplyCandidate.query
+        .filter(
+            AutoApplyCandidate.user_id == current_user.id,
+            AutoApplyCandidate.status == "Approved",
+            AutoApplyCandidate.execution_status == "Not Started",
+            AutoApplyCandidate.reviewed_at.isnot(None),
+            AutoApplyCandidate.reviewed_at <= stale_before,
+        )
+        .all()
+    )
+
+    for interrupted_candidate in interrupted_candidates:
+        reset_candidate_submission(interrupted_candidate)
+
+    if interrupted_candidates:
+        db.session.commit()
+
+        log_action(
+            current_user.id,
+            (
+                "Restored "
+                f"{len(interrupted_candidates)} interrupted "
+                "Auto Apply candidate(s) to Pending Review"
+            ),
+        )
+
     candidates = (
         AutoApplyCandidate.query
         .filter_by(
@@ -3939,6 +4032,10 @@ def auto_apply_batch_candidates_api():
                     candidate_id=candidate.id,
                     action="approve",
                 ),
+                "interrupt_url": url_for(
+                    "interrupt_auto_apply_batch_candidate",
+                    candidate_id=candidate.id,
+                ),
             }
         )
 
@@ -3950,6 +4047,149 @@ def auto_apply_batch_candidates_api():
             "candidates": batch,
             "count": len(batch),
             "skipped_out_of_spec": skipped_out_of_spec,
+            "recovered_interrupted": len(
+                interrupted_candidates
+            ),
+        }
+    )
+
+
+@app.route(
+    "/api/auto-apply/batch-candidates/<int:candidate_id>/interrupt",
+    methods=["POST"],
+)
+@login_required
+def interrupt_auto_apply_batch_candidate(candidate_id):
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        return jsonify(
+            {
+                "error": (
+                    "Auto Apply is not enabled for this account tier."
+                )
+            }
+        ), 403
+
+    candidate = (
+        AutoApplyCandidate.query
+        .filter_by(
+            id=candidate_id,
+            user_id=current_user.id,
+        )
+        .first_or_404()
+    )
+
+    payload = request.get_json(silent=True) or {}
+    reason = str(payload.get("reason") or "timeout").strip().lower()
+
+    if candidate.execution_status != "Not Started":
+        return jsonify(
+            {
+                "success": True,
+                "candidate_id": candidate.id,
+                "status": candidate.execution_status,
+                "changed": False,
+            }
+        )
+
+    if reason == "stopped":
+        if candidate.status == "Approved":
+            reset_candidate_submission(candidate)
+            db.session.commit()
+
+            log_action(
+                current_user.id,
+                (
+                    "Restored interrupted Auto Apply candidate "
+                    f"{candidate.id} to Pending Review"
+                ),
+            )
+
+        return jsonify(
+            {
+                "success": True,
+                "candidate_id": candidate.id,
+                "status": candidate.execution_status,
+                "changed": candidate.status == "Pending Review",
+            }
+        )
+
+    if candidate.status not in {
+        "Approved",
+        "Pending Review",
+    }:
+        return jsonify(
+            {
+                "success": True,
+                "candidate_id": candidate.id,
+                "status": candidate.execution_status,
+                "changed": False,
+            }
+        )
+
+    prepared = prepare_chrome_agent_candidate(
+        candidate,
+        current_user,
+    )
+
+    if not prepared["ok"]:
+        db.session.rollback()
+        return jsonify({"error": prepared["message"]}), 409
+
+    now = datetime.now(
+        timezone.utc
+    ).replace(tzinfo=None)
+    message = (
+        "The Browser Agent did not report a result for this job "
+        "within 90 seconds. Jobfinitum moved on to the next job."
+    )
+    application = prepared["application"]
+    package = prepared["package"]
+
+    db.session.add(
+        ApplicationSubmissionAttempt(
+            user_id=current_user.id,
+            auto_apply_candidate_id=candidate.id,
+            application_id=application.id,
+            application_package_id=package.id,
+            adapter_name="chrome_agent_batch_watchdog",
+            status="Needs User Action",
+            message=message,
+            detail_json=json.dumps(
+                {
+                    "reason": "batch_result_timeout",
+                    "timeout_seconds": 90,
+                },
+                sort_keys=True,
+            ),
+            started_at=now,
+            finished_at=now,
+        )
+    )
+
+    candidate.last_submission_attempt_at = now
+    candidate.execution_status = "Needs User Action"
+    application.status = "Auto Apply - Needs User Action"
+    package.status = "Needs User Action"
+    package.failure_reason = message
+
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        (
+            "Auto Apply batch timed out waiting for candidate "
+            f"{candidate.id}"
+        ),
+    )
+
+    return jsonify(
+        {
+            "success": True,
+            "candidate_id": candidate.id,
+            "status": "Needs User Action",
+            "changed": True,
         }
     )
 
@@ -5683,7 +5923,10 @@ def mark_discovered_job_applied(job_id):
             or url_for("discovered_jobs")
         )
 
-    if len(posting_url) > 255:
+    if (
+        len(posting_url)
+        > JOB_APPLICATION_STRING_LIMITS["job_posting_url"]
+    ):
         message = (
             "This posting URL is too long for "
             "the current application tracker. "
@@ -5713,7 +5956,8 @@ def mark_discovered_job_applied(job_id):
 
     if (
         recruiter_email
-        and len(recruiter_email) > 120
+        and len(recruiter_email)
+        > JOB_APPLICATION_STRING_LIMITS["recruiter_email"]
     ):
         recruiter_email = None
 
@@ -5721,11 +5965,11 @@ def mark_discovered_job_applied(job_id):
         company_name=str(
             job.company_name
             or "Unknown Company"
-        )[:100],
+        )[:JOB_APPLICATION_STRING_LIMITS["company_name"]],
         position_title=str(
             job.position_title
             or "Unknown Position"
-        )[:100],
+        )[:JOB_APPLICATION_STRING_LIMITS["position_title"]],
         job_posting_url=posting_url,
         job_description=(
             job.job_description
@@ -5734,19 +5978,23 @@ def mark_discovered_job_applied(job_id):
         recruiter_email=recruiter_email,
         status="Applied",
         salary=(
-            str(job.salary)[:50]
+            str(job.salary)[
+                :JOB_APPLICATION_STRING_LIMITS["salary"]
+            ]
             if job.salary
             else None
         ),
         location=(
-            str(job.location)[:100]
+            str(job.location)[
+                :JOB_APPLICATION_STRING_LIMITS["location"]
+            ]
             if job.location
             else None
         ),
         visa_sponsorship=str(
             job.visa_sponsorship
             or "Unknown"
-        )[:20],
+        )[:JOB_APPLICATION_STRING_LIMITS["visa_sponsorship"]],
         notes=encrypt_text(""),
         user_id=current_user.id,
     )

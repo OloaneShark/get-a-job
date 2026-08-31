@@ -27,6 +27,7 @@ from wtforms.validators import (
     ValidationError,
     NumberRange
 )
+from models import JOB_APPLICATION_STRING_LIMITS
 
 
 class MultiCheckboxField(SelectMultipleField):
@@ -203,11 +204,43 @@ class DeleteAccountForm(FlaskForm):
 
 
 class JobApplicationForm(FlaskForm):
-    company_name = StringField("Company Name", validators=[DataRequired()])
-    position_title = StringField("Position Title", validators=[DataRequired()])
+    company_name = StringField(
+        "Company Name",
+        validators=[
+            DataRequired(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["company_name"]
+            ),
+        ],
+    )
+    position_title = StringField(
+        "Position Title",
+        validators=[
+            DataRequired(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["position_title"]
+            ),
+        ],
+    )
     
-    company_website = StringField("Company Website")
-    job_posting_url = StringField("Job Posting URL")
+    company_website = StringField(
+        "Company Website",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["company_website"]
+            ),
+        ],
+    )
+    job_posting_url = StringField(
+        "Job Posting URL",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["job_posting_url"]
+            ),
+        ],
+    )
     job_description = TextAreaField(
         "Job Description",
         validators=[Optional()],
@@ -216,7 +249,15 @@ class JobApplicationForm(FlaskForm):
             "placeholder": "Paste the complete job description here..."
         }
     )
-    recruiter_email = StringField("Recruiter Email")
+    recruiter_email = StringField(
+        "Recruiter Email",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["recruiter_email"]
+            ),
+        ],
+    )
     follow_up_date = DateField(
         "Follow-Up Date",
         format="%Y-%m-%d",
@@ -244,12 +285,22 @@ class JobApplicationForm(FlaskForm):
         validators=[DataRequired()]
     )
     
-    salary = StringField("Salary")
+    salary = StringField(
+        "Salary",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["salary"]
+            ),
+        ],
+    )
     location = StringField(
         "Location",
         validators=[
             Optional(),
-            Length(max=100),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["location"]
+            ),
         ],
     )
     visa_sponsorship = RadioField(
@@ -365,13 +416,42 @@ class AIInterviewCoachForm(FlaskForm):
 class JobUrlImportForm(FlaskForm):
     job_url = StringField(
         "Job Posting URL",
-        validators=[DataRequired()]
+        validators=[
+            DataRequired(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["job_posting_url"]
+            ),
+        ]
     )
 
-    company_name = StringField("Company")
-    position_title = StringField("Position")
+    company_name = StringField(
+        "Company",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["company_name"]
+            ),
+        ],
+    )
+    position_title = StringField(
+        "Position",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["position_title"]
+            ),
+        ],
+    )
 
-    salary = StringField("Salary")
+    salary = StringField(
+        "Salary",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["salary"]
+            ),
+        ],
+    )
 
     visa_sponsorship = SelectField(
         "Visa Sponsorship",
@@ -383,7 +463,15 @@ class JobUrlImportForm(FlaskForm):
         default="Unknown"
     )
 
-    location = StringField("Location")
+    location = StringField(
+        "Location",
+        validators=[
+            Optional(),
+            Length(
+                max=JOB_APPLICATION_STRING_LIMITS["location"]
+            ),
+        ],
+    )
 
     job_description = TextAreaField("Job Description")
 

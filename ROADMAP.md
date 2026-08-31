@@ -10,7 +10,7 @@ The goal is to help users not only track applications, but also discover jobs, r
 # Project Status
 
 ## Phase 1 — Core Platform
-**Status:** ✅ Complete (Ongoing UI Polish)
+**Status:** Complete (Ongoing UI Polish)
 
 ### Authentication
 - [x] User registration

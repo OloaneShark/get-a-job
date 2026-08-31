@@ -4,9 +4,8 @@
 {% block title %}Verify Email - JobFinitum{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-lg-6">
-        <div class="card p-4">
+<div class="auth-layout">
+    <section class="auth-panel">
             <h2>Verify your email</h2>
             <p class="text-muted">
                 We sent a 6-digit code to <strong>{{ email }}</strong>.
@@ -35,9 +34,8 @@
                 action="{{ url_for('resend_verification_email') }}"
             >
                 {{ resend_form.hidden_tag() }}
-                {{ resend_form.submit(class="btn btn-outline-light") }}
+                {{ resend_form.submit(class="btn btn-outline-secondary w-100") }}
             </form>
-        </div>
-    </div>
+    </section>
 </div>
 {% endblock %}

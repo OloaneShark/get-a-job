@@ -15,6 +15,11 @@ from services.auto_apply_submission.application_question_service import (
     load_question_state,
     merge_questions,
 )
+from services.auto_apply_submission.application_answer_memory_service import (
+    answer_memories_for_agent,
+    answer_is_compatible,
+    apply_saved_answer_memories,
+)
 from services.auto_apply_submission.engine import (
     get_or_create_application,
     get_or_create_package,
@@ -232,6 +237,11 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
     identity = prepared["identity"]
     package = prepared["package"]
     state = load_question_state(package.answers_json)
+    state = apply_saved_answer_memories(
+        user.id,
+        state,
+    )
+    package.answers_json = dump_question_state(state)
 
     questions = []
     for question in state.get("questions") or []:
@@ -319,6 +329,9 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
             "available_start_date": _iso_date(identity.available_start_date),
         },
         "application_questions": questions,
+        "answer_memories": answer_memories_for_agent(
+            user.id
+        ),
         "resume": {
             "filename": original_filename,
             "content_type": content_type,
@@ -973,6 +986,25 @@ def apply_chrome_agent_result(candidate, user, payload):
 
             state["answers"] = answers
 
+            state = apply_saved_answer_memories(
+                user.id,
+                state,
+            )
+
+            remembered_keys = set(
+                state.get("remembered_keys")
+                or []
+            )
+
+            remembered_prefilled = [
+                {
+                    "key": question.get("key"),
+                    "text": question.get("text"),
+                }
+                for question in all_questions
+                if question.get("key") in remembered_keys
+            ]
+
             package.answers_json = dump_question_state(
                 state
             )
@@ -982,12 +1014,68 @@ def apply_chrome_agent_result(candidate, user, payload):
                     "profile_prefilled_questions"
                 ] = profile_prefilled
 
+            if remembered_prefilled:
+                detail[
+                    "remembered_prefilled_questions"
+                ] = remembered_prefilled
+
+            resolved_answers = state.get("answers") or {}
+            unresolved_questions = []
+
+            for question in all_questions:
+                key = str(question.get("key") or "")
+                answer = resolved_answers.get(key)
+
+                if (
+                    question.get("required", True)
+                    and (
+                        answer in (None, "", [], ())
+                        or not answer_is_compatible(
+                            question,
+                            answer,
+                        )
+                    )
+                ):
+                    unresolved_questions.append(question)
+
+            if unresolved_questions:
+                detail["required_fields"] = [
+                    question.get("text")
+                    for question in unresolved_questions
+                ]
+
+                message = (
+                    f"{platform_name} still needs answers "
+                    "Jobfinitum does not have: "
+                    + "; ".join(
+                        str(question.get("text") or "")
+                        for question in unresolved_questions
+                    )
+                )
+
+            elif remembered_prefilled or profile_prefilled:
+                candidate.execution_status = "Not Started"
+                application.status = "Auto Apply - Preparing"
+                package.status = "Prepared"
+                package.failure_reason = None
+                db.session.flush()
+
+                return {
+                    "status": "Retrying With Saved Answers",
+                    "message": (
+                        "Jobfinitum filled every new question from saved "
+                        "answers or the applicant profile and is retrying now."
+                    ),
+                    "retry_with_saved_answers": True,
+                }
+
             status = "Needs Application Answer"
 
-            message = (
-                payload.get("message")
-                or "Greenhouse identified required fields that still need attention."
-            )
+            if not unresolved_questions:
+                message = (
+                    payload.get("message")
+                    or "Greenhouse identified required fields that still need attention."
+                )
 
     now = utcnow_naive()
     confirmation_url = str(

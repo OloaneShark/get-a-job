@@ -3853,6 +3853,43 @@
     );
   }
 
+  function rememberedAnswerFor(
+    task,
+    question
+  ) {
+    const wantedText = lower(
+      question?.text || question
+    );
+
+    if (!wantedText) {
+      return null;
+    }
+
+    for (
+      const memory
+      of task.answer_memories || []
+    ) {
+      const answer = memory?.answer;
+
+      if (
+        answer === null
+        || answer === undefined
+        || answer === ""
+      ) {
+        continue;
+      }
+
+      if (
+        lower(memory.question_text)
+        === wantedText
+      ) {
+        return answer;
+      }
+    }
+
+    return null;
+  }
+
   function savedAnswerFor(
     task,
     question
@@ -3916,7 +3953,15 @@
       }
     }
 
-    return fuzzy;
+    const remembered =
+      rememberedAnswerFor(
+        task,
+        question
+      );
+
+    return remembered !== null
+      ? remembered
+      : fuzzy;
   }
 
   function savedQuestionFor(
@@ -6797,7 +6842,7 @@
         "warning"
       );
 
-      await report(
+      const reportResponse = await report(
         launch,
         {
           status:
@@ -6837,6 +6882,19 @@
           },
         }
       );
+
+      if (
+        reportResponse?.result
+          ?.retry_with_saved_answers
+      ) {
+        statusBox(
+          "saved answers found; retrying the Greenhouse form."
+        );
+
+        await sleep(300);
+        location.reload();
+        return;
+      }
 
       clearLaunch();
 
@@ -6908,6 +6966,12 @@
               "greenhouse_hosted",
           },
         }
+      );
+
+      clearLaunch();
+
+      await closeCompletedAgentTab(
+        launch
       );
 
       return;
@@ -7119,6 +7183,14 @@
         },
       }
     );
+
+    if (!verificationReported) {
+      clearLaunch();
+
+      await closeCompletedAgentTab(
+        launch
+      );
+    }
   }
 
   async function main() {
@@ -7193,6 +7265,12 @@
                 "greenhouse_hosted",
             },
           }
+        );
+
+        clearLaunch();
+
+        await closeCompletedAgentTab(
+          launch
         );
       } catch (reportError) {
         console.error(

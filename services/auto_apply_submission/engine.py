@@ -11,6 +11,7 @@ from models import (
     ApplicationHistory,
     ApplicationPackage,
     ApplicationSubmissionAttempt,
+    JOB_APPLICATION_STRING_LIMITS,
     JobApplication,
     db,
 )
@@ -33,6 +34,26 @@ def canonical_url(value):
     return str(value or "").strip().rstrip("/")
 
 
+def normalize_job_application_string(
+    field_name,
+    value,
+    *,
+    fallback=None,
+):
+    raw_value = value
+
+    if raw_value is None or not str(raw_value).strip():
+        raw_value = fallback
+
+    if raw_value is None:
+        return None
+
+    normalized = str(raw_value).strip()
+    limit = JOB_APPLICATION_STRING_LIMITS[field_name]
+
+    return normalized[:limit]
+
+
 def detect_adapter(job):
     target = canonical_url(job.apply_url or job.posting_url)
     host = (urlparse(target).hostname or "").lower()
@@ -52,7 +73,11 @@ def get_or_create_application(candidate):
             return application
 
     job = candidate.discovered_job
-    canonical = canonical_url(job.posting_url)
+    posting_url = normalize_job_application_string(
+        "job_posting_url",
+        job.posting_url,
+    )
+    canonical = canonical_url(posting_url)
     application = None
 
     if canonical:
@@ -66,14 +91,35 @@ def get_or_create_application(candidate):
     if application is None:
         application = JobApplication(
             user_id=candidate.user_id,
-            company_name=job.company_name,
-            position_title=job.position_title,
-            job_posting_url=job.posting_url,
+            company_name=normalize_job_application_string(
+                "company_name",
+                job.company_name,
+                fallback="Unknown Company",
+            ),
+            position_title=normalize_job_application_string(
+                "position_title",
+                job.position_title,
+                fallback="Unknown Position",
+            ),
+            job_posting_url=posting_url,
             job_description=job.job_description,
-            recruiter_email=job.recruiter_email,
-            salary=job.salary,
-            location=job.location,
-            visa_sponsorship=job.visa_sponsorship or "Unknown",
+            recruiter_email=normalize_job_application_string(
+                "recruiter_email",
+                job.recruiter_email,
+            ),
+            salary=normalize_job_application_string(
+                "salary",
+                job.salary,
+            ),
+            location=normalize_job_application_string(
+                "location",
+                job.location,
+            ),
+            visa_sponsorship=normalize_job_application_string(
+                "visa_sponsorship",
+                job.visa_sponsorship,
+                fallback="Unknown",
+            ),
             status="Auto Apply - Preparing",
             application_date=utcnow_naive(),
         )

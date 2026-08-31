@@ -254,6 +254,28 @@ def apply_saved_answer_memories(user_id, state):
     return state
 
 
+def answer_memories_for_agent(user_id):
+    memories = (
+        ApplicationAnswerMemory.query
+        .filter_by(user_id=user_id)
+        .order_by(
+            ApplicationAnswerMemory.updated_at.desc(),
+            ApplicationAnswerMemory.id.desc(),
+        )
+        .all()
+    )
+
+    return [
+        {
+            "question_text": memory.question_text or "",
+            "question_type": memory.question_type or None,
+            "answer": memory.answer_json,
+        }
+        for memory in memories
+        if memory.question_text
+    ]
+
+
 def remember_submitted_answers(
     user_id,
     questions,

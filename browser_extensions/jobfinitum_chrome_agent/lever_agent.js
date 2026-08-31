@@ -446,6 +446,27 @@
     return null;
   }
 
+  function rememberedAnswer(task, questionText) {
+    const wanted = lower(questionText);
+
+    if (!wanted) return null;
+
+    for (const memory of task.answer_memories || []) {
+      const answer = memory?.answer;
+
+      if (
+        lower(memory?.question_text) === wanted
+        && answer !== null
+        && answer !== undefined
+        && answer !== ""
+      ) {
+        return answer;
+      }
+    }
+
+    return null;
+  }
+
   function requiredControls() {
     const result = [];
     const seen = new Set();
@@ -793,6 +814,21 @@
     }
 
     for (const element of requiredControls()) {
+      if (!element.checkValidity()) {
+        const remembered = rememberedAnswer(
+          task,
+          labelText(element)
+        );
+
+        if (remembered !== null) {
+          applyValue(element, remembered);
+        }
+      }
+
+      if (element.checkValidity()) {
+        continue;
+      }
+
       const answer = reusableAnswer(task, labelText(element));
       if (answer !== null) {
         applyValue(element, answer);
@@ -815,7 +851,7 @@
 
     if (unresolved.length) {
       statusBox("more application answers are required in Jobfinitum.", "warning");
-      await report(launch, {
+      const reportResponse = await report(launch, {
         status: "needs_application_answer",
         message: "Lever requires additional application answers before submission.",
         questions: unresolved,
@@ -823,8 +859,23 @@
           url: location.href,
           required_fields: unresolved.map((item) => item.text),
           executor: "chrome_agent",
+          adapter: "lever_hosted",
         },
       });
+
+      if (
+        reportResponse?.result
+          ?.retry_with_saved_answers
+      ) {
+        statusBox(
+          "saved answers found; retrying the Lever form."
+        );
+
+        await sleep(300);
+        location.reload();
+        return;
+      }
+
       clearLaunch();
       await closeCompletedAgentTab(
         launch

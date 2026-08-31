@@ -63,7 +63,7 @@
                                             )
                                         %}
                                             <div class="mt-2">
-                                                <span class="badge bg-info">
+                                                <span class="badge bg-info auto-apply-enabled-badge">
                                                     Auto Apply Queue On
                                                 </span>
                                             </div>
@@ -118,8 +118,8 @@
                                         {% endif %}
                                     </td>
 
-                                    <td>
-                                        <div class="d-flex flex-wrap gap-2">
+                                    <td class="table-actions-cell">
+                                        <div class="table-actions">
 
                                             <a
                                                 href="{{ url_for(

@@ -8,11 +8,11 @@ function copyPrompt(event) {
 
     navigator.clipboard.writeText(prompt.value)
         .then(() => {
-            const button = event.target;
+            const button = event.currentTarget || event.target;
 
             const originalText = button.innerText;
 
-            button.innerText = "✅ Copied!";
+            button.innerText = "Copied!";
 
             setTimeout(() => {
                 button.innerText = originalText;

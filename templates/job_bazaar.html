@@ -166,7 +166,7 @@
                                rel="noopener noreferrer" class="btn btn-success">Apply</a>
 
                             {% if job.is_saved %}
-                                <button type="button" class="btn btn-outline-warning" disabled>✓ Saved</button>
+                                <button type="button" class="btn btn-outline-warning" disabled>Saved</button>
                             {% else %}
                                 <form
                                     class="bazaar-job-action-form"
@@ -360,7 +360,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            button.textContent = "✓ Saved";
+            button.textContent = "Saved";
             button.className = "btn btn-outline-warning";
             button.disabled = true;
 

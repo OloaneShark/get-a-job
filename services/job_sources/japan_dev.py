@@ -1117,15 +1117,16 @@ class JapanDevJobSource(BaseJobSource):
             lowered = line.lower()
 
             if lowered.startswith(prefix):
-                return cls.normalize_space(
-                    line.split(
-                        ":",
-                        1,
-                    )[1].replace(
-                        "👍",
-                        "",
-                    )
+                value = line.split(
+                    ":",
+                    1,
+                )[1].strip()
+                value = re.sub(
+                    r"[^\w\s.+/-]+$",
+                    "",
+                    value,
                 )
+                return cls.normalize_space(value)
 
         return None
 
@@ -1233,7 +1234,9 @@ class JapanDevJobSource(BaseJobSource):
                 end_index = index
                 break
 
-            if line == "Latest Tech Jobs 🇯🇵":
+            if lowered.startswith(
+                "latest tech jobs"
+            ):
                 end_index = index
                 break
 

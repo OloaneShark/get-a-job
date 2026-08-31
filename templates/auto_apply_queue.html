@@ -323,7 +323,7 @@
                                     method="POST"
                                     action="{{ url_for('save_auto_apply_candidate_answers', candidate_id=candidate.id) }}"
                                     class="application-question-form mt-3"
-                                    {% if answer_uses_chrome_agent %}target="_blank"{% endif %}
+                                    {% if answer_uses_chrome_agent %}target="jobfinitum-auto-apply-runner"{% endif %}
                                 >
                                     <input
                                         type="hidden"
