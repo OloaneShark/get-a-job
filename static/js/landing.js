@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const documentRoot = document.documentElement;
     const baseToggleTheme = window.toggleTheme;
     const setPageTheme = window.applyTheme;
-    const radarSweepDuration = 18000;
+    const radarSweepDuration = 12000;
     const radarStartedAt = window.performance.now();
     const radarTimers = [];
     let radarBlips = [];
@@ -269,8 +269,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         themeCurtain.style.display = "block";
         themeCurtain.style.background = nextTheme === "theme-dark"
-            ? "#0b0f0d"
-            : "#f7f8f5";
+            ? "#06101c"
+            : "#f7f9fc";
 
         const reveal = themeCurtain.animate(
             [
