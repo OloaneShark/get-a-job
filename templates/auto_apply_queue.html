@@ -365,7 +365,10 @@
                                                                 autocomplete="off"
                                                                 list="school-options-{{ question.key }}"
                                                                 data-jobfinitum-school-search="true"
-                                                                data-greenhouse-url="{{ candidate.discovered_job.apply_url or candidate.discovered_job.posting_url }}"
+                                                                data-school-search-url="{{ url_for(
+                                                                    'auto_apply_school_search_api',
+                                                                    greenhouse_url=(candidate.discovered_job.apply_url or candidate.discovered_job.posting_url)
+                                                                ) }}"
                                                                 data-school-status-id="school-status-{{ question.key }}"
                                                                 {% if question.required %}required{% endif %}
                                                                 placeholder="Start typing a school name"
@@ -378,8 +381,44 @@
                                                                 id="school-status-{{ question.key }}"
                                                                 class="helper-text mt-1"
                                                             >
-                                                                Type at least 2 characters to search the actual Greenhouse school list.
+                                                                Type at least 3 characters to search schools.
                                                             </div>
+                                                        {% elif question.choices and question.type == "multiselect" %}
+                                                            <details
+                                                                class="profile-multiselect application-question-multiselect"
+                                                                data-jobfinitum-question-multiselect
+                                                            >
+                                                                <summary>
+                                                                    <span data-jobfinitum-multiselect-summary>
+                                                                        Choose one or more answers
+                                                                    </span>
+                                                                </summary>
+                                                                <div class="profile-multiselect-menu">
+                                                                    <input
+                                                                        class="form-control application-question-choice-search"
+                                                                        type="search"
+                                                                        placeholder="Search choices"
+                                                                        autocomplete="off"
+                                                                        data-jobfinitum-multiselect-search
+                                                                    >
+                                                                    {% for choice in question.choices %}
+                                                                        <label
+                                                                            class="profile-multiselect-option"
+                                                                            data-jobfinitum-multiselect-option
+                                                                            data-choice-label="{{ choice.label|lower }}"
+                                                                        >
+                                                                            <input
+                                                                                class="form-check-input"
+                                                                                type="checkbox"
+                                                                                name="answer__{{ question.key }}"
+                                                                                value="{{ choice.value }}"
+                                                                                {% if saved and choice.value in saved %}checked{% endif %}
+                                                                            >
+                                                                            <span>{{ choice.label }}</span>
+                                                                        </label>
+                                                                    {% endfor %}
+                                                                </div>
+                                                            </details>
                                                         {% elif question.choices and question.type == "checkbox" %}
                                                             <div class="d-grid gap-2">
                                                                 {% for choice in question.choices %}

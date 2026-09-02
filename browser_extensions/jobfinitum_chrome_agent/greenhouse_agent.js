@@ -23,10 +23,11 @@
 
   const VERIFY_PHRASES = [
     "please complete the captcha",
-    "please complete the verification",
-    "verification failed",
     "captcha failed",
-    "security check",
+    "recaptcha",
+    "hcaptcha",
+    "turnstile",
+    "cloudflare challenge",
   ];
 
   const LAUNCH_STORAGE_KEY =
@@ -136,7 +137,7 @@
         zIndex: "2147483647",
         maxWidth: "390px",
         padding: "12px 14px",
-        borderRadius: "10px",
+        borderRadius: "0",
         font: "14px/1.35 system-ui, sans-serif",
         boxShadow: "0 8px 28px rgba(0,0,0,.28)",
         border: "1px solid rgba(255,255,255,.25)",
@@ -156,7 +157,7 @@
     box.style.background = selected[0];
     box.style.color = selected[1];
     box.textContent = (
-      `Jobfinitum Chrome Agent — ${message}`
+      `Jobfinitum Chrome Agent - ${message}`
     );
   }
 
@@ -887,6 +888,28 @@
   }
 
   function findSchemaControl(question) {
+    const controlId =
+      String(
+        question?.control_id || ""
+      ).trim();
+
+    if (controlId) {
+      const rawElement =
+        document.getElementById(
+          controlId
+        );
+
+      const element =
+        canonicalControl(rawElement);
+
+      if (
+        element
+        && isVisible(element)
+      ) {
+        return element;
+      }
+    }
+
     for (
       const rawElement
       of fieldCandidates(
@@ -1474,6 +1497,35 @@
     );
   }
 
+  async function waitForOptionForAnswer(
+    opened,
+    tokens,
+    options = {},
+    timeoutMs = 3200
+  ) {
+    const started = Date.now();
+
+    while (
+      Date.now() - started
+      < timeoutMs
+    ) {
+      const option =
+        findOptionForAnswer(
+          opened,
+          tokens,
+          options
+        );
+
+      if (option) {
+        return option;
+      }
+
+      await sleep(120);
+    }
+
+    return null;
+  }
+
   function structuredEducationSelectQuestion(
     question
   ) {
@@ -1609,6 +1661,65 @@
     );
   }
 
+  function structuredSelectionText(
+    element
+  ) {
+    let current = element;
+
+    for (
+      let depth = 0;
+      current && depth < 7;
+      depth += 1
+    ) {
+      const selected = [
+        ...current.querySelectorAll?.(
+          [
+            '[class*="single-value" i]',
+            '[class*="singlevalue" i]',
+            '[class*="multi-value" i]',
+            '[class*="multivalue" i]',
+          ].join(",")
+        ) || [],
+      ]
+        .map(
+          (node) => normalize(
+            node.innerText
+            || node.textContent
+          )
+        )
+        .filter(Boolean);
+
+      if (selected.length) {
+        return selected.join(" ");
+      }
+
+      current = current.parentElement;
+    }
+
+    return "";
+  }
+
+  function structuredSelectionMatches(
+    element,
+    tokens
+  ) {
+    const selected =
+      structuredSelectionText(
+        element
+      );
+
+    return Boolean(
+      selected
+      && tokenMatches(
+        selected,
+        tokens,
+        {
+          allowContains: true,
+        }
+      )
+    );
+  }
+
   function choiceIndexForAnswer(
     question,
     value
@@ -1722,6 +1833,45 @@
     value,
     question = null
   ) {
+    if (
+      question?.type
+        === "multiselect"
+    ) {
+      const values =
+        normalizeChoiceAnswers(
+          value
+        );
+
+      if (!values.length) {
+        return false;
+      }
+
+      for (const item of values) {
+        const currentElement = (
+          findSchemaControl(
+            question
+          )
+          || element
+        );
+
+        const applied =
+          await selectCombobox(
+            currentElement,
+            item,
+            {
+              ...question,
+              type: "select",
+            }
+          );
+
+        if (!applied) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
     const tokens =
       answerTokens(
         question,
@@ -1774,12 +1924,13 @@
       );
 
       const filtered =
-        findOptionForAnswer(
+        await waitForOptionForAnswer(
           opened,
           tokens,
           {
             allowContains: true,
-          }
+          },
+          4200
         );
 
       if (filtered) {
@@ -1826,11 +1977,18 @@
               allowContains: true,
             }
           )
+          || structuredSelectionMatches(
+            currentElement,
+            tokens
+          )
         ) {
           return true;
         }
 
-        return false;
+        // React-select clears its search input after accepting an
+        // exact option. Greenhouse's validation below remains the
+        // final authority for the required field.
+        return true;
       }
 
       return false;
@@ -1864,12 +2022,13 @@
       );
 
       const filtered =
-        findOptionForAnswer(
+        await waitForOptionForAnswer(
           opened,
           tokens,
           {
             allowContains: true,
-          }
+          },
+          1800
         );
 
       if (filtered) {
@@ -1903,6 +2062,10 @@
           allowContains: true,
         }
       )
+      || structuredSelectionMatches(
+        element,
+        tokens
+      )
     ) {
       return true;
     }
@@ -1925,6 +2088,16 @@
       && binaryYesNoQuestion(
         question
       )
+    ) {
+      return true;
+    }
+
+    if (
+      clickedMatchedOption
+      && (
+        question?.choices
+        || []
+      ).length
     ) {
       return true;
     }
@@ -1986,6 +2159,10 @@
           allowContains: true,
         }
       )
+      || structuredSelectionMatches(
+        element,
+        tokens
+      )
     ) {
       return true;
     }
@@ -2035,6 +2212,10 @@
         {
           allowContains: true,
         }
+      )
+      || structuredSelectionMatches(
+        element,
+        tokens
       )
     );
 
@@ -3457,7 +3638,7 @@
       multi_value_single_select:
         "select",
       multi_value_multi_select:
-        "checkbox",
+        "multiselect",
       input_file: "file",
       input_hidden: "hidden",
     };
@@ -3611,6 +3792,84 @@
       });
     }
 
+    const demographicQuestions = (
+      Array.isArray(
+        schema?.demographic_questions
+          ?.questions
+      )
+        ? schema.demographic_questions
+            .questions
+        : []
+    );
+
+    for (
+      const rawQuestion
+      of demographicQuestions
+    ) {
+      const questionId =
+        String(
+          rawQuestion?.id || ""
+        ).trim();
+
+      const text =
+        normalize(
+          rawQuestion?.label
+        );
+
+      if (!questionId || !text) {
+        continue;
+      }
+
+      const answerOptions = (
+        Array.isArray(
+          rawQuestion?.answer_options
+        )
+          ? rawQuestion.answer_options
+          : []
+      );
+
+      result.push({
+        field_name:
+          `demographic_question_${questionId}`,
+        control_id:
+          questionId,
+        text,
+        type:
+          schemaType({
+            type:
+              rawQuestion?.type,
+          }),
+        required:
+          Boolean(
+            rawQuestion?.required
+          ),
+        choices:
+          answerOptions
+            .map(
+              (item) => {
+                const label =
+                  normalize(
+                    item?.label
+                  );
+
+                return {
+                  value: label,
+                  label,
+                  platform_value:
+                    String(
+                      item?.id || ""
+                    ),
+                };
+              }
+            )
+            .filter(
+              (item) => item.label
+            ),
+        adapter:
+          "greenhouse_hosted",
+      });
+    }
+
     return result;
   }
 
@@ -3730,6 +3989,43 @@
 
       return null;
     };
+
+    if (
+      field === "greenhouse_education_school"
+      || text === "school"
+      || text === "school name"
+    ) {
+      return firstValue(
+        reusable.education_school,
+        identity.education_school,
+        profile.education_school
+      );
+    }
+
+    if (
+      field === "greenhouse_education_degree"
+      || text === "degree"
+      || text === "degree type"
+    ) {
+      return firstValue(
+        reusable.education_degree,
+        identity.education_degree,
+        profile.education_degree
+      );
+    }
+
+    if (
+      field === "greenhouse_education_discipline"
+      || text === "discipline"
+      || text === "field of study"
+      || text === "major"
+    ) {
+      return firstValue(
+        reusable.education_discipline,
+        identity.education_discipline,
+        profile.education_discipline
+      );
+    }
 
     if (
       text.includes("linkedin")
@@ -3857,7 +4153,7 @@
     task,
     question
   ) {
-    const wantedText = lower(
+    const wantedText = questionMatchKey(
       question?.text || question
     );
 
@@ -3880,7 +4176,9 @@
       }
 
       if (
-        lower(memory.question_text)
+        questionMatchKey(
+          memory.question_text
+        )
         === wantedText
       ) {
         return answer;
@@ -3903,7 +4201,7 @@
       );
 
     const wantedText =
-      lower(
+      questionMatchKey(
         question.text
       );
 
@@ -3928,7 +4226,9 @@
       }
 
       const savedText =
-        lower(saved.text);
+        questionMatchKey(
+          saved.text
+        );
 
       if (
         savedText === wantedText
@@ -3977,7 +4277,7 @@
       );
 
     const wantedText =
-      lower(
+      questionMatchKey(
         question?.text
       );
 
@@ -3998,7 +4298,9 @@
       }
 
       const savedText =
-        lower(saved.text);
+        questionMatchKey(
+          saved.text
+        );
 
       if (
         savedText
@@ -4810,6 +5112,14 @@
         return true;
       }
 
+      if (
+        structuredSelectionText(
+          element
+        )
+      ) {
+        return true;
+      }
+
       const visible =
         lower(
           visibleControlValue(
@@ -4972,14 +5282,20 @@
       return true;
     }
 
-    return tokenMatches(
-      visibleControlValue(
-        element
-      ),
-      wanted,
-      {
-        allowContains: true,
-      }
+    return (
+      tokenMatches(
+        visibleControlValue(
+          element
+        ),
+        wanted,
+        {
+          allowContains: true,
+        }
+      )
+      || structuredSelectionMatches(
+        element,
+        wanted
+      )
     );
   }
 
@@ -5001,7 +5317,26 @@
   async function closeCompletedAgentTab(
     launch
   ) {
-    if (isBatchRunner()) {
+    if (
+      launch?.batch === true
+      || isBatchRunner()
+    ) {
+      window.name =
+        BATCH_RUNNER_NAME;
+
+      const waitingUrl = new URL(
+        "/browser-agent",
+        launch.origin
+      );
+
+      waitingUrl.searchParams.set(
+        "batch_wait",
+        "1"
+      );
+
+      location.replace(
+        waitingUrl.href
+      );
       return;
     }
 
@@ -5290,23 +5625,69 @@
   function visibleInteractiveVerificationChallenge() {
     const selectors = [
       'iframe[src*="hcaptcha" i]',
-      'iframe[src*="recaptcha" i]',
-      'iframe[title*="captcha" i]',
-      'iframe[title*="challenge" i]',
-      '.h-captcha',
-      '.g-recaptcha',
-      '[data-sitekey]',
-      '[class*="captcha" i]',
-      '[id*="captcha" i]',
+      'iframe[src*="recaptcha" i][title*="challenge" i]',
+      'iframe[src*="challenges.cloudflare.com" i]',
+      'iframe[src*="challenge-platform" i]',
+      '.h-captcha[data-sitekey]',
+      '.g-recaptcha[data-sitekey]',
+      '.cf-turnstile[data-sitekey]',
     ];
 
     for (const selector of selectors) {
       for (const element of document.querySelectorAll(selector)) {
-        if (!isVisible(element)) {
+        if (
+          !isVisible(element)
+        ) {
           continue;
         }
 
         const rect = element.getBoundingClientRect();
+
+        const intersectsViewport = (
+          rect.right > 0
+          && rect.bottom > 0
+          && rect.left < window.innerWidth
+          && rect.top < window.innerHeight
+        );
+
+        if (!intersectsViewport) {
+          continue;
+        }
+
+        let hiddenByAncestor = false;
+        let current = element;
+
+        for (
+          let depth = 0;
+          current
+          && depth < 10;
+          depth += 1
+        ) {
+          const style =
+            getComputedStyle(current);
+
+          if (
+            style.display === "none"
+            || style.visibility === "hidden"
+            || style.visibility === "collapse"
+            || Number(style.opacity) <= 0.01
+            || lower(
+              current.getAttribute?.(
+                "aria-hidden"
+              )
+            ) === "true"
+          ) {
+            hiddenByAncestor = true;
+            break;
+          }
+
+          current =
+            current.parentElement;
+        }
+
+        if (hiddenByAncestor) {
+          continue;
+        }
 
         if (
           rect.width >= 40
@@ -5360,6 +5741,10 @@
         "University",
       ],
       preferred_type: "select",
+      selectors: [
+        'input[id^="school--"][role="combobox"]',
+        'input[id^="school-"][role="combobox"]',
+      ],
     },
     {
       key: "greenhouse_education_degree",
@@ -5370,6 +5755,10 @@
         "Degree type",
       ],
       preferred_type: "select",
+      selectors: [
+        'input[id^="degree--"][role="combobox"]',
+        'input[id^="degree-"][role="combobox"]',
+      ],
     },
     {
       key: "greenhouse_education_discipline",
@@ -5381,6 +5770,10 @@
         "Major",
       ],
       preferred_type: "select",
+      selectors: [
+        'input[id^="discipline--"][role="combobox"]',
+        'input[id^="discipline-"][role="combobox"]',
+      ],
     },
     {
       key: "greenhouse_education_start_year",
@@ -5589,6 +5982,26 @@
     const wantsSelect =
       definition.preferred_type
       === "select";
+
+    for (
+      const selector
+      of definition.selectors || []
+    ) {
+      const direct = [
+        ...document.querySelectorAll(
+          selector
+        ),
+      ].find(
+        (element) => isVisible(element)
+      );
+
+      if (direct) {
+        return (
+          canonicalControl(direct)
+          || direct
+        );
+      }
+    }
 
     for (
       const label
@@ -6713,11 +7126,16 @@
       const element =
         greenhouseEducationControl(definition);
 
-      const answer =
+      const answer = (
         savedAnswerFor(
           task,
           question
-        );
+        )
+        ?? profileAnswerForQuestion(
+          task,
+          question
+        )
+      );
 
       const hasAnswer = (
         answer !== null
@@ -6784,7 +7202,14 @@
     const pendingQuestions = [];
     const pendingQuestionKeys = new Set();
 
-    for (const question of unanswered) {
+    for (
+      const question
+      of [
+        ...unanswered,
+        ...uncommitted,
+        ...controlMissing,
+      ]
+    ) {
       const key = (
         question?.key
         || question?.field_name
@@ -6849,7 +7274,7 @@
             "needs_application_answer",
           message:
             (
-              "Greenhouse still needs answers Jobfinitum does not have: "
+              "Greenhouse still needs these required fields completed: "
               + pendingQuestions
                   .map(
                     (item) => item.text
@@ -6991,7 +7416,7 @@
 
     while (
       Date.now() - started
-      < 300000
+      < 45000
     ) {
       await sleep(750);
 
@@ -7123,10 +7548,7 @@
           visibleInteractiveVerificationChallenge();
 
         if (
-          (
-            verificationError
-            || captcha
-          )
+          captcha
           && !verificationReported
         ) {
           verificationReported =
@@ -7248,36 +7670,48 @@
         "error"
       );
 
-      try {
-        await report(
-          launch,
-          {
-            status:
-              "failed",
-            message:
-              `Greenhouse Chrome Agent failed: ${error.message || error}`,
-            detail: {
-              url:
-                location.href,
-              executor:
-                "chrome_agent",
-              adapter:
-                "greenhouse_hosted",
-            },
+      for (
+        let attempt = 0;
+        attempt < 2;
+        attempt += 1
+      ) {
+        try {
+          await report(
+            launch,
+            {
+              status:
+                "failed",
+              message:
+                `Greenhouse Chrome Agent failed: ${error.message || error}`,
+              detail: {
+                url:
+                  location.href,
+                executor:
+                  "chrome_agent",
+                adapter:
+                  "greenhouse_hosted",
+              },
+            }
+          );
+
+          break;
+        } catch (reportError) {
+          console.error(
+            "Jobfinitum Greenhouse failure report also failed:",
+            reportError
+          );
+
+          if (attempt === 0) {
+            await sleep(700);
           }
-        );
-
-        clearLaunch();
-
-        await closeCompletedAgentTab(
-          launch
-        );
-      } catch (reportError) {
-        console.error(
-          "Jobfinitum Greenhouse failure report also failed:",
-          reportError
-        );
+        }
       }
+
+      clearLaunch();
+
+      await closeCompletedAgentTab(
+        launch
+      );
     }
   }
 

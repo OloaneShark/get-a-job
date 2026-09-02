@@ -3,9 +3,11 @@ import re
 from datetime import datetime
 
 from models import (
+    ApplicationPackage,
     AutoApplyCandidate,
     DiscoveredJob,
     JobApplication,
+    JobSearchProfile,
     Resume,
     User,
     db,
@@ -28,6 +30,102 @@ PREMIUM_AUTO_APPLY_DAILY_MAX = 50
 AUTO_APPLY_PAID_PLANS = {
     "premium",
 }
+
+
+def advance_auto_apply_profiles_to_new_resume(
+    user_id,
+    previous_resume_id,
+    new_resume_id,
+):
+    """Advance profiles that were following the user's latest resume."""
+    if (
+        previous_resume_id is None
+        or new_resume_id is None
+        or previous_resume_id == new_resume_id
+    ):
+        return {
+            "profiles": 0,
+            "candidates": 0,
+            "packages": 0,
+        }
+
+    profiles = (
+        JobSearchProfile.query
+        .filter_by(
+            user_id=user_id,
+            active=True,
+            auto_apply_enabled=True,
+        )
+        .filter(
+            JobSearchProfile.auto_apply_resume_id
+            == previous_resume_id
+        )
+        .all()
+    )
+
+    profile_ids = [profile.id for profile in profiles]
+    for profile in profiles:
+        profile.auto_apply_resume_id = new_resume_id
+
+    candidates = []
+    if profile_ids:
+        candidates = (
+            AutoApplyCandidate.query
+            .filter_by(user_id=user_id)
+            .filter(
+                AutoApplyCandidate.search_profile_id.in_(
+                    profile_ids
+                ),
+                AutoApplyCandidate.execution_status
+                != "Submitted",
+            )
+            .all()
+        )
+
+    package_ids = set()
+    for candidate in candidates:
+        candidate.resume_id = new_resume_id
+
+        if candidate.application_package_id:
+            package_ids.add(
+                candidate.application_package_id
+            )
+
+        try:
+            snapshot = json.loads(
+                candidate.rule_snapshot_json
+                or "{}"
+            )
+        except (TypeError, ValueError):
+            snapshot = {}
+
+        if isinstance(snapshot, dict):
+            snapshot["resume_id"] = new_resume_id
+            candidate.rule_snapshot_json = json.dumps(
+                snapshot,
+                sort_keys=True,
+            )
+
+    packages = []
+    if package_ids:
+        packages = (
+            ApplicationPackage.query
+            .filter_by(user_id=user_id)
+            .filter(
+                ApplicationPackage.id.in_(package_ids),
+                ApplicationPackage.status != "Submitted",
+            )
+            .all()
+        )
+
+    for package in packages:
+        package.resume_id = new_resume_id
+
+    return {
+        "profiles": len(profiles),
+        "candidates": len(candidates),
+        "packages": len(packages),
+    }
 
 
 def get_auto_apply_access(user):

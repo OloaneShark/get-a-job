@@ -47,6 +47,31 @@ def load_question_state(raw_json):
     if not isinstance(questions, list):
         questions = []
 
+    normalized_questions = []
+
+    for question in questions:
+        if not isinstance(question, dict):
+            normalized_questions.append(question)
+            continue
+
+        normalized = dict(question)
+        choices = normalized.get("choices")
+
+        # Agent versions before 0.4.17 flattened Greenhouse
+        # multi-select comboboxes into checkbox lists. Large
+        # persisted option sets, such as nationality, should
+        # remain a compact dropdown when an older package loads.
+        if (
+            normalized.get("type") == "checkbox"
+            and isinstance(choices, list)
+            and len(choices) >= 20
+        ):
+            normalized["type"] = "multiselect"
+
+        normalized_questions.append(normalized)
+
+    questions = normalized_questions
+
     if not isinstance(answers, dict):
         answers = {}
 
@@ -181,6 +206,7 @@ def merge_questions(
                     "select",
                     "radio",
                     "checkbox",
+                    "multiselect",
                 }
                 else 0
             )

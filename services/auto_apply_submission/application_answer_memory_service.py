@@ -30,6 +30,12 @@ def normalize_memory_question_text(value):
     return re.sub(r"\s+", " ", text)
 
 
+def normalize_memory_match_text(value):
+    text = normalize_memory_question_text(value)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _canonical_question_family(text):
     normalized = normalize_memory_question_text(text)
 
@@ -178,7 +184,10 @@ def answer_is_compatible(question, answer):
     if not valid:
         return True
 
-    if question.get("type") == "checkbox":
+    if question.get("type") in {
+        "checkbox",
+        "multiselect",
+    }:
         values = (
             answer
             if isinstance(answer, list)
@@ -200,14 +209,25 @@ def apply_saved_answer_memories(user_id, state):
     questions = state.get("questions") or []
     answers = dict(state.get("answers") or {})
 
+    memory_rows = (
+        ApplicationAnswerMemory.query
+        .filter_by(user_id=user_id)
+        .all()
+    )
+
     memories = {
         memory.question_key: memory
-        for memory in (
-            ApplicationAnswerMemory.query
-            .filter_by(user_id=user_id)
-            .all()
-        )
+        for memory in memory_rows
     }
+    loose_memories = {}
+
+    for memory in memory_rows:
+        key = normalize_memory_match_text(
+            memory.question_text
+        )
+
+        if key and key not in loose_memories:
+            loose_memories[key] = memory
 
     filled_keys = set()
 
@@ -225,9 +245,16 @@ def apply_saved_answer_memories(user_id, state):
         if not can_remember_question(question):
             continue
 
-        memory = memories.get(
-            answer_memory_key(
-                question.get("text")
+        memory = (
+            memories.get(
+                answer_memory_key(
+                    question.get("text")
+                )
+            )
+            or loose_memories.get(
+                normalize_memory_match_text(
+                    question.get("text")
+                )
             )
         )
 

@@ -338,11 +338,7 @@ async function jobfinitumSearchOpenGreenhouseSchoolTabs(
     schools: [],
     error:
       lastError
-      || (
-        "Open the matching Greenhouse application tab first, "
-        + "then type in School again so Jobfinitum can read "
-        + "Greenhouse's live school dropdown."
-      ),
+      || "School lookup is unavailable.",
   };
 }
 
@@ -382,6 +378,84 @@ const HIMALAYAS_RESOLVER_PREFIX =
 const BATCH_RUNNER_STORAGE_KEY =
   "jobfinitum_batch_runner_v1";
 
+const CHAINED_AGENT_LAUNCH_PREFIX =
+  "jobfinitum_chained_agent_launch_v1_";
+
+const CHAINED_AGENT_LAUNCH_MAX_AGE_MS =
+  2 * 60 * 1000;
+
+function chainedAgentLaunchKey(tabId) {
+  return (
+    CHAINED_AGENT_LAUNCH_PREFIX
+    + String(tabId)
+  );
+}
+
+async function saveChainedAgentLaunch(
+  tabId,
+  session
+) {
+  await chrome.storage.session.set({
+    [chainedAgentLaunchKey(tabId)]: {
+      token: String(session.token || ""),
+      origin: normalizeOrigin(
+        session.origin
+      ),
+      batch: session.batch === true,
+      createdAt: Date.now(),
+    },
+  });
+}
+
+async function clearChainedAgentLaunch(
+  tabId
+) {
+  if (typeof tabId !== "number") {
+    return;
+  }
+
+  await chrome.storage.session.remove(
+    chainedAgentLaunchKey(tabId)
+  );
+}
+
+async function takeChainedAgentLaunch(
+  tabId
+) {
+  if (typeof tabId !== "number") {
+    return null;
+  }
+
+  const key =
+    chainedAgentLaunchKey(tabId);
+
+  const values =
+    await chrome.storage.session.get(key);
+
+  const launch = values[key] || null;
+  const age = Date.now() - Number(
+    launch?.createdAt || 0
+  );
+
+  if (
+    !launch?.token
+    || !launch?.origin
+    || age < 0
+    || age > CHAINED_AGENT_LAUNCH_MAX_AGE_MS
+  ) {
+    await chrome.storage.session.remove(key);
+    return null;
+  }
+
+  return {
+    token: String(launch.token),
+    origin: normalizeOrigin(
+      launch.origin
+    ),
+    batch: launch.batch === true,
+  };
+}
+
 async function saveBatchRunner(
   tabId,
   origin
@@ -392,6 +466,83 @@ async function saveBatchRunner(
       origin,
     },
   });
+}
+
+async function positionBatchRunnerNextToJobfinitum(
+  runnerTab,
+  origin
+) {
+  if (
+    typeof runnerTab?.id !== "number"
+    || typeof runnerTab?.windowId !== "number"
+  ) {
+    return false;
+  }
+
+  const tabs = await chrome.tabs.query({
+    windowId: runnerTab.windowId,
+  });
+
+  const isJobfinitumTab = (tab) => {
+    if (
+      tab.id === runnerTab.id
+      || !tab.url
+    ) {
+      return false;
+    }
+
+    try {
+      return new URL(tab.url).origin === origin;
+    } catch (error) {
+      return false;
+    }
+  };
+
+  let anchor = null;
+
+  if (
+    typeof runnerTab.openerTabId
+    === "number"
+  ) {
+    anchor = tabs.find(
+      (tab) => (
+        tab.id === runnerTab.openerTabId
+        && isJobfinitumTab(tab)
+      )
+    );
+  }
+
+  if (!anchor) {
+    anchor = tabs.find((tab) => {
+      if (!isJobfinitumTab(tab)) {
+        return false;
+      }
+
+      try {
+        return new URL(tab.url).pathname
+          .startsWith("/auto-apply");
+      } catch (error) {
+        return false;
+      }
+    });
+  }
+
+  if (!anchor) {
+    anchor = tabs.find(isJobfinitumTab);
+  }
+
+  if (!anchor) {
+    return false;
+  }
+
+  await chrome.tabs.move(
+    runnerTab.id,
+    {
+      index: anchor.index + 1,
+    }
+  );
+
+  return true;
 }
 
 async function getBatchRunner() {
@@ -424,6 +575,9 @@ async function closeBatchRunner(origin) {
   }
 
   await clearBatchRunner();
+  await clearChainedAgentLaunch(
+    runner.tabId
+  );
 
   try {
     await chrome.tabs.remove(
@@ -667,6 +821,11 @@ async function resolveHimalayasTargetOnce(
       }
     }
 
+    await saveChainedAgentLaunch(
+      tabId,
+      currentSession
+    );
+
     await chrome.tabs.update(
       tabId,
       {
@@ -803,6 +962,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   (async () => {
+    if (
+      message.type
+      === "jobfinitum-restore-launch"
+    ) {
+      const launch =
+        await takeChainedAgentLaunch(
+          sender?.tab?.id
+        );
+
+      sendResponse({
+        ok: true,
+        launch,
+      });
+      return;
+    }
+
     const origin = normalizeOrigin(message.origin);
 
     if (
@@ -821,6 +996,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabId,
         origin
       );
+
+      try {
+        await positionBatchRunnerNextToJobfinitum(
+          sender.tab,
+          origin
+        );
+      } catch (error) {
+        console.warn(
+          "Jobfinitum could not position the Auto Apply runner tab:",
+          error
+        );
+      }
 
       sendResponse({ok: true});
       return;
@@ -846,6 +1033,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const task = await fetchJson(
         `${origin}/api/chrome-agent/task/${token}`
       );
+
+      await clearChainedAgentLaunch(
+        sender?.tab?.id
+      );
+
+      await notifyJobfinitumTabs({
+        candidate_id:
+          task.candidate_id,
+        status:
+          "Agent Running",
+        adapter:
+          task.adapter,
+        agent_version:
+          chrome.runtime.getManifest().version,
+      });
+
       sendResponse({ok: true, task});
       return;
     }
@@ -1068,6 +1271,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         && runner.origin === origin
       ) {
         sendResponse({ok: true});
+
+        setTimeout(() => {
+          const waitingUrl = new URL(
+            "/browser-agent",
+            origin
+          );
+          waitingUrl.searchParams.set(
+            "batch_wait",
+            "1"
+          );
+
+          chrome.tabs.update(
+            tabId,
+            {url: waitingUrl.href}
+          ).catch((error) => {
+            console.warn(
+              "Jobfinitum could not return the Agent tab to its waiting page:",
+              error
+            );
+          });
+        }, 150);
+
         return;
       }
 

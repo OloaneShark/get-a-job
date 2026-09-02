@@ -778,6 +778,19 @@ class ApplicantProfile(db.Model):
     github_url = db.Column(db.String(500), nullable=True)
     website_url = db.Column(db.String(500), nullable=True)
 
+    education_school = db.Column(
+        db.String(255),
+        nullable=True,
+    )
+    education_degree = db.Column(
+        db.String(150),
+        nullable=True,
+    )
+    education_discipline = db.Column(
+        db.String(150),
+        nullable=True,
+    )
+
     # Reusable application-answer defaults.
     # "Unknown" means Jobfinitum must not guess.
     is_18_or_older = db.Column(

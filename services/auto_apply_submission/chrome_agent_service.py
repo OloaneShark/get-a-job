@@ -7,7 +7,12 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from models import ApplicantProfile, ApplicationSubmissionAttempt, db
+from models import (
+    ApplicantProfile,
+    ApplicationSubmissionAttempt,
+    Resume,
+    db,
+)
 from services.auto_apply_service import get_auto_apply_access
 from services.auto_apply_submission.application_question_service import (
     build_question_key,
@@ -196,6 +201,35 @@ def prepare_chrome_agent_candidate(candidate, user):
             "message": "Save your Applicant Profile before using the Chrome Agent.",
         }
 
+    profile_resume_id = getattr(
+        candidate.search_profile,
+        "auto_apply_resume_id",
+        None,
+    )
+
+    if profile_resume_id:
+        selected_resume = db.session.get(
+            Resume,
+            profile_resume_id,
+        )
+
+        if (
+            selected_resume is None
+            or selected_resume.user_id != user.id
+        ):
+            return {
+                "ok": False,
+                "message": (
+                    "The resume selected by this search profile is "
+                    "not available. Choose a current resume before "
+                    "running Auto Apply."
+                ),
+            }
+
+        if candidate.resume_id != selected_resume.id:
+            candidate.resume_id = selected_resume.id
+            candidate.resume = selected_resume
+
     file_path = resume_path(candidate.resume)
     if not os.path.isfile(file_path):
         return {
@@ -205,6 +239,12 @@ def prepare_chrome_agent_candidate(candidate, user):
 
     application = get_or_create_application(candidate)
     package = get_or_create_package(candidate, application)
+
+    if (
+        package.status != "Submitted"
+        and package.resume_id != candidate.resume_id
+    ):
+        package.resume_id = candidate.resume_id
 
     candidate.status = "Approved"
     candidate.reviewed_at = utcnow_naive()
@@ -327,6 +367,9 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
             "years_of_experience": identity.years_of_experience,
             "salary_expectation": identity.salary_expectation or "",
             "available_start_date": _iso_date(identity.available_start_date),
+            "education_school": identity.education_school or "",
+            "education_degree": identity.education_degree or "",
+            "education_discipline": identity.education_discipline or "",
         },
         "application_questions": questions,
         "answer_memories": answer_memories_for_agent(
@@ -439,6 +482,24 @@ def _known_profile_answer_for_agent_question(identity, question):
             re.fullmatch(pattern, normalized)
             for pattern in patterns
         )
+
+    if (
+        field_name == "greenhouse_education_school"
+        or text in {"school", "school name"}
+    ):
+        return identity.education_school or None
+
+    if (
+        field_name == "greenhouse_education_degree"
+        or text in {"degree", "degree type"}
+    ):
+        return identity.education_degree or None
+
+    if (
+        field_name == "greenhouse_education_discipline"
+        or text in {"discipline", "field of study", "major"}
+    ):
+        return identity.education_discipline or None
 
     if matches("linkedin"):
         return identity.linkedin_url or None

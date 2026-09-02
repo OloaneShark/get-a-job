@@ -22,9 +22,28 @@
   const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
   const lower = (value) => normalize(value).toLowerCase();
 
+  const cleanQuestionText = (value) =>
+    normalize(value).replace(
+      /\s*(?:\*+|\u2731+)\s*$/,
+      ""
+    );
+
+  const questionMatchKey = (value) =>
+    lower(cleanQuestionText(value))
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
   function statusBox(message, kind = "working") {
     let box = document.getElementById("jobfinitum-agent-status");
     if (!box) {
+      const root =
+        document.documentElement
+        || document.body;
+
+      if (!root) {
+        return;
+      }
+
       box = document.createElement("div");
       box.id = "jobfinitum-agent-status";
       Object.assign(box.style, {
@@ -34,12 +53,12 @@
         zIndex: "2147483647",
         maxWidth: "390px",
         padding: "12px 14px",
-        borderRadius: "10px",
+        borderRadius: "0",
         font: "14px/1.35 system-ui, sans-serif",
         boxShadow: "0 8px 28px rgba(0,0,0,.28)",
         border: "1px solid rgba(255,255,255,.25)",
       });
-      document.documentElement.appendChild(box);
+      root.appendChild(box);
     }
 
     const colors = {
@@ -51,7 +70,7 @@
     const selected = colors[kind] || colors.working;
     box.style.background = selected[0];
     box.style.color = selected[1];
-    box.textContent = `Jobfinitum Chrome Agent — ${message}`;
+    box.textContent = `Jobfinitum Chrome Agent - ${message}`;
   }
 
   function send(message) {
@@ -112,6 +131,55 @@
     }
   }
 
+  async function restoreChainedLaunch() {
+    try {
+      const response = await send({
+        type:
+          "jobfinitum-restore-launch",
+      });
+
+      const restored =
+        response?.launch;
+
+      if (
+        !restored?.token
+        || !restored?.origin
+      ) {
+        return null;
+      }
+
+      const launch = {
+        token:
+          String(restored.token),
+        origin:
+          String(restored.origin),
+        batch:
+          restored.batch === true,
+      };
+
+      if (launch.batch) {
+        window.name =
+          BATCH_RUNNER_NAME;
+      }
+
+      try {
+        window.sessionStorage.setItem(
+          LAUNCH_STORAGE_KEY,
+          JSON.stringify(launch)
+        );
+      } catch (error) {
+        console.warn(
+          "Jobfinitum could not persist the restored Lever launch state:",
+          error
+        );
+      }
+
+      return launch;
+    } catch (error) {
+      return null;
+    }
+  }
+
   function parseLaunch() {
     const params = new URLSearchParams(
       String(location.hash || "").replace(/^#/, "")
@@ -148,11 +216,18 @@
         );
       }
 
-      history.replaceState(
-        null,
-        document.title,
-        `${location.pathname}${location.search}`
-      );
+      try {
+        history.replaceState(
+          null,
+          document.title,
+          `${location.pathname}${location.search}`
+        );
+      } catch (error) {
+        console.warn(
+          "Jobfinitum could not remove the launch fragment yet:",
+          error
+        );
+      }
 
       return launch;
     }
@@ -226,16 +301,66 @@
     return false;
   }
 
+  function leverCustomQuestionText(
+    element
+  ) {
+    if (
+      !String(element?.name || "")
+        .startsWith("cards[")
+    ) {
+      return "";
+    }
+
+    const field = element.closest(
+      ".application-field"
+    );
+
+    const wrapper = (
+      field?.parentElement
+      || element.closest(
+        ".application-question"
+      )
+    );
+
+    if (!wrapper) {
+      return "";
+    }
+
+    const copy = wrapper.cloneNode(true);
+
+    for (
+      const node
+      of copy.querySelectorAll(
+        ".application-field, input, textarea, select, button"
+      )
+    ) {
+      node.remove();
+    }
+
+    return cleanQuestionText(
+      copy.textContent
+    );
+  }
+
   function labelText(element) {
+    const customQuestion =
+      leverCustomQuestionText(element);
+
+    if (customQuestion) {
+      return customQuestion;
+    }
+
     if (element.labels?.length) {
       for (const label of element.labels) {
-        const text = normalize(label.innerText).replace(/\s*\*+\s*$/, "");
+        const text = cleanQuestionText(
+          label.innerText
+        );
         if (text) return text;
       }
     }
 
     const aria = normalize(element.getAttribute("aria-label"));
-    if (aria) return aria.replace(/\s*\*+\s*$/, "");
+    if (aria) return cleanQuestionText(aria);
 
     const labelledBy = normalize(element.getAttribute("aria-labelledby"));
     if (labelledBy) {
@@ -244,7 +369,7 @@
         .map((id) => normalize(document.getElementById(id)?.innerText))
         .filter(Boolean)
         .join(" ");
-      if (text) return text.replace(/\s*\*+\s*$/, "");
+      if (text) return cleanQuestionText(text);
     }
 
     const groupType = lower(element.type);
@@ -291,7 +416,7 @@
         if (!node || node === element || node.contains(element)) continue;
         const text = normalize(node.innerText);
         if (text && text.length <= 350 && !text.includes("cards[")) {
-          return text.replace(/\s*\*+\s*$/, "");
+          return cleanQuestionText(text);
         }
       }
       current = parent;
@@ -336,13 +461,71 @@
     return normalize(closest?.innerText || element.value);
   }
 
+  function answerGroups(value) {
+    const items = Array.isArray(value)
+      ? value
+      : [value];
+
+    return items
+      .map((item) => {
+        if (
+          item
+          && typeof item === "object"
+        ) {
+          return [
+            item.platform_value,
+            item.value,
+            item.label,
+          ].map(normalize).filter(Boolean);
+        }
+
+        const normalized = normalize(item);
+        return normalized ? [normalized] : [];
+      })
+      .filter((group) => group.length);
+  }
+
+  function answerText(value) {
+    const items = Array.isArray(value)
+      ? value
+      : [value];
+
+    return items
+      .map((item) => {
+        if (
+          item
+          && typeof item === "object"
+        ) {
+          return normalize(
+            item.label
+            || item.value
+            || item.platform_value
+          );
+        }
+
+        return normalize(item);
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
   function setChoice(element, value) {
     const type = lower(element.type);
+    const wantedGroups = answerGroups(value)
+      .map((group) => new Set(group.map(lower)));
 
     if (type === "radio") {
-      const wanted = lower(value);
       for (const radio of groupControls(element)) {
-        if ([lower(radio.value), lower(choiceLabel(radio))].includes(wanted)) {
+        const actual = [
+          lower(radio.value),
+          lower(choiceLabel(radio)),
+        ];
+
+        if (
+          wantedGroups.some((wanted) => (
+            actual.some((item) => wanted.has(item))
+          ))
+        ) {
           radio.checked = true;
           dispatchEvents(radio);
           return true;
@@ -352,14 +535,18 @@
     }
 
     if (type === "checkbox") {
-      const wanted = new Set(
-        (Array.isArray(value) ? value : [value]).map((item) => lower(item))
-      );
       let matched = false;
 
       for (const box of groupControls(element)) {
-        const shouldCheck = wanted.has(lower(box.value))
-          || wanted.has(lower(choiceLabel(box)));
+        const actual = [
+          lower(box.value),
+          lower(choiceLabel(box)),
+        ];
+        const shouldCheck = wantedGroups.some(
+          (wanted) => actual.some(
+            (item) => wanted.has(item)
+          )
+        );
         box.checked = shouldCheck;
         dispatchEvents(box);
         matched = matched || shouldCheck;
@@ -374,9 +561,16 @@
     if (value === null || value === undefined || value === "") return false;
 
     if (element.tagName === "SELECT") {
-      const wanted = lower(value);
+      const wanted = new Set(
+        answerGroups(value)
+          .flat()
+          .map(lower)
+      );
       for (const option of element.options) {
-        if (wanted === lower(option.value) || wanted === lower(option.textContent)) {
+        if (
+          wanted.has(lower(option.value))
+          || wanted.has(lower(option.textContent))
+        ) {
           element.value = option.value;
           dispatchEvents(element);
           return true;
@@ -392,7 +586,62 @@
     if (["hidden", "file", "submit", "button"].includes(type)) {
       return false;
     }
-    return setText(element, value);
+    return setText(element, answerText(value));
+  }
+
+  function controlHasValue(element, value) {
+    const groups = answerGroups(value)
+      .map((group) => new Set(group.map(lower)));
+
+    if (!element || !groups.length) {
+      return false;
+    }
+
+    if (element.tagName === "SELECT") {
+      const selected = element.options[
+        element.selectedIndex
+      ];
+      const actual = [
+        lower(element.value),
+        lower(selected?.textContent),
+      ];
+
+      return groups[0].size > 0
+        && actual.some((item) => groups[0].has(item));
+    }
+
+    const type = lower(element.type);
+    if (type === "radio") {
+      const selected = groupControls(element)
+        .find((control) => control.checked);
+
+      if (!selected) return false;
+
+      const actual = [
+        lower(selected.value),
+        lower(choiceLabel(selected)),
+      ];
+      return groups[0].size > 0
+        && actual.some((item) => groups[0].has(item));
+    }
+
+    if (type === "checkbox") {
+      const checked = groupControls(element)
+        .filter((control) => control.checked)
+        .map((control) => [
+          lower(control.value),
+          lower(choiceLabel(control)),
+        ]);
+
+      return groups.every((wanted) => (
+        checked.some((actual) => (
+          actual.some((item) => wanted.has(item))
+        ))
+      ));
+    }
+
+    const actual = lower(element.value);
+    return groups.some((wanted) => wanted.has(actual));
   }
 
   function reusableAnswer(task, questionText) {
@@ -443,11 +692,81 @@
       return String(values.available_start_date);
     }
 
+    if (
+      ["field of study", "academic discipline", "discipline", "major"]
+        .some((pattern) => question === pattern || question.includes(pattern))
+      && values.education_discipline
+    ) {
+      return String(values.education_discipline);
+    }
+
+    if (
+      ["degree", "degree type", "highest degree", "education level"]
+        .some((pattern) => question === pattern || question.includes(pattern))
+      && values.education_degree
+    ) {
+      return String(values.education_degree);
+    }
+
+    if (
+      ["school", "school name", "college or university", "university name"]
+        .some((pattern) => question === pattern || question.includes(pattern))
+      && values.education_school
+    ) {
+      return String(values.education_school);
+    }
+
     return null;
   }
 
+  function applySavedLeverAnswers(task) {
+    for (const question of task.application_questions || []) {
+      if (
+        question.answer === null
+        || question.answer === undefined
+        || question.answer === ""
+      ) {
+        continue;
+      }
+
+      const element = findSavedControl(question);
+      if (
+        element
+        && !controlHasValue(
+          element,
+          question.answer
+        )
+      ) {
+        applyValue(element, question.answer);
+      }
+    }
+  }
+
+  function applyReusableLeverAnswers(task) {
+    for (const element of requiredControls()) {
+      const remembered = rememberedAnswer(
+        task,
+        labelText(element)
+      );
+      const answer = remembered !== null
+        ? remembered
+        : reusableAnswer(
+            task,
+            labelText(element)
+          );
+
+      if (
+        answer !== null
+        && !controlHasValue(element, answer)
+      ) {
+        applyValue(element, answer);
+      }
+    }
+  }
+
   function rememberedAnswer(task, questionText) {
-    const wanted = lower(questionText);
+    const wanted =
+      questionMatchKey(questionText);
 
     if (!wanted) return null;
 
@@ -455,7 +774,9 @@
       const answer = memory?.answer;
 
       if (
-        lower(memory?.question_text) === wanted
+        questionMatchKey(
+          memory?.question_text
+        ) === wanted
         && answer !== null
         && answer !== undefined
         && answer !== ""
@@ -494,12 +815,16 @@
       if (exact) return exact;
     }
 
-    const wanted = lower(question.text);
+    const wanted =
+      questionMatchKey(question.text);
     if (!wanted) return null;
 
     let fuzzy = null;
     for (const element of requiredControls()) {
-      const actual = lower(labelText(element));
+      const actual =
+        questionMatchKey(
+          labelText(element)
+        );
       if (actual === wanted) return element;
       if (!fuzzy && actual && (actual.includes(wanted) || wanted.includes(actual))) {
         fuzzy = element;
@@ -558,7 +883,20 @@
     if (["hidden", "submit", "button", "file"].includes(type)) return false;
 
     const name = lower(fieldName(element));
-    if (["name", "email", "phone", "resume"].includes(name)) return false;
+    if (
+      [
+        "name",
+        "email",
+        "phone",
+        "resume",
+        "location",
+        "selectedlocation",
+        "org",
+      ].includes(name)
+      || name.startsWith("urls[")
+    ) {
+      return false;
+    }
 
     return reusableAnswer(task, labelText(element)) === null;
   }
@@ -597,6 +935,240 @@
     return true;
   }
 
+  async function waitForLeverForm(
+    timeoutMs = 8000
+  ) {
+    const started = Date.now();
+
+    while (
+      Date.now() - started
+      < timeoutMs
+    ) {
+      if (
+        document.querySelector(
+          'input[type="file"]'
+        )
+      ) {
+        return true;
+      }
+
+      await sleep(200);
+    }
+
+    return false;
+  }
+
+  async function waitForLeverResumeSettle(
+    timeoutMs = 10000
+  ) {
+    const started = Date.now();
+    let lastMutationAt = started;
+    let fieldCount = document.querySelectorAll(
+      "input, textarea, select"
+    ).length;
+
+    const observer = new MutationObserver(() => {
+      lastMutationAt = Date.now();
+    });
+
+    observer.observe(
+      document.documentElement,
+      {
+        childList: true,
+        subtree: true,
+        attributes: true,
+      }
+    );
+
+    try {
+      while (Date.now() - started < timeoutMs) {
+        await sleep(200);
+
+        const currentCount = document.querySelectorAll(
+          "input, textarea, select"
+        ).length;
+
+        if (currentCount !== fieldCount) {
+          fieldCount = currentCount;
+          lastMutationAt = Date.now();
+        }
+
+        if (
+          Date.now() - started >= 5000
+          && Date.now() - lastMutationAt >= 900
+        ) {
+          return;
+        }
+      }
+    } finally {
+      observer.disconnect();
+    }
+  }
+
+  function setAutocompleteText(
+    element,
+    value
+  ) {
+    const descriptor =
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value"
+      );
+
+    if (descriptor?.set) {
+      descriptor.set.call(
+        element,
+        String(value)
+      );
+    } else {
+      element.value = String(value);
+    }
+
+    element.dispatchEvent(
+      new Event(
+        "input",
+        {bubbles: true}
+      )
+    );
+
+    element.dispatchEvent(
+      new KeyboardEvent(
+        "keydown",
+        {
+          key: "a",
+          bubbles: true,
+          cancelable: true,
+        }
+      )
+    );
+  }
+
+  async function fillLeverLocation(
+    identity
+  ) {
+    const input =
+      document.querySelector(
+        'input[name="location"]'
+      )
+      || document.querySelector(
+        'input[data-qa="location-input"]'
+      )
+      || document.querySelector(
+        'input[id*="location" i]'
+      );
+
+    if (!input) {
+      return true;
+    }
+
+    const selected =
+      document.querySelector(
+        'input[name="selectedLocation"]'
+      )
+      || document.querySelector(
+        "#selected-location"
+      );
+
+    if (
+      selected?.value
+      && input.value
+    ) {
+      return true;
+    }
+
+    const queries = [
+      identity.location_text,
+      [
+        identity.city,
+        identity.state_region,
+      ].filter(Boolean).join(", "),
+      identity.city,
+    ].map(normalize).filter(
+      (value, index, values) => (
+        value
+        && values.indexOf(value)
+          === index
+      )
+    );
+
+    for (const query of queries) {
+      setAutocompleteText(
+        input,
+        query
+      );
+
+      const started = Date.now();
+      let option = null;
+
+      while (
+        Date.now() - started
+        < 4500
+      ) {
+        await sleep(200);
+
+        option = [
+          ...document.querySelectorAll(
+            ".dropdown-location"
+          ),
+        ].find((candidate) => {
+          const style =
+            getComputedStyle(candidate);
+          const rect =
+            candidate.getBoundingClientRect();
+
+          return (
+            style.display !== "none"
+            && style.visibility
+              !== "hidden"
+            && rect.width > 0
+            && rect.height > 0
+          );
+        });
+
+        if (option) {
+          break;
+        }
+      }
+
+      if (!option) {
+        continue;
+      }
+
+      option.dispatchEvent(
+        new MouseEvent(
+          "mousedown",
+          {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          }
+        )
+      );
+
+      await sleep(150);
+
+      if (
+        input.value
+        && selected?.value
+      ) {
+        input.dispatchEvent(
+          new Event(
+            "change",
+            {bubbles: true}
+          )
+        );
+        return true;
+      }
+    }
+
+    setAutocompleteText(
+      input,
+      ""
+    );
+
+    return false;
+  }
+
   async function report(launch, payload) {
     return send({
       type: "jobfinitum-result",
@@ -609,7 +1181,27 @@
   async function closeCompletedAgentTab(
     launch
   ) {
-    if (isBatchRunner()) return;
+    if (
+      launch?.batch === true
+      || isBatchRunner()
+    ) {
+      window.name = BATCH_RUNNER_NAME;
+
+      const waitingUrl = new URL(
+        "/browser-agent",
+        launch.origin
+      );
+
+      waitingUrl.searchParams.set(
+        "batch_wait",
+        "1"
+      );
+
+      location.replace(
+        waitingUrl.href
+      );
+      return;
+    }
 
     try {
       await send({
@@ -680,65 +1272,86 @@
     return "";
   }
 
-  async function run(launch, task) {
-    const initialBody = lower(
+  async function finishConfirmedLeverSubmission(
+    launch
+  ) {
+    const body = lower(
       document.body?.innerText
     );
 
     if (
-      SUCCESS_PHRASES.some(
-        (phrase) => initialBody.includes(phrase)
+      !SUCCESS_PHRASES.some(
+        (phrase) =>
+          body.includes(phrase)
       )
     ) {
-      const alreadySubmitted = initialBody.includes(
+      return false;
+    }
+
+    const alreadySubmitted =
+      body.includes(
         "already submitted"
       );
 
-      statusBox(
-        alreadySubmitted
-          ? "Lever confirms this application was already submitted."
-          : "application submitted.",
-        "success"
-      );
+    statusBox(
+      alreadySubmitted
+        ? "Lever confirms this application was already submitted."
+        : "application submitted.",
+      "success"
+    );
 
-      await report(
-        launch,
-        {
-          status: "submitted",
-          message: (
-            alreadySubmitted
-              ? (
-                  "Lever confirms this application "
-                  + "was already submitted."
-                )
-              : (
-                  "Chrome Agent submitted the "
-                  + "Lever application successfully."
-                )
-          ),
-          confirmation_url: location.href,
-          detail: {
-            url: location.href,
-            executor: "chrome_agent",
-            already_submitted: alreadySubmitted,
-          },
-        }
-      );
+    await report(
+      launch,
+      {
+        status: "submitted",
+        message: (
+          alreadySubmitted
+            ? (
+                "Lever confirms this application "
+                + "was already submitted."
+              )
+            : (
+                "Chrome Agent submitted the "
+                + "Lever application successfully."
+              )
+        ),
+        confirmation_url:
+          location.href,
+        detail: {
+          url: location.href,
+          executor:
+            "chrome_agent",
+          already_submitted:
+            alreadySubmitted,
+        },
+      }
+    );
 
-      clearLaunch();
-      await closeCompletedAgentTab(
+    clearLaunch();
+    await closeCompletedAgentTab(
+      launch
+    );
+    return true;
+  }
+
+  async function run(launch, task) {
+    if (
+      await finishConfirmedLeverSubmission(
         launch
-      );
+      )
+    ) {
       return;
     }
 
-    statusBox("filling Lever application…");
+    statusBox("filling Lever application...");
+    await waitForLeverForm();
+
     if (
-      !document.querySelector(
-        'input[type="file"]'
+      await finishConfirmedLeverSubmission(
+        launch
       )
     ) {
-      await sleep(1200);
+      return;
     }
 
     if (
@@ -771,21 +1384,7 @@
 
     const identity = task.identity || {};
 
-    fillFirst(['input[name="name"]', 'input[autocomplete="name"]'], identity.full_name);
-    fillFirst(['input[name="email"]', 'input[type="email"]'], identity.email);
-    fillFirst(['input[name="phone"]', 'input[type="tel"]'], identity.phone);
-
-    // Direct value setting avoids intentionally focusing Lever's location field.
-    fillFirst(
-      ['input[name="location"]', 'input[id*="location" i]', 'input[placeholder*="location" i]'],
-      identity.location_text
-    );
-
-    fillByLabel(/linkedin/i, identity.linkedin_url);
-    fillByLabel(/github/i, identity.github_url);
-    fillByLabel(/website|portfolio/i, identity.website_url);
-
-    statusBox("uploading resume…");
+    statusBox("uploading resume...");
     const resume = await fetchResume(launch, task);
     if (!setResumeFile(resume)) {
       await handOffToManualApply(
@@ -801,41 +1400,41 @@
       return;
     }
 
-    statusBox("applying saved answers…");
+    statusBox("waiting for Lever resume parsing...");
+    await waitForLeverResumeSettle();
 
-    for (const question of task.application_questions || []) {
-      if (question.answer === null || question.answer === undefined || question.answer === "") {
-        continue;
-      }
-      const element = findSavedControl(question);
-      if (element) {
-        applyValue(element, question.answer);
+    statusBox("applying saved answers...");
+
+    fillFirst(['input[name="name"]', 'input[autocomplete="name"]'], identity.full_name);
+    fillFirst(['input[name="email"]', 'input[type="email"]'], identity.email);
+    fillFirst(['input[name="phone"]', 'input[type="tel"]'], identity.phone);
+
+    const locationCommitted =
+      await fillLeverLocation(
+        identity
+      );
+
+    fillByLabel(/linkedin/i, identity.linkedin_url);
+    fillByLabel(/github/i, identity.github_url);
+    fillByLabel(/website|portfolio/i, identity.website_url);
+
+    for (let pass = 0; pass < 3; pass += 1) {
+      fillFirst(['input[name="name"]', 'input[autocomplete="name"]'], identity.full_name);
+      fillFirst(['input[name="email"]', 'input[type="email"]'], identity.email);
+      fillFirst(['input[name="phone"]', 'input[type="tel"]'], identity.phone);
+      fillByLabel(/linkedin/i, identity.linkedin_url);
+      fillByLabel(/github/i, identity.github_url);
+      fillByLabel(/website|portfolio/i, identity.website_url);
+
+      applySavedLeverAnswers(task);
+      applyReusableLeverAnswers(task);
+
+      if (pass < 2) {
+        await sleep(700);
       }
     }
 
-    for (const element of requiredControls()) {
-      if (!element.checkValidity()) {
-        const remembered = rememberedAnswer(
-          task,
-          labelText(element)
-        );
-
-        if (remembered !== null) {
-          applyValue(element, remembered);
-        }
-      }
-
-      if (element.checkValidity()) {
-        continue;
-      }
-
-      const answer = reusableAnswer(task, labelText(element));
-      if (answer !== null) {
-        applyValue(element, answer);
-      }
-    }
-
-    await sleep(600);
+    await sleep(500);
 
     const unresolved = [];
 
@@ -885,6 +1484,24 @@
 
     const stillInvalid = requiredControls().filter((element) => !element.checkValidity());
 
+    if (!locationCommitted) {
+      const locationInput =
+        document.querySelector(
+          'input[name="location"]'
+        );
+
+      if (
+        locationInput
+        && !stillInvalid.includes(
+          locationInput
+        )
+      ) {
+        stillInvalid.push(
+          locationInput
+        );
+      }
+    }
+
     if (stillInvalid.length) {
       statusBox("Lever still has required fields Jobfinitum could not fill.", "warning");
       await report(launch, {
@@ -920,7 +1537,7 @@
       return;
     }
 
-    statusBox("submitting application…");
+    statusBox("submitting application...");
     submit.click();
 
     const started = Date.now();
@@ -998,11 +1615,19 @@
   }
 
   async function main() {
-    const launch = parseLaunch();
-    if (!launch) return;
+    let launch = null;
 
     try {
-      statusBox("connecting to Jobfinitum…");
+      launch = parseLaunch();
+
+      if (!launch) {
+        launch =
+          await restoreChainedLaunch();
+      }
+
+      if (!launch) return;
+
+      statusBox("connecting to Jobfinitum...");
       await registerBatchRunner(launch);
 
       const response = await send({
@@ -1021,21 +1646,45 @@
       console.error("Jobfinitum Chrome Agent failed:", error);
       statusBox(`failed: ${error.message || error}`, "error");
 
-      try {
-        await report(launch, {
-          status: "failed",
-          message: `Chrome Agent failed: ${error.message || error}`,
-          detail: {url: location.href},
-        });
-        clearLaunch();
-        await closeCompletedAgentTab(
-          launch
-        );
-      } catch (reportError) {
-        console.error("Jobfinitum failure report also failed:", reportError);
+      if (!launch) {
+        return;
       }
+
+      for (
+        let attempt = 0;
+        attempt < 2;
+        attempt += 1
+      ) {
+        try {
+          await report(launch, {
+            status: "failed",
+            message: `Chrome Agent failed: ${error.message || error}`,
+            detail: {url: location.href},
+          });
+          break;
+        } catch (reportError) {
+          console.error(
+            "Jobfinitum failure report also failed:",
+            reportError
+          );
+
+          if (attempt === 0) {
+            await sleep(700);
+          }
+        }
+      }
+
+      clearLaunch();
+      await closeCompletedAgentTab(
+        launch
+      );
     }
   }
 
-  main();
+  main().catch((error) => {
+    console.error(
+      "Jobfinitum Lever Agent stopped during startup:",
+      error
+    );
+  });
 })();

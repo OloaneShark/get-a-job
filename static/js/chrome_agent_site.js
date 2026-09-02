@@ -2,6 +2,7 @@
   "use strict";
 
   const SOURCE = "jobfinitum-chrome-agent";
+  const REQUIRED_AGENT_VERSION = "0.4.22";
 
   const statusBox = document.getElementById(
     "jobfinitum-browser-agent-status"
@@ -20,6 +21,7 @@
   }
 
   let connected = false;
+  let detectedVersion = "";
   let dirtyQuestionForm = false;
 
   function batchRunnerActive() {
@@ -64,31 +66,45 @@
   }
 
   function setConnected(version) {
-    connected = true;
+    const currentVersion = String(
+      version || ""
+    ).trim();
+    const versionMatches = (
+      currentVersion === REQUIRED_AGENT_VERSION
+    );
+
+    detectedVersion = currentVersion;
+    connected = versionMatches;
 
     statusBox.classList.remove(
-      "alert-warning"
+      versionMatches
+        ? "alert-warning"
+        : "alert-success"
     );
 
     statusBox.classList.add(
-      "alert-success"
+      versionMatches
+        ? "alert-success"
+        : "alert-warning"
     );
 
-    statusText.textContent = "Connected";
+    statusText.textContent = versionMatches
+      ? "Connected"
+      : `Reload required: v${REQUIRED_AGENT_VERSION}`;
 
     if (versionText) {
       versionText.textContent = (
-        version
-          ? `v${version}`
+        currentVersion
+          ? `v${currentVersion}`
           : ""
       );
     }
 
-    setFormsEnabled(true);
+    setFormsEnabled(versionMatches);
   }
 
   function setDisconnected() {
-    if (connected) {
+    if (connected || detectedVersion) {
       return;
     }
 
@@ -197,7 +213,7 @@
         statusText.textContent = (
           result.status
             ? (
-                `Connected — ${result.status} received. `
+                `Connected - ${result.status} received. `
                 + "Refresh to update the queue."
               )
             : "Connected"
@@ -231,6 +247,9 @@
   const SITE_SOURCE =
     "jobfinitum-site";
 
+  const REQUIRED_AGENT_VERSION =
+    "0.4.22";
+
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";
 
@@ -258,6 +277,12 @@
       "Waiting for Verification",
       "Waiting for Sign-In",
     ]);
+
+  const RESOLVED_APPLICATION_STATUS =
+    "Resolved Application Target";
+
+  const AGENT_RUNNING_STATUS =
+    "Agent Running";
 
   const startButton =
     document.getElementById(
@@ -308,6 +333,7 @@
   let preparedBatch = null;
   let batchPreparationStarted = false;
   let batchWatchdog = null;
+  let resolvedRelaunchTimer = null;
 
   if (
     !startButton
@@ -351,7 +377,10 @@
   }
 
   function agentConnected() {
-    return Boolean(agentVersion());
+    return (
+      agentVersion()
+      === REQUIRED_AGENT_VERSION
+    );
   }
 
   function updateControls(state = loadState()) {
@@ -441,6 +470,17 @@
       batchWatchdog
     );
     batchWatchdog = null;
+  }
+
+  function clearResolvedRelaunch() {
+    if (resolvedRelaunchTimer === null) {
+      return;
+    }
+
+    window.clearTimeout(
+      resolvedRelaunchTimer
+    );
+    resolvedRelaunchTimer = null;
   }
 
   function interruptUrlFor(candidate) {
@@ -596,6 +636,43 @@
     );
   }
 
+  function submitCandidate(candidate) {
+    if (!candidate?.action_url) {
+      throw new Error(
+        "The Auto Apply candidate has no launch URL."
+      );
+    }
+
+    const form =
+      document.createElement("form");
+
+    form.method = "POST";
+    form.action = candidate.action_url;
+    form.target = RUNNER_NAME;
+    form.hidden = true;
+
+    const csrf =
+      document.createElement("input");
+
+    csrf.type = "hidden";
+    csrf.name = "csrf_token";
+    csrf.value = csrfToken;
+
+    form.appendChild(csrf);
+
+    const batchMode =
+      document.createElement("input");
+
+    batchMode.type = "hidden";
+    batchMode.name = "jobfinitum_batch";
+    batchMode.value = "1";
+
+    form.appendChild(batchMode);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
   function submitNext() {
     const state =
       loadState();
@@ -636,34 +713,7 @@
     saveState(state);
     updateControls(state);
 
-    const form =
-      document.createElement("form");
-
-    form.method = "POST";
-    form.action = next.action_url;
-    form.target = RUNNER_NAME;
-    form.hidden = true;
-
-    const csrf =
-      document.createElement("input");
-
-    csrf.type = "hidden";
-    csrf.name = "csrf_token";
-    csrf.value = csrfToken;
-
-    form.appendChild(csrf);
-
-    const batchMode =
-      document.createElement("input");
-
-    batchMode.type = "hidden";
-    batchMode.name = "jobfinitum_batch";
-    batchMode.value = "1";
-
-    form.appendChild(batchMode);
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
+    submitCandidate(next);
     scheduleBatchWatchdog(state);
   }
 
@@ -674,6 +724,7 @@
     const state = loadState();
 
     clearBatchWatchdog();
+    clearResolvedRelaunch();
     clearState();
     preparedBatch = null;
     batchPreparationStarted = false;
@@ -869,14 +920,6 @@
       const result =
         event.data.result || {};
 
-      if (
-        !FINAL_STATUSES.has(
-          String(result.status || "")
-        )
-      ) {
-        return;
-      }
-
       const state =
         loadState();
 
@@ -895,10 +938,86 @@
         return;
       }
 
+      if (
+        result.status
+        === RESOLVED_APPLICATION_STATUS
+        && result.continue_in_chrome_agent
+      ) {
+        const relaunchCount = Number(
+          state.current.resolved_relaunch_count
+          || 0
+        );
+
+        if (relaunchCount > 0) {
+          return;
+        }
+
+        state.current.resolved_relaunch_count =
+          relaunchCount + 1;
+        state.current_started_at = Date.now();
+        clearBatchWatchdog();
+        clearResolvedRelaunch();
+        saveState(state);
+        updateControls(state);
+        progress.textContent =
+          "Opening the resolved employer application";
+
+        resolvedRelaunchTimer =
+          window.setTimeout(
+            () => {
+              resolvedRelaunchTimer = null;
+              const latestState = loadState();
+
+              if (
+                !latestState?.active
+                || Number(
+                  latestState.current?.candidate_id
+                ) !== Number(
+                  result.candidate_id
+                )
+              ) {
+                return;
+              }
+
+              submitCandidate(
+                latestState.current
+              );
+              scheduleBatchWatchdog(
+                latestState
+              );
+            },
+            1500
+          );
+        return;
+      }
+
+      if (
+        result.status
+        === AGENT_RUNNING_STATUS
+      ) {
+        clearResolvedRelaunch();
+        state.current_started_at = Date.now();
+        saveState(state);
+        scheduleBatchWatchdog(state);
+        updateControls(state);
+        progress.textContent =
+          "Filling the employer application";
+        return;
+      }
+
+      if (
+        !FINAL_STATUSES.has(
+          String(result.status || "")
+        )
+      ) {
+        return;
+      }
+
       state.completed += 1;
       state.current = null;
       state.current_started_at = null;
       clearBatchWatchdog();
+      clearResolvedRelaunch();
 
       if (
         PAUSE_STATUSES.has(
@@ -932,6 +1051,14 @@
     const version = agentVersion();
 
     if (!state?.active || !version) {
+      return;
+    }
+
+    if (!agentConnected()) {
+      stopBatch();
+      progress.textContent = (
+        `Reload Browser Agent v${REQUIRED_AGENT_VERSION} before starting Auto Apply`
+      );
       return;
     }
 
@@ -1295,12 +1422,6 @@
 (() => {
   "use strict";
 
-  const EXTENSION_SOURCE =
-    "jobfinitum-chrome-agent";
-
-  const SITE_SOURCE =
-    "jobfinitum-site";
-
   const inputs = [
     ...document.querySelectorAll(
       'input[data-jobfinitum-school-search="true"]'
@@ -1313,10 +1434,8 @@
     return;
   }
 
-  const pending =
-    new Map();
-
-  let requestCounter = 0;
+  const controllers =
+    new WeakMap();
 
   function schoolStatus(
     input,
@@ -1391,47 +1510,121 @@
     }
   }
 
-  function sendSchoolSearch(
+  async function sendSchoolSearch(
     input,
     query
   ) {
-    requestCounter += 1;
+    const previousController =
+      controllers.get(input);
 
-    const requestId = (
-      `school-${Date.now()}-`
-      + requestCounter
-    );
+    if (previousController) {
+      previousController.abort();
+    }
 
-    pending.set(
-      requestId,
-      {
-        input,
-        query,
-      }
+    const controller =
+      new AbortController();
+
+    controllers.set(
+      input,
+      controller
     );
 
     schoolStatus(
       input,
-      "Searching the actual Greenhouse school list..."
+      "Searching schools..."
     );
 
-    window.postMessage(
-      {
-        source:
-          SITE_SOURCE,
-        type:
-          "jobfinitum-school-search-request",
-        request_id:
-          requestId,
-        query,
-        greenhouse_url:
-          String(
-            input.dataset.greenhouseUrl
-            || ""
-          ),
-      },
-      location.origin
-    );
+    try {
+      const endpoint = new URL(
+        String(
+          input.dataset.schoolSearchUrl
+          || ""
+        ),
+        location.href
+      );
+
+      endpoint.searchParams.set(
+        "q",
+        query
+      );
+
+      const response = await fetch(
+        endpoint,
+        {
+          method: "GET",
+          credentials: "same-origin",
+          headers: {
+            Accept: "application/json",
+          },
+          signal: controller.signal,
+        }
+      );
+
+      const payload =
+        await response.json();
+
+      if (
+        !response.ok
+        || !payload.success
+      ) {
+        throw new Error(
+          payload.message
+          || "School lookup is unavailable."
+        );
+      }
+
+      if (
+        String(input.value || "").trim()
+        !== query
+      ) {
+        return;
+      }
+
+      const schools =
+        Array.isArray(payload.items)
+          ? payload.items
+          : [];
+
+      updateDatalist(
+        input,
+        schools
+      );
+
+      schoolStatus(
+        input,
+        schools.length
+          ? (
+              `${schools.length} matching `
+              + "schools found."
+            )
+          : "No matching schools found."
+      );
+    } catch (error) {
+      if (
+        error?.name
+        === "AbortError"
+      ) {
+        return;
+      }
+
+      updateDatalist(
+        input,
+        []
+      );
+
+      schoolStatus(
+        input,
+        error?.message
+        || "School lookup is unavailable."
+      );
+    } finally {
+      if (
+        controllers.get(input)
+        === controller
+      ) {
+        controllers.delete(input);
+      }
+    }
   }
 
   function setupJobfinitumSchoolSearch(
@@ -1448,17 +1641,21 @@
         ).trim();
 
       if (
-        query.length < 2
+        query.length < 3
       ) {
+        const activeController =
+          controllers.get(input);
+
+        if (activeController) {
+          activeController.abort();
+          controllers.delete(input);
+        }
+
         lastQuery = "";
-        updateDatalist(
-          input,
-          []
-        );
 
         schoolStatus(
           input,
-          "Type at least 2 characters to search the actual Greenhouse school list."
+          "Type at least 3 characters to search schools."
         );
 
         return;
@@ -1473,7 +1670,7 @@
       lastQuery =
         query;
 
-      sendSchoolSearch(
+      void sendSchoolSearch(
         input,
         query
       );
@@ -1496,108 +1693,7 @@
       }
     );
 
-    // If a remembered value already exists, leave it alone.
-    // The user can edit it and live search will start.
   }
-
-  window.addEventListener(
-    "message",
-    (event) => {
-      if (
-        event.source !== window
-        || event.origin
-          !== location.origin
-        || !event.data
-        || event.data.source
-          !== EXTENSION_SOURCE
-        || event.data.type
-          !== "school-search-result"
-      ) {
-        return;
-      }
-
-      const requestId =
-        String(
-          event.data.request_id
-          || ""
-        );
-
-      const request =
-        pending.get(
-          requestId
-        );
-
-      if (!request) {
-        return;
-      }
-
-      pending.delete(
-        requestId
-      );
-
-      const currentValue =
-        String(
-          request.input.value
-          || ""
-        ).trim();
-
-      // Ignore stale results if the user has typed more since
-      // this request was sent.
-      if (
-        currentValue
-        !== request.query
-      ) {
-        return;
-      }
-
-      if (
-        !event.data.ok
-      ) {
-        updateDatalist(
-          request.input,
-          []
-        );
-
-        schoolStatus(
-          request.input,
-          event.data.error
-            ? (
-                "School lookup unavailable: "
-                + event.data.error
-              )
-            : (
-                "School lookup is unavailable."
-              )
-        );
-
-        return;
-      }
-
-      const schools =
-        Array.isArray(
-          event.data.schools
-        )
-          ? event.data.schools
-          : [];
-
-      updateDatalist(
-        request.input,
-        schools
-      );
-
-      schoolStatus(
-        request.input,
-        schools.length
-          ? (
-              `${schools.length} matching `
-              + "Greenhouse schools found."
-            )
-          : (
-              "No matching Greenhouse schools found."
-            )
-      );
-    }
-  );
 
   for (
     const input
@@ -1606,5 +1702,97 @@
     setupJobfinitumSchoolSearch(
       input
     );
+  }
+})();
+
+(() => {
+  "use strict";
+
+  const pickers = [
+    ...document.querySelectorAll(
+      "[data-jobfinitum-question-multiselect]"
+    ),
+  ];
+
+  for (const picker of pickers) {
+    const summary =
+      picker.querySelector(
+        "[data-jobfinitum-multiselect-summary]"
+      );
+
+    const search =
+      picker.querySelector(
+        "[data-jobfinitum-multiselect-search]"
+      );
+
+    const options = [
+      ...picker.querySelectorAll(
+        "[data-jobfinitum-multiselect-option]"
+      ),
+    ];
+
+    const checkboxes = options
+      .map(
+        (option) => option.querySelector(
+          'input[type="checkbox"]'
+        )
+      )
+      .filter(Boolean);
+
+    function updateSummary() {
+      if (!summary) {
+        return;
+      }
+
+      const selected = checkboxes
+        .filter(
+          (checkbox) => checkbox.checked
+        )
+        .map(
+          (checkbox) => checkbox.value
+        );
+
+      if (!selected.length) {
+        summary.textContent =
+          "Choose one or more answers";
+      } else if (selected.length <= 2) {
+        summary.textContent =
+          selected.join(", ");
+      } else {
+        summary.textContent =
+          `${selected.length} answers selected`;
+      }
+    }
+
+    for (const checkbox of checkboxes) {
+      checkbox.addEventListener(
+        "change",
+        updateSummary
+      );
+    }
+
+    search?.addEventListener(
+      "input",
+      () => {
+        const wanted = String(
+          search.value || ""
+        ).trim().toLowerCase();
+
+        for (const option of options) {
+          const label = String(
+            option.dataset.choiceLabel
+            || option.textContent
+            || ""
+          ).toLowerCase();
+
+          option.hidden = Boolean(
+            wanted
+            && !label.includes(wanted)
+          );
+        }
+      }
+    );
+
+    updateSummary();
   }
 })();

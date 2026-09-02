@@ -61,6 +61,7 @@ from models import (
     SuppressedJob,
     AutoApplyCandidate,
     ApplicantProfile,
+    ApplicationAnswerMemory,
     ApplicationSubmissionAttempt,
     JOB_APPLICATION_STRING_LIMITS,
 )
@@ -165,6 +166,10 @@ from services.location_service import (
     get_states,
     get_cities,
 )
+from services.greenhouse_education_service import (
+    GreenhouseEducationLookupError,
+    search_greenhouse_schools,
+)
 from models import ApplicationPackage as AutoApplyApplicationPackage
 from services.auto_apply_submission.application_question_service import (
     dump_question_state,
@@ -178,6 +183,7 @@ from services.auto_apply_submission.application_answer_memory_service import (
 )
 
 from services.auto_apply_service import (
+    advance_auto_apply_profiles_to_new_resume,
     candidate_matches_current_profile,
     get_auto_apply_access,
     stage_existing_auto_apply_matches,
@@ -191,7 +197,9 @@ from services.auto_apply_submission.chrome_agent_service import (
     apply_chrome_agent_result,
     build_chrome_agent_launch_url,
     build_chrome_agent_task,
+    chrome_agent_adapter,
     chrome_agent_supports_job,
+    chrome_agent_target,
     create_chrome_agent_token,
     decode_chrome_agent_token,
     prepare_chrome_agent_candidate,
@@ -288,7 +296,10 @@ def get_latest_resume_for_user(user_id):
     return(
         Resume.query
         .filter_by(user_id=user_id)
-        .order_by(Resume.uploaded_at.desc())
+        .order_by(
+            Resume.uploaded_at.desc(),
+            Resume.id.desc(),
+        )
         .first()
     )
 
@@ -1116,6 +1127,15 @@ def logout():
 @login_required
 def dashboard():
 
+    applications_per_page = request.args.get(
+        "applications_per_page",
+        10,
+        type=int,
+    )
+
+    if applications_per_page not in {10, 15, 20}:
+        applications_per_page = 10
+
     applications_query = JobApplication.query.filter_by(
         user_id=current_user.id
     )
@@ -1146,11 +1166,28 @@ def dashboard():
             visa_sponsorship=False
         )
 
-    filtered_applications = applications_query.all()
+    application_pagination = (
+        applications_query
+        .order_by(
+            JobApplication.application_date.desc(),
+            JobApplication.id.desc(),
+        )
+        .paginate(
+            page=request.args.get(
+                "applications_page",
+                1,
+                type=int,
+            ),
+            per_page=applications_per_page,
+            error_out=False,
+        )
+    )
 
     return render_template(
         "dashboard.html",
-        filtered_applications=filtered_applications
+        application_pagination=application_pagination,
+        applications_per_page=applications_per_page,
+        filtered_applications=application_pagination.items,
     )
 
 
@@ -2650,6 +2687,9 @@ def upload_resume():
     form = ResumeUploadForm()
 
     if form.validate_on_submit():
+        previous_latest_resume = get_latest_resume_for_user(
+            current_user.id
+        )
         file = form.resume_file.data
         original_filename = secure_filename(file.filename)
 
@@ -2681,11 +2721,31 @@ def upload_resume():
         )
 
         db.session.add(resume)
+        db.session.flush()
+
+        resume_updates = (
+            advance_auto_apply_profiles_to_new_resume(
+                current_user.id,
+                (
+                    previous_latest_resume.id
+                    if previous_latest_resume
+                    else None
+                ),
+                resume.id,
+            )
+        )
         db.session.commit()
 
         log_action(current_user.id, f"Uploaded resume version: {form.version_name.data}")
 
-        flash("Resume uploaded successfully.", "success")
+        message = "Resume uploaded successfully."
+        if resume_updates["profiles"]:
+            message += (
+                " Active Auto Apply profiles that used your previous "
+                "resume now use this version."
+            )
+
+        flash(message, "success")
         return redirect(url_for("dashboard"))
 
     return render_template("upload_resume.html", form=form)
@@ -3598,6 +3658,54 @@ def location_cities_api():
         }), 503
 
 
+@app.route("/api/auto-apply/education/schools")
+@login_required
+def auto_apply_school_search_api():
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        return jsonify({
+            "success": False,
+            "message": "Auto Apply is not enabled for this account.",
+            "items": [],
+        }), 403
+
+    query = request.args.get("q", "")
+    board_token = request.args.get("board_token", "")
+    greenhouse_url = request.args.get("greenhouse_url", "")
+
+    if not board_token and greenhouse_url:
+        try:
+            board_token = extract_greenhouse_board_token(
+                greenhouse_url
+            )
+        except ValueError:
+            board_token = ""
+
+    try:
+        schools = search_greenhouse_schools(
+            query,
+            board_tokens=[board_token],
+        )
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+            "items": [],
+        }), 400
+    except GreenhouseEducationLookupError as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+            "items": [],
+        }), 502
+
+    return jsonify({
+        "success": True,
+        "items": schools,
+    })
+
+
 @app.route("/auto-apply/applicant-profile", methods=["GET", "POST"])
 @login_required
 def auto_apply_applicant_profile():
@@ -3614,6 +3722,173 @@ def auto_apply_applicant_profile():
         user_id=current_user.id
     ).first()
 
+    memories = (
+        ApplicationAnswerMemory.query
+        .filter_by(user_id=current_user.id)
+        .order_by(
+            ApplicationAnswerMemory.updated_at.desc(),
+            ApplicationAnswerMemory.id.desc(),
+        )
+        .all()
+    )
+
+    def answer_values(value):
+        if isinstance(value, list):
+            return [
+                str(item).strip()
+                for item in value
+                if str(item).strip()
+            ]
+
+        if isinstance(value, dict):
+            item = (
+                value.get("label")
+                or value.get("value")
+                or value.get("platform_value")
+            )
+            return [str(item).strip()] if item else []
+
+        item = str(value or "").strip()
+        return [item] if item else []
+
+    remembered_questions = []
+
+    for memory in memories:
+        values = answer_values(memory.answer_json)
+        remembered_questions.append({
+            "memory": memory,
+            "answer": ", ".join(values),
+        })
+
+    education_fields = {
+        "greenhouse_education_school": "school",
+        "greenhouse_education_degree": "degree",
+        "greenhouse_education_discipline": "discipline",
+    }
+    education_options = {
+        "school": [],
+        "degree": [],
+        "discipline": [],
+    }
+    education_seen = {
+        key: set()
+        for key in education_options
+    }
+
+    def add_education_option(kind, value):
+        for item in answer_values(value):
+            normalized = item.lower()
+
+            if normalized in education_seen[kind]:
+                continue
+
+            education_seen[kind].add(normalized)
+            education_options[kind].append(item)
+
+    memory_education_fields = {
+        "school": "school",
+        "school name": "school",
+        "degree": "degree",
+        "degree type": "degree",
+        "discipline": "discipline",
+        "field of study": "discipline",
+        "major": "discipline",
+    }
+    education_memory_defaults = {
+        "school": "",
+        "degree": "",
+        "discipline": "",
+    }
+
+    for memory in memories:
+        memory_kind = memory_education_fields.get(
+            " ".join(
+                str(memory.question_text or "")
+                .strip()
+                .lower()
+                .split()
+            )
+        )
+
+        if memory_kind:
+            values = answer_values(
+                memory.answer_json
+            )
+
+            if (
+                values
+                and not education_memory_defaults[
+                    memory_kind
+                ]
+            ):
+                education_memory_defaults[
+                    memory_kind
+                ] = values[0]
+
+            add_education_option(
+                memory_kind,
+                memory.answer_json,
+            )
+
+    packages = (
+        ApplicationPackage.query
+        .filter_by(user_id=current_user.id)
+        .filter(ApplicationPackage.answers_json.isnot(None))
+        .order_by(ApplicationPackage.created_at.desc())
+        .limit(75)
+        .all()
+    )
+
+    for package in packages:
+        state = load_question_state(package.answers_json)
+
+        for question in state.get("questions") or []:
+            kind = education_fields.get(
+                str(question.get("field_name") or "")
+            )
+
+            if not kind:
+                continue
+
+            for choice in question.get("choices") or []:
+                add_education_option(kind, choice)
+
+            add_education_option(
+                kind,
+                (state.get("answers") or {}).get(
+                    question.get("key")
+                ),
+            )
+
+    greenhouse_school_lookup_token = ""
+    recent_jobs = (
+        db.session.query(DiscoveredJob)
+        .join(
+            AutoApplyCandidate,
+            AutoApplyCandidate.discovered_job_id
+            == DiscoveredJob.id,
+        )
+        .filter(AutoApplyCandidate.user_id == current_user.id)
+        .order_by(AutoApplyCandidate.updated_at.desc())
+        .limit(75)
+        .all()
+    )
+
+    for job in recent_jobs:
+        try:
+            if chrome_agent_adapter(job) != "greenhouse_hosted":
+                continue
+
+            greenhouse_school_lookup_token = (
+                extract_greenhouse_board_token(
+                    chrome_agent_target(job)
+                )
+            )
+        except ValueError:
+            continue
+
+        break
+
     form = ApplicantProfileForm(obj=profile)
 
     form.phone_country_iso.choices = [
@@ -3622,6 +3897,21 @@ def auto_apply_applicant_profile():
     ]
 
     if request.method == "GET":
+        if not form.education_school.data:
+            form.education_school.data = (
+                education_memory_defaults["school"]
+            )
+
+        if not form.education_degree.data:
+            form.education_degree.data = (
+                education_memory_defaults["degree"]
+            )
+
+        if not form.education_discipline.data:
+            form.education_discipline.data = (
+                education_memory_defaults["discipline"]
+            )
+
         preferred_region = (
             country_region_from_name(profile.country)
             if profile
@@ -3689,6 +3979,18 @@ def auto_apply_applicant_profile():
                 (form.website_url.data or "").strip()
                 or None
             )
+            profile.education_school = (
+                (form.education_school.data or "").strip()
+                or None
+            )
+            profile.education_degree = (
+                (form.education_degree.data or "").strip()
+                or None
+            )
+            profile.education_discipline = (
+                (form.education_discipline.data or "").strip()
+                or None
+            )
 
             profile.is_18_or_older = (
                 form.is_18_or_older.data
@@ -3743,6 +4045,59 @@ def auto_apply_applicant_profile():
     return render_template(
         "auto_apply_applicant_profile.html",
         form=form,
+        education_options=education_options,
+        school_lookup_url=url_for(
+            "auto_apply_school_search_api",
+            board_token=greenhouse_school_lookup_token,
+        ),
+        remembered_questions=remembered_questions,
+    )
+
+
+@app.route(
+    "/auto-apply/applicant-profile/remembered-questions/<int:memory_id>/delete",
+    methods=["POST"],
+)
+@login_required
+def delete_auto_apply_remembered_question(memory_id):
+    access = get_auto_apply_access(current_user)
+
+    if not access["allowed"]:
+        flash(
+            "Auto Apply is available to Premium users and administrators.",
+            "warning",
+        )
+        return redirect(url_for("search_profiles"))
+
+    memory = (
+        ApplicationAnswerMemory.query
+        .filter_by(
+            id=memory_id,
+            user_id=current_user.id,
+        )
+        .first_or_404()
+    )
+
+    question_text = memory.question_text
+    db.session.delete(memory)
+    db.session.commit()
+
+    log_action(
+        current_user.id,
+        f"Deleted remembered Auto Apply answer: {question_text}",
+    )
+
+    flash(
+        "Remembered application answer removed.",
+        "success",
+    )
+
+    return redirect(
+        url_for(
+            "auto_apply_applicant_profile",
+            remembered="open",
+        )
+        + "#remembered-questions"
     )
 
 
@@ -4541,7 +4896,10 @@ def save_auto_apply_candidate_answers(candidate_id):
 
         field_name = f"answer__{key}"
 
-        if question.get("type") == "checkbox":
+        if question.get("type") in {
+            "checkbox",
+            "multiselect",
+        }:
             value = request.form.getlist(field_name)
         else:
             value = request.form.get(field_name, "")

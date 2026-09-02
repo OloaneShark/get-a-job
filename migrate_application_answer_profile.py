@@ -68,6 +68,27 @@ with engine.begin() as connection:
         connection,
         "applicant_profile",
         columns,
+        "education_school",
+        "VARCHAR(255)",
+    )
+    add_column_if_missing(
+        connection,
+        "applicant_profile",
+        columns,
+        "education_degree",
+        "VARCHAR(150)",
+    )
+    add_column_if_missing(
+        connection,
+        "applicant_profile",
+        columns,
+        "education_discipline",
+        "VARCHAR(150)",
+    )
+    add_column_if_missing(
+        connection,
+        "applicant_profile",
+        columns,
         "is_18_or_older",
         "VARCHAR(20) NOT NULL DEFAULT 'Unknown'",
     )

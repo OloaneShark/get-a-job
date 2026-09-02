@@ -216,7 +216,26 @@
   async function closeCompletedAgentTab(
     launch
   ) {
-    if (isBatchRunner()) {
+    if (
+      launch?.batch === true
+      || isBatchRunner()
+    ) {
+      window.name =
+        BATCH_RUNNER_NAME;
+
+      const waitingUrl = new URL(
+        "/browser-agent",
+        launch.origin
+      );
+
+      waitingUrl.searchParams.set(
+        "batch_wait",
+        "1"
+      );
+
+      location.replace(
+        waitingUrl.href
+      );
       return;
     }
 

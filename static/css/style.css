@@ -8800,6 +8800,38 @@ body.app-authenticated .page-item.disabled .page-link {
     border-color: var(--jf-line);
 }
 
+.dashboard-applications {
+    transition: opacity 120ms ease;
+}
+
+.dashboard-applications[aria-busy="true"] {
+    opacity: 0.58;
+    pointer-events: none;
+}
+
+.dashboard-applications-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.dashboard-jobs-per-page {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    color: var(--jf-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.dashboard-jobs-per-page .form-select {
+    width: 76px;
+    min-width: 76px;
+}
+
 /* Statuses and messaging. */
 
 body.app-authenticated :is(.badge, .status-badge, .low-risk, .medium-risk, .high-risk, .security-badge) {
@@ -9140,6 +9172,121 @@ body.app-public:not(:has(.public-home)) :is(a, button, input, select, textarea) 
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
     }
+}
+
+/* Applicant Profile remembered answers stay compact until requested. */
+body.app-authenticated .remembered-questions-menu {
+    color: var(--jf-ink);
+    background: var(--jf-surface);
+    border: 1px solid var(--jf-line-strong);
+    border-radius: 0 !important;
+}
+
+body.app-authenticated .remembered-questions-summary {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 12px 16px;
+    color: var(--jf-ink);
+    background: var(--jf-surface);
+    cursor: pointer;
+    list-style: none;
+}
+
+body.app-authenticated .remembered-questions-summary::-webkit-details-marker {
+    display: none;
+}
+
+body.app-authenticated .remembered-questions-summary::after {
+    content: "+";
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 28px;
+    color: var(--jf-ink);
+    background: var(--jf-surface-soft);
+    border: 1px solid var(--jf-line-strong);
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+body.app-authenticated .remembered-questions-menu[open] > .remembered-questions-summary::after {
+    content: "-";
+}
+
+body.app-authenticated .remembered-questions-summary:hover,
+body.app-authenticated .remembered-questions-summary:focus-visible {
+    background: var(--jf-surface-soft);
+}
+
+body.app-authenticated .remembered-questions-summary:focus-visible {
+    outline: 2px solid var(--jf-focus-ring);
+    outline-offset: 2px;
+}
+
+body.app-authenticated .remembered-questions-heading {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    flex: 1 1 auto;
+}
+
+body.app-authenticated .remembered-questions-title {
+    color: var(--jf-ink);
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+body.app-authenticated .remembered-questions-count {
+    flex: 0 0 auto;
+    color: var(--jf-muted);
+    font-size: 0.9rem;
+    font-weight: 650;
+}
+
+body.app-authenticated .remembered-questions-content {
+    padding: 16px;
+    border-top: 1px solid var(--jf-line-strong);
+}
+
+@media (max-width: 640px) {
+    body.app-authenticated .remembered-questions-summary {
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+    }
+
+    body.app-authenticated .remembered-questions-count {
+        margin-left: auto;
+    }
+
+    body.app-authenticated .remembered-questions-content {
+        padding: 10px;
+    }
+}
+
+.application-question-multiselect,
+.application-question-multiselect > summary,
+.application-question-multiselect .profile-multiselect-menu,
+.application-question-multiselect .profile-multiselect-option,
+.application-question-choice-search {
+    border-radius: 0 !important;
+}
+
+.application-question-multiselect .profile-multiselect-menu {
+    max-height: 22rem;
+    overflow-y: auto;
+}
+
+.application-question-choice-search {
+    grid-column: 1 / -1;
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 /* Resolve older dark-theme selectors that intentionally carried extra specificity. */

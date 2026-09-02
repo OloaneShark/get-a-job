@@ -149,6 +149,95 @@
         </div>
 
         <div class="mt-4">
+            <h5>Education</h5>
+            <p class="helper-text">
+                Reused for Greenhouse School, Degree, and Field of Study controls.
+            </p>
+
+            <div class="form-grid">
+                <div>
+                    {{ form.education_school.label(class="form-label") }}
+                    {{ form.education_school(
+                        class="form-control",
+                        autocomplete="off",
+                        list="applicant-school-options",
+                        placeholder="Start typing a school name",
+                        **{
+                            "data-jobfinitum-school-search": "true",
+                            "data-school-search-url": school_lookup_url,
+                            "data-school-status-id": "applicant-school-status"
+                        }
+                    ) }}
+                    <datalist id="applicant-school-options">
+                        {% for option in education_options.school %}
+                            <option value="{{ option }}"></option>
+                        {% endfor %}
+                    </datalist>
+                    <div id="applicant-school-status" class="form-text">
+                        Type at least 3 characters to search schools.
+                    </div>
+                    {% for error in form.education_school.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+
+                <div>
+                    {{ form.education_degree.label(class="form-label") }}
+                    <select
+                        class="form-select"
+                        id="{{ form.education_degree.id }}"
+                        name="{{ form.education_degree.name }}"
+                    >
+                        <option value="">Choose a degree</option>
+                        {% if form.education_degree.data and form.education_degree.data not in education_options.degree %}
+                            <option value="{{ form.education_degree.data }}" selected>
+                                {{ form.education_degree.data }}
+                            </option>
+                        {% endif %}
+                        {% for option in education_options.degree %}
+                            <option
+                                value="{{ option }}"
+                                {% if form.education_degree.data == option %}selected{% endif %}
+                            >
+                                {{ option }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    {% for error in form.education_degree.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+
+                <div>
+                    {{ form.education_discipline.label(class="form-label") }}
+                    <select
+                        class="form-select"
+                        id="{{ form.education_discipline.id }}"
+                        name="{{ form.education_discipline.name }}"
+                    >
+                        <option value="">Choose a field of study</option>
+                        {% if form.education_discipline.data and form.education_discipline.data not in education_options.discipline %}
+                            <option value="{{ form.education_discipline.data }}" selected>
+                                {{ form.education_discipline.data }}
+                            </option>
+                        {% endif %}
+                        {% for option in education_options.discipline %}
+                            <option
+                                value="{{ option }}"
+                                {% if form.education_discipline.data == option %}selected{% endif %}
+                            >
+                                {{ option }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    {% for error in form.education_discipline.errors %}
+                        <div class="text-danger mt-1">{{ error }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
             <h5>Reusable Application Answers</h5>
             <p class="helper-text">
                 Jobfinitum may use these answers on supported employer forms.
@@ -218,7 +307,75 @@
             {{ form.submit(class="btn btn-primary") }}
         </div>
     </form>
+
+    <details
+        id="remembered-questions"
+        class="remembered-questions-menu mt-5"
+        {% if request.args.get("remembered") == "open" %}open{% endif %}
+    >
+        <summary class="remembered-questions-summary">
+            <span class="remembered-questions-heading">
+                <span class="remembered-questions-title">Remembered Questions</span>
+                <span class="helper-text">
+                    Answers saved from prior Auto Apply applications.
+                </span>
+            </span>
+            <span class="remembered-questions-count">
+                {{ remembered_questions|length }} saved
+            </span>
+        </summary>
+
+        <div class="remembered-questions-content">
+
+        {% if remembered_questions %}
+            <div class="table-responsive">
+                <table class="table align-middle mb-0 remembered-question-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Question</th>
+                            <th scope="col">Saved Answer</th>
+                            <th scope="col">Type</th>
+                            <th scope="col" class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in remembered_questions %}
+                            <tr>
+                                <td>{{ item.memory.question_text }}</td>
+                                <td>{{ item.answer }}</td>
+                                <td>{{ (item.memory.question_type or "text")|replace("_", " ")|title }}</td>
+                                <td class="text-end">
+                                    <form
+                                        method="POST"
+                                        action="{{ url_for(
+                                            'delete_auto_apply_remembered_question',
+                                            memory_id=item.memory.id
+                                        ) }}"
+                                    >
+                                        <input
+                                            type="hidden"
+                                            name="csrf_token"
+                                            value="{{ csrf_token() }}"
+                                        >
+                                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                                            Remove
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info mb-0">
+                No application answers have been remembered yet.
+            </div>
+        {% endif %}
+        </div>
+    </details>
 </div>
 
 <script src="{{ url_for('static', filename='js/auto_apply_applicant_profile.js') }}"></script>
+<script src="{{ url_for('static', filename='js/chrome_agent_site.js') }}"></script>
 {% endblock %}

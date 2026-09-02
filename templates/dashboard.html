@@ -219,6 +219,12 @@
 
         <form method="GET" action="/dashboard" class="row g-3 mb-4">
 
+            <input
+                type="hidden"
+                name="applications_per_page"
+                value="{{ applications_per_page }}"
+            >
+
             <div class="col-md-4">
                 <input
                     type="text"
@@ -232,18 +238,18 @@
             <div class="col-md-3">
                 <select name="status" class="form-select">
                     <option value="">All Statuses</option>
-                    <option value="Applied">Applied</option>
-                    <option value="Interview Scheduled">Interview Scheduled</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="Offer Received">Offer Received</option>
+                    <option value="Applied" {% if request.args.get('status') == 'Applied' %}selected{% endif %}>Applied</option>
+                    <option value="Interview Scheduled" {% if request.args.get('status') == 'Interview Scheduled' %}selected{% endif %}>Interview Scheduled</option>
+                    <option value="Rejected" {% if request.args.get('status') == 'Rejected' %}selected{% endif %}>Rejected</option>
+                    <option value="Offer Received" {% if request.args.get('status') == 'Offer Received' %}selected{% endif %}>Offer Received</option>
                 </select>
             </div>
 
             <div class="col-md-3">
                 <select name="visa" class="form-select">
                     <option value="">Visa Any</option>
-                    <option value="yes">Visa Yes</option>
-                    <option value="no">Visa No</option>
+                    <option value="yes" {% if request.args.get('visa') == 'yes' %}selected{% endif %}>Visa Yes</option>
+                    <option value="no" {% if request.args.get('visa') == 'no' %}selected{% endif %}>Visa No</option>
                 </select>
             </div>
 
@@ -330,6 +336,11 @@
     <p>No follow-ups scheduled.</p>
 {% endif %}
 
+<section
+    id="applications-list"
+    class="dashboard-applications"
+    aria-live="polite"
+>
 <h3 id="applications">Your Applications</h3>
 
 {% if filtered_applications %}
@@ -395,9 +406,100 @@
             {% endfor %}
         </tbody>
     </table>
+
+        <nav
+            class="dashboard-applications-pagination mt-4"
+            aria-label="Application pages"
+        >
+            <ul class="pagination flex-wrap mb-0">
+                <li class="page-item {% if not application_pagination.has_prev %}disabled{% endif %}">
+                    <a
+                        class="page-link"
+                        data-applications-page-link
+                        href="{% if application_pagination.has_prev %}{{ url_for(
+                            'dashboard',
+                            applications_page=application_pagination.prev_num,
+                            applications_per_page=applications_per_page,
+                            search=request.args.get('search', ''),
+                            status=request.args.get('status', ''),
+                            visa=request.args.get('visa', '')
+                        ) }}#applications{% else %}#{% endif %}"
+                    >
+                        Previous
+                    </a>
+                </li>
+
+                {% for page_number in application_pagination.iter_pages(
+                    left_edge=1,
+                    right_edge=1,
+                    left_current=2,
+                    right_current=2
+                ) %}
+                    {% if page_number %}
+                        <li class="page-item {% if page_number == application_pagination.page %}active{% endif %}">
+                            <a
+                                class="page-link"
+                                data-applications-page-link
+                                {% if page_number == application_pagination.page %}aria-current="page"{% endif %}
+                                href="{{ url_for(
+                                    'dashboard',
+                                    applications_page=page_number,
+                                    applications_per_page=applications_per_page,
+                                    search=request.args.get('search', ''),
+                                    status=request.args.get('status', ''),
+                                    visa=request.args.get('visa', '')
+                                ) }}#applications"
+                            >
+                                {{ page_number }}
+                            </a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link">...</span>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+
+                <li class="page-item {% if not application_pagination.has_next %}disabled{% endif %}">
+                    <a
+                        class="page-link"
+                        data-applications-page-link
+                        href="{% if application_pagination.has_next %}{{ url_for(
+                            'dashboard',
+                            applications_page=application_pagination.next_num,
+                            applications_per_page=applications_per_page,
+                            search=request.args.get('search', ''),
+                            status=request.args.get('status', ''),
+                            visa=request.args.get('visa', '')
+                        ) }}#applications{% else %}#{% endif %}"
+                    >
+                        Next
+                    </a>
+                </li>
+            </ul>
+
+            <label class="dashboard-jobs-per-page">
+                <span>Jobs per page</span>
+                <select
+                    class="form-select form-select-sm"
+                    data-applications-per-page
+                    aria-label="Jobs per page"
+                >
+                    {% for option in (10, 15, 20) %}
+                        <option
+                            value="{{ option }}"
+                            {% if applications_per_page == option %}selected{% endif %}
+                        >
+                            {{ option }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </nav>
 {% else %}
     <p>No applications saved yet.</p>
 {% endif %}
+</section>
 
 <hr class="my-5">
 
@@ -522,4 +624,8 @@
     <p>No recent activity.</p>
 {% endif %}
 
+{% endblock %}
+
+{% block page_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard_applications.js') }}"></script>
 {% endblock %}

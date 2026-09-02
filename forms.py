@@ -531,6 +531,19 @@ class ApplicantProfileForm(FlaskForm):
         validators=[Optional(), URL(), Length(max=500)],
     )
 
+    education_school = StringField(
+        "College / School",
+        validators=[Optional(), Length(max=255)],
+    )
+    education_degree = StringField(
+        "Degree",
+        validators=[Optional(), Length(max=150)],
+    )
+    education_discipline = StringField(
+        "Field of Study",
+        validators=[Optional(), Length(max=150)],
+    )
+
     answer_choices = [
         ("Unknown", "Ask me / Do not guess"),
         ("Yes", "Yes"),
