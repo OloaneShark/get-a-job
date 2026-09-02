@@ -248,7 +248,7 @@
     "jobfinitum-site";
 
   const REQUIRED_AGENT_VERSION =
-    "0.4.22";
+    "0.5.0";
 
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";

@@ -61,10 +61,15 @@ HIMALAYAS_HOSTS = {
     "www.himalayas.app",
 }
 
+ASHBY_HOSTS = {
+    "jobs.ashbyhq.com",
+}
+
 SUPPORTED_HOSTS = (
     LEVER_HOSTS
     | GREENHOUSE_HOSTS
     | HIMALAYAS_HOSTS
+    | ASHBY_HOSTS
 )
 
 
@@ -103,6 +108,9 @@ def chrome_agent_adapter(job):
 
     if host in HIMALAYAS_HOSTS:
         return "himalayas_resolver"
+
+    if host in ASHBY_HOSTS:
+        return "ashby_hosted"
 
     raise ValueError(
         "The Chrome Agent does not support "
@@ -918,6 +926,8 @@ def apply_chrome_agent_result(candidate, user, payload):
         if adapter_name == "lever_hosted"
         else "Greenhouse"
         if adapter_name == "greenhouse_hosted"
+        else "Ashby"
+        if adapter_name == "ashby_hosted"
         else "application host"
     )
 

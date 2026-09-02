@@ -5,6 +5,7 @@ Runs supported Jobfinitum Auto Apply tasks inside ordinary user Chrome.
 Current Browser Agent support:
 - Lever
 - Greenhouse
+- Ashby
 
 The Agent can:
 - fill identity fields

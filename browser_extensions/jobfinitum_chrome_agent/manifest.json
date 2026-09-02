@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.4.22",
+  "version": "0.5.0",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -10,7 +10,8 @@
     "https://www.jobfinitum.com/*",
     "https://boards-api.greenhouse.io/*",
     "https://himalayas.app/*",
-    "https://www.himalayas.app/*"
+    "https://www.himalayas.app/*",
+    "https://jobs.ashbyhq.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -21,11 +22,11 @@
         "https://jobs.lever.co/*",
         "https://jobs.eu.lever.co/*"
       ],
-            "js": [
-                "lever_agent.js"
-            ],
-            "run_at": "document_start"
-        },
+      "js": [
+        "lever_agent.js"
+      ],
+      "run_at": "document_start"
+    },
     {
       "matches": [
         "http://127.0.0.1/*",
@@ -57,6 +58,15 @@
       ],
       "js": [
         "himalayas_agent.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://jobs.ashbyhq.com/*"
+      ],
+      "js": [
+        "ashby_agent.js"
       ],
       "run_at": "document_idle"
     }
