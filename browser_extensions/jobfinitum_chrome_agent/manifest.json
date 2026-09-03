@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -11,6 +11,8 @@
     "https://boards-api.greenhouse.io/*",
     "https://himalayas.app/*",
     "https://www.himalayas.app/*",
+    "https://remotefirstjobs.com/*",
+    "https://www.remotefirstjobs.com/*",
     "https://jobs.ashbyhq.com/*"
   ],
   "background": {
@@ -58,6 +60,16 @@
       ],
       "js": [
         "himalayas_agent.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://remotefirstjobs.com/*",
+        "https://www.remotefirstjobs.com/*"
+      ],
+      "js": [
+        "remote_first_jobs_agent.js"
       ],
       "run_at": "document_idle"
     },

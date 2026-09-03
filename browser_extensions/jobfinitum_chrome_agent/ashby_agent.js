@@ -24,6 +24,7 @@
   const cleanQuestionText = (value) => normalize(value).replace(/\s*(?:\*+|\u2731+)\s*$/, "");
   const questionMatchKey = (value) => lower(cleanQuestionText(value)).replace(/[^a-z0-9]+/g, " ").trim();
   const customControls = new WeakSet();
+  const confirmedCustomSelections = new WeakMap();
 
   function isCustomControl(element) {
     return customControls.has(element)
@@ -474,7 +475,23 @@
       return Boolean(value || (text && !placeholderChoice(text)));
     }
     if (isCustomControl(element)) {
-      const text = normalize(element.value || element.textContent);
+      if (confirmedCustomSelections.has(element)) return true;
+      const nestedInput = element.tagName === "INPUT"
+        ? null
+        : element.querySelector?.('input[role="combobox"], input[aria-autocomplete], input');
+      const selectedNode = element.querySelector?.(
+        '[aria-selected="true"], [data-selected="true"], [data-state="checked"], '
+        + '[class*="selected-value" i], [class*="multi-value" i]'
+      );
+      const text = normalize(
+        element.tagName === "INPUT" || element.tagName === "TEXTAREA"
+          ? element.value
+          : element.getAttribute?.("aria-valuetext")
+            || element.getAttribute?.("data-value")
+            || nestedInput?.value
+            || selectedNode?.innerText
+            || (element.tagName === "BUTTON" ? element.textContent : "")
+      );
       return Boolean(text && !placeholderChoice(text));
     }
     return Boolean(normalize(element.value));
@@ -496,14 +513,33 @@
     )].filter(visible);
   }
 
+  function fuzzyChoiceMatch(optionText, candidateText) {
+    const optionKey = questionMatchKey(optionText);
+    const candidateKey = questionMatchKey(candidateText);
+    if (candidateKey.length < 3 || optionKey.length < 3) return false;
+    const containsPhrase = (text, phrase) => text === phrase
+      || text.startsWith(`${phrase} `)
+      || text.endsWith(` ${phrase}`)
+      || text.includes(` ${phrase} `);
+    return containsPhrase(optionKey, candidateKey)
+      || containsPhrase(candidateKey, optionKey);
+  }
+
   async function chooseCustomOption(element, value) {
     const groups = answerGroups(value);
     if (!groups.length) return false;
     const requestedGroups = controlType(element) === "multiselect" ? groups : [groups[0]];
+    const confirmedValues = new Set(
+      answerGroups(confirmedCustomSelections.get(element)).flat().map(lower)
+    );
+    const pendingGroups = requestedGroups.filter(
+      (group) => !group.some((candidate) => confirmedValues.has(lower(candidate)))
+    );
+    if (!pendingGroups.length) return true;
     const originalValue = normalize(element.value);
     let matchedCount = 0;
 
-    for (const group of requestedGroups) {
+    for (const group of pendingGroups) {
       const wanted = new Set(group.map(lower));
       if (element.tagName === "INPUT") {
         element.focus();
@@ -528,7 +564,7 @@
         }) || options.find((option) => {
           const text = lower(option.innerText);
           return text && [...wanted].some(
-            (candidate) => candidate && (text.includes(candidate) || candidate.includes(text))
+            (candidate) => candidate && fuzzyChoiceMatch(text, candidate)
           );
         });
       }
@@ -538,17 +574,20 @@
           setText(element, originalValue, {blur: false});
           element.dispatchEvent(new Event("blur", {bubbles: true}));
         }
+        if (!confirmedValues.size) confirmedCustomSelections.delete(element);
         return false;
       }
 
       selected.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, view: window}));
       selected.click();
       matchedCount += 1;
+      confirmedValues.add(lower(group[0]));
+      confirmedCustomSelections.set(element, [...confirmedValues]);
       await sleep(150);
     }
 
     dispatchEvents(element);
-    return matchedCount === requestedGroups.length;
+    return matchedCount === pendingGroups.length;
   }
 
   async function applyValue(element, value) {
@@ -794,11 +833,18 @@
   }
 
   function resumeFileAttached(input, file) {
+    const entry = input?.closest?.(".ashby-application-form-field-entry");
+    const errors = entry?.querySelectorAll?.(
+      '[role="alert"], [aria-live="assertive"], [class*="error" i], [data-testid*="error" i]'
+    ) || [];
+    if ([...errors].some((node) => visible(node) && normalize(node.innerText))) {
+      return false;
+    }
     if ([...(input?.files || [])].some((item) => item.name === file.name && item.size === file.size)) {
       return true;
     }
     const entryText = normalize(
-      input?.closest?.(".ashby-application-form-field-entry")?.innerText
+      entry?.innerText
     );
     return Boolean(entryText && entryText.includes(file.name));
   }
@@ -991,7 +1037,11 @@
           && rect.bottom > 0
           && rect.left < window.innerWidth
           && rect.top < window.innerHeight;
-        if (intersectsViewport && rect.width >= 40 && rect.height >= 30) return true;
+        if (rect.width < 40 || rect.height < 30) continue;
+        if (!intersectsViewport) {
+          try { element.scrollIntoView({block: "center", inline: "nearest"}); } catch (error) {}
+        }
+        return true;
       }
     }
     return false;
@@ -1125,6 +1175,22 @@
 
     const submit = submitButton();
     if (!submit) {
+      const captchaVisible = visibleVerificationChallenge();
+      if (captchaVisible) {
+        statusBox("human verification is required before Ashby enables submission.", "warning");
+        await report(launch, {
+          status: "waiting_verification",
+          message: "Ashby has a visible human-verification challenge. Complete it here, then resume this application from Jobfinitum.",
+          detail: {
+            url: location.href,
+            verification_error: Boolean(visibleVerificationError()),
+            captcha_visible: true,
+            executor: "chrome_agent",
+            adapter: "ashby_hosted",
+          },
+        });
+        return;
+      }
       await handOffToManualApply(
         launch,
         "Chrome Agent could not find an enabled Ashby Submit Application button.",

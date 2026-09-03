@@ -375,6 +375,40 @@ function bufferToBase64(buffer) {
 const HIMALAYAS_RESOLVER_PREFIX =
   "jobfinitum_himalayas_resolver_";
 
+const JOB_BOARD_RESOLVER_HOSTS =
+  new Set([
+    "himalayas.app",
+    "www.himalayas.app",
+    "remotefirstjobs.com",
+    "www.remotefirstjobs.com",
+  ]);
+
+function resolverNameForUrl(value) {
+  try {
+    const host = new URL(
+      String(value || "")
+    ).hostname.toLowerCase();
+
+    if (
+      host === "himalayas.app"
+      || host === "www.himalayas.app"
+    ) {
+      return "himalayas_browser_agent";
+    }
+
+    if (
+      host === "remotefirstjobs.com"
+      || host === "www.remotefirstjobs.com"
+    ) {
+      return "remote_first_jobs_browser_agent";
+    }
+  } catch (error) {
+    return "";
+  }
+
+  return "";
+}
+
 const BATCH_RUNNER_STORAGE_KEY =
   "jobfinitum_batch_runner_v1";
 
@@ -655,6 +689,8 @@ function externalHimalayasTarget(
     new Set([
       "himalayas.app",
       "www.himalayas.app",
+      "remotefirstjobs.com",
+      "www.remotefirstjobs.com",
       "127.0.0.1",
       "localhost",
       "jobfinitum.com",
@@ -771,7 +807,8 @@ async function resolveHimalayasTargetOnce(
             resolvedUrl,
           detail: {
             resolver:
-              "himalayas_browser_agent",
+              currentSession.resolver
+              || "himalayas_browser_agent",
           },
         }),
       }
@@ -1180,6 +1217,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (
       message.type
       === "jobfinitum-himalayas-watch"
+      || message.type
+      === "jobfinitum-job-board-watch"
     ) {
       const tabId =
         sender?.tab?.id;
@@ -1189,7 +1228,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         !== "number"
       ) {
         throw new Error(
-          "Himalayas resolver could not identify its tab."
+          "Job-board resolver could not identify its tab."
+        );
+      }
+
+      const resolver =
+        resolverNameForUrl(
+          sender?.tab?.url
+        );
+
+      if (!resolver) {
+        throw new Error(
+          "Job-board resolver started from an unsupported host."
         );
       }
 
@@ -1205,6 +1255,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             message.batch === true,
           resolverTabId:
             tabId,
+          resolver,
         }
       );
 
@@ -1218,6 +1269,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (
       message.type
       === "jobfinitum-himalayas-resolved"
+      || message.type
+      === "jobfinitum-job-board-resolved"
     ) {
       const tabId =
         sender?.tab?.id;
@@ -1227,7 +1280,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         !== "number"
       ) {
         throw new Error(
-          "Himalayas resolver could not identify its tab."
+          "Job-board resolver could not identify its tab."
+        );
+      }
+
+      const resolver =
+        resolverNameForUrl(
+          sender?.tab?.url
+        );
+
+      if (!resolver) {
+        throw new Error(
+          "Job-board resolver returned a target from an unsupported host."
         );
       }
 
@@ -1244,6 +1308,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             message.batch === true,
           resolverTabId:
             tabId,
+          resolver,
         }
       );
 
@@ -1514,8 +1579,9 @@ chrome.tabs.onUpdated.addListener(
         parsed.hostname.toLowerCase();
 
       if (
-        host === "himalayas.app"
-        || host === "www.himalayas.app"
+        JOB_BOARD_RESOLVER_HOSTS.has(
+          host
+        )
       ) {
         return;
       }
@@ -1570,7 +1636,7 @@ chrome.tabs.onUpdated.addListener(
       );
     } catch (error) {
       console.warn(
-        "Jobfinitum Himalayas navigation resolver failed:",
+        "Jobfinitum job-board navigation resolver failed:",
         error
       );
     }

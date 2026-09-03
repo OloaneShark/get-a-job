@@ -6,6 +6,8 @@ Current Browser Agent support:
 - Lever
 - Greenhouse
 - Ashby
+- Remote First Jobs employer-site resolver
+- Himalayas employer-site resolver
 
 The Agent can:
 - fill identity fields

@@ -20,6 +20,7 @@ AGENT_PATH = ROOT / "browser_extensions" / "jobfinitum_chrome_agent" / "ashby_ag
 MANIFEST_PATH = ROOT / "browser_extensions" / "jobfinitum_chrome_agent" / "manifest.json"
 SITE_SCRIPT_PATH = ROOT / "static" / "js" / "chrome_agent_site.js"
 SETTINGS_PATH = ROOT / "templates" / "browser_agent_settings.html"
+EDGE_CASE_PATH = ROOT / "tests" / "js" / "ashby_agent_edge_cases.mjs"
 
 class AshbyAgentSourceTests(unittest.TestCase):
     @classmethod
@@ -30,7 +31,7 @@ class AshbyAgentSourceTests(unittest.TestCase):
         cls.settings_source = SETTINGS_PATH.read_text(encoding="utf-8")
 
     def test_manifest_registers_ashby(self):
-        self.assertEqual(self.manifest["version"], "0.5.1")
+        self.assertEqual(self.manifest["version"], "0.6.0")
         self.assertIn("https://jobs.ashbyhq.com/*", self.manifest["host_permissions"])
         self.assertTrue(any(
             "https://jobs.ashbyhq.com/*" in script.get("matches", [])
@@ -119,6 +120,12 @@ class AshbyAgentSyntaxTests(unittest.TestCase):
         if not node:
             raise unittest.SkipTest("Node.js is required for Chrome Agent syntax tests.")
         subprocess.run([node, "--check", str(AGENT_PATH)], check=True, capture_output=True, text=True)
+
+    def test_javascript_edge_cases(self):
+        node = shutil.which("node")
+        if not node:
+            raise unittest.SkipTest("Node.js is required for Chrome Agent edge-case tests.")
+        subprocess.run([node, str(EDGE_CASE_PATH)], check=True, capture_output=True, text=True)
 
 if __name__ == "__main__":
     unittest.main()

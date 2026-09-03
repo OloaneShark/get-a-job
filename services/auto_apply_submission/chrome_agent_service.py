@@ -61,6 +61,11 @@ HIMALAYAS_HOSTS = {
     "www.himalayas.app",
 }
 
+REMOTE_FIRST_JOBS_HOSTS = {
+    "remotefirstjobs.com",
+    "www.remotefirstjobs.com",
+}
+
 ASHBY_HOSTS = {
     "jobs.ashbyhq.com",
 }
@@ -69,8 +74,26 @@ SUPPORTED_HOSTS = (
     LEVER_HOSTS
     | GREENHOUSE_HOSTS
     | HIMALAYAS_HOSTS
+    | REMOTE_FIRST_JOBS_HOSTS
     | ASHBY_HOSTS
 )
+
+RESOLVER_ADAPTERS = {
+    "himalayas_resolver": {
+        "platform_name": "Himalayas",
+        "hosts": HIMALAYAS_HOSTS,
+        "browser_agent": "himalayas_browser_agent",
+        "discovery_method": "himalayas_browser_resolver",
+        "closed_paths": {"/jobs"},
+    },
+    "remote_first_jobs_resolver": {
+        "platform_name": "Remote First Jobs",
+        "hosts": REMOTE_FIRST_JOBS_HOSTS,
+        "browser_agent": "remote_first_jobs_browser_agent",
+        "discovery_method": "remote_first_jobs_browser_resolver",
+        "closed_paths": {"/jobs"},
+    },
+}
 
 
 def utcnow_naive():
@@ -108,6 +131,9 @@ def chrome_agent_adapter(job):
 
     if host in HIMALAYAS_HOSTS:
         return "himalayas_resolver"
+
+    if host in REMOTE_FIRST_JOBS_HOSTS:
+        return "remote_first_jobs_resolver"
 
     if host in ASHBY_HOSTS:
         return "ashby_hosted"
@@ -611,9 +637,10 @@ def _compatible_profile_answer_for_question(question, answer):
     return None
 
 
-def _discover_himalayas_resolved_source(
+def _discover_resolver_source(
     job,
     resolved_url,
+    resolver_config,
 ):
     from services.job_sources.discovery.candidate_service import (
         ingest_source_url,
@@ -622,9 +649,9 @@ def _discover_himalayas_resolved_source(
     try:
         source, status = ingest_source_url(
             url=resolved_url,
-            discovery_method=(
-                "himalayas_browser_resolver"
-            ),
+            discovery_method=resolver_config[
+                "discovery_method"
+            ],
             auto_validate=False,
             company_name=getattr(
                 job,
@@ -649,7 +676,7 @@ def _discover_himalayas_resolved_source(
         ),
     }
 
-def _record_himalayas_manual_handoff(
+def _record_resolver_manual_handoff(
     *,
     candidate,
     user,
@@ -657,6 +684,8 @@ def _record_himalayas_manual_handoff(
     package,
     message,
     detail,
+    adapter_name,
+    resolver_config,
     resolved_url=None,
     resolved_host=None,
 ):
@@ -665,7 +694,9 @@ def _record_himalayas_manual_handoff(
     normalized_detail = dict(detail or {})
     normalized_detail.update(
         {
-            "resolver": "himalayas_browser_agent",
+            "resolver": resolver_config[
+                "browser_agent"
+            ],
             "manual_application": True,
         }
     )
@@ -681,7 +712,7 @@ def _record_himalayas_manual_handoff(
         auto_apply_candidate_id=candidate.id,
         application_id=application.id,
         application_package_id=package.id,
-        adapter_name="himalayas_resolver",
+        adapter_name=adapter_name,
         status="Unsupported",
         message=message,
         detail_json=json.dumps(
@@ -711,7 +742,10 @@ def _record_himalayas_manual_handoff(
     }
 
 
-def _is_himalayas_jobs_index(value):
+def _is_resolver_jobs_index(
+    value,
+    resolver_config,
+):
     parts = urlsplit(
         str(value or "").strip()
     )
@@ -720,9 +754,11 @@ def _is_himalayas_jobs_index(value):
     ).lower()
 
     return (
-        host in HIMALAYAS_HOSTS
-        and parts.path.rstrip("/")
-        == "/jobs"
+        host in resolver_config["hosts"]
+        and (
+            parts.path.rstrip("/")
+            in resolver_config["closed_paths"]
+        )
     )
 
 
@@ -748,7 +784,14 @@ def apply_chrome_agent_result(candidate, user, payload):
         candidate.discovered_job
     )
 
-    if adapter_name == "himalayas_resolver":
+    resolver_config = RESOLVER_ADAPTERS.get(
+        adapter_name
+    )
+
+    if resolver_config:
+        platform_name = resolver_config[
+            "platform_name"
+        ]
         resolver_status = str(
             payload.get("status") or ""
         ).strip().lower()
@@ -767,8 +810,9 @@ def apply_chrome_agent_result(candidate, user, payload):
         if (
             resolver_status
             == "posting_closed"
-            or _is_himalayas_jobs_index(
-                final_url
+            or _is_resolver_jobs_index(
+                final_url,
+                resolver_config,
             )
         ):
             posting_url = str(
@@ -777,7 +821,7 @@ def apply_chrome_agent_result(candidate, user, payload):
                 or ""
             ).strip()
             message = (
-                "Himalayas redirected this posting to its jobs "
+                f"{platform_name} redirected this posting to its jobs "
                 "index, confirming that the job is no longer available."
             )
             cleanup_stats = (
@@ -786,12 +830,16 @@ def apply_chrome_agent_result(candidate, user, payload):
                         "posting_url": posting_url,
                         "status": "Closed",
                         "reason": (
-                            "Himalayas redirected the posting "
+                            f"{platform_name} redirected the posting "
                             "to its jobs index"
                         ),
                         "final_url": (
                             final_url
-                            or "https://himalayas.app/jobs"
+                            or str(
+                                candidate.discovered_job.posting_url
+                                or candidate.discovered_job.apply_url
+                                or ""
+                            )
                         ),
                         "http_status": None,
                         "checked_at": utcnow_naive(),
@@ -811,25 +859,27 @@ def apply_chrome_agent_result(candidate, user, payload):
             message = str(
                 payload.get("message")
                 or (
-                    "Himalayas did not expose the employer "
+                    f"{platform_name} did not expose the employer "
                     "application destination automatically."
                 )
             ).strip()
 
-            return _record_himalayas_manual_handoff(
+            return _record_resolver_manual_handoff(
                 candidate=candidate,
                 user=user,
                 application=application,
                 package=package,
                 message=message,
                 detail=detail,
+                adapter_name=adapter_name,
+                resolver_config=resolver_config,
                 resolved_url=None,
                 resolved_host=None,
             )
 
         if resolver_status != "resolved_application_target":
             raise ValueError(
-                "Himalayas Browser Agent did not return "
+                f"{platform_name} Browser Agent did not return "
                 "a resolved employer application target."
             )
 
@@ -847,19 +897,20 @@ def apply_chrome_agent_result(candidate, user, payload):
         if (
             resolved_parts.scheme not in {"http", "https"}
             or not resolved_host
-            or resolved_host in HIMALAYAS_HOSTS
+            or resolved_host in resolver_config["hosts"]
         ):
             raise ValueError(
-                "Himalayas Browser Agent returned an "
+                f"{platform_name} Browser Agent returned an "
                 "invalid external application target."
             )
 
         job = candidate.discovered_job
         job.apply_url = resolved_url
         source_discovery = (
-            _discover_himalayas_resolved_source(
+            _discover_resolver_source(
                 job,
                 resolved_url,
+                resolver_config,
             )
         )
         db.session.flush()
@@ -867,7 +918,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         continue_in_chrome_agent = (
             chrome_agent_supports_job(job)
             and chrome_agent_adapter(job)
-            != "himalayas_resolver"
+            not in RESOLVER_ADAPTERS
         )
 
         resolved_adapter = None
@@ -890,18 +941,20 @@ def apply_chrome_agent_result(candidate, user, payload):
                     "source_discovery"
                 ] = source_discovery
 
-            return _record_himalayas_manual_handoff(
+            return _record_resolver_manual_handoff(
                 candidate=candidate,
                 user=user,
                 application=application,
                 package=package,
                 message=(
-                    "Himalayas resolved this application to "
+                    f"{platform_name} resolved this application to "
                     f"{resolved_host}, which does not have a "
                     "Jobfinitum Auto Apply adapter yet. Continue "
                     "from Manual Apply."
                 ),
                 detail=manual_detail,
+                adapter_name=adapter_name,
+                resolver_config=resolver_config,
                 resolved_url=resolved_url,
                 resolved_host=resolved_host,
             )
@@ -909,7 +962,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         return {
             "status": "Resolved Application Target",
             "message": (
-                "Himalayas employer application "
+                f"{platform_name} employer application "
                 "target resolved."
             ),
             "resolved_url": resolved_url,
