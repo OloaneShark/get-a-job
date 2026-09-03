@@ -2,6 +2,7 @@
   "use strict";
 
   const SUCCESS_PHRASES = [
+    "your application was successfully submitted",
     "thank you for applying",
     "thanks for applying",
     "application submitted",
@@ -11,11 +12,10 @@
     "we've received your application",
   ];
 
-  const VERIFY_PHRASES = [
+  const VERIFY_ERROR_PHRASES = [
+    "there was a problem verifying this submission with captcha",
     "please complete the captcha",
     "please complete the verification",
-    "verify you are human",
-    "human verification",
   ];
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,15 +23,33 @@
   const lower = (value) => normalize(value).toLowerCase();
   const cleanQuestionText = (value) => normalize(value).replace(/\s*(?:\*+|\u2731+)\s*$/, "");
   const questionMatchKey = (value) => lower(cleanQuestionText(value)).replace(/[^a-z0-9]+/g, " ").trim();
+  const customControls = new WeakSet();
+
+  function isCustomControl(element) {
+    return customControls.has(element)
+      || lower(element?.getAttribute?.("role")) === "combobox"
+      || element?.getAttribute?.("aria-haspopup") === "listbox"
+      || element?.classList?.contains("ashby-application-form-input-autocomplete");
+  }
 
   function visible(element) {
     if (!element) return false;
     const rect = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    return style.display !== "none"
-      && style.visibility !== "hidden"
-      && rect.width > 0
-      && rect.height > 0;
+    if (rect.width <= 0 || rect.height <= 0) return false;
+
+    let current = element;
+    for (let depth = 0; current && depth < 10; depth += 1) {
+      const style = getComputedStyle(current);
+      if (style.display === "none"
+          || style.visibility === "hidden"
+          || style.visibility === "collapse"
+          || Number(style.opacity) <= 0.01
+          || lower(current.getAttribute?.("aria-hidden")) === "true") {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return true;
   }
 
   function statusBox(message, kind = "working") {
@@ -167,13 +185,14 @@
     return null;
   }
 
-  function dispatchEvents(element) {
-    for (const name of ["input", "change", "blur"]) {
+  function dispatchEvents(element, {blur = true} = {}) {
+    const eventNames = blur ? ["input", "change", "blur"] : ["input", "change"];
+    for (const name of eventNames) {
       element.dispatchEvent(new Event(name, {bubbles: true}));
     }
   }
 
-  function setText(element, value) {
+  function setText(element, value, {blur = true} = {}) {
     if (!element || value === null || value === undefined || String(value) === "") return false;
     if (!["INPUT", "TEXTAREA"].includes(element.tagName)) return false;
 
@@ -183,7 +202,7 @@
     const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
     if (descriptor?.set) descriptor.set.call(element, String(value));
     else element.value = String(value);
-    dispatchEvents(element);
+    dispatchEvents(element, {blur});
     return true;
   }
 
@@ -215,6 +234,24 @@
 
   function labelText(element) {
     if (!element) return "Application question";
+
+    const ashbyEntry = element.closest?.(".ashby-application-form-field-entry");
+    const elementMeta = lower([
+      element.name,
+      element.id,
+      element.getAttribute?.("placeholder"),
+      element.getAttribute?.("aria-label"),
+    ].filter(Boolean).join(" "));
+    if (ashbyEntry) {
+      if (/search schools?|school|college|university/.test(elementMeta)) return "School";
+      if (/degree/.test(elementMeta)) return "Degree";
+      if (/major|field of study|discipline/.test(elementMeta)) return "Field of Study";
+    }
+    const ashbyTitle = ashbyEntry?.querySelector(
+      ".ashby-application-form-question-title"
+    );
+    const ashbyText = cleanQuestionText(ashbyTitle?.innerText);
+    if (ashbyText) return ashbyText;
 
     if (element.labels?.length) {
       for (const label of element.labels) {
@@ -275,10 +312,18 @@
   }
 
   function fieldName(element) {
+    const educationSubfield = labelText(element);
+    if (["School", "Degree", "Field of Study"].includes(educationSubfield)) {
+      const subfieldId = normalize(element.getAttribute?.("id"));
+      if (subfieldId) return subfieldId;
+    }
     for (const name of ["name", "data-field-path", "data-path", "data-testid", "id"]) {
       const value = normalize(element.getAttribute?.(name));
       if (value) return value;
     }
+    const pathContainer = element.closest?.("[data-field-path]");
+    const fieldPath = normalize(pathContainer?.getAttribute?.("data-field-path"));
+    if (fieldPath) return fieldPath;
     const key = questionMatchKey(labelText(element));
     return key ? `ashby:${key}` : "ashby:application-question";
   }
@@ -291,9 +336,25 @@
       .filter((candidate) => String(candidate.name || "") === name);
   }
 
+  function questionControlVisible(element, rawElement = element) {
+    if (visible(element) || (rawElement !== element && visible(rawElement))) return true;
+    if (!["radio", "checkbox"].includes(lower(element?.type))) return false;
+
+    let label = element.closest?.("label");
+    if (!label && element.id) {
+      try {
+        label = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+      } catch (error) {}
+    }
+    return visible(label) || visible(element.parentElement);
+  }
+
   function controlType(element) {
-    const role = lower(element.getAttribute?.("role"));
-    if (role === "combobox" || element.getAttribute?.("aria-haspopup") === "listbox") return "select";
+    if (isCustomControl(element)) {
+      const customRoot = element.closest?.('[aria-multiselectable="true"], [data-multiselect="true"]');
+      const classText = lower(`${element.className || ""} ${element.parentElement?.className || ""}`);
+      return customRoot || classText.includes("multiselect") ? "multiselect" : "select";
+    }
     if (element.tagName === "SELECT") return element.multiple ? "multiselect" : "select";
     if (element.tagName === "TEXTAREA") return "textarea";
     const type = lower(element.type);
@@ -304,10 +365,25 @@
 
   function isRequiredControl(element) {
     if (element.required || lower(element.getAttribute?.("aria-required")) === "true") return true;
+
+    const ashbyEntry = element.closest?.(".ashby-application-form-field-entry");
+    if (ashbyEntry) {
+      if (ashbyEntry.querySelector(
+        '[aria-required="true"], [data-required="true"], input:required, textarea:required, select:required'
+      )) {
+        return true;
+      }
+      const title = ashbyEntry.querySelector(".ashby-application-form-question-title");
+      return /\*\s*$|\brequired\b/i.test(normalize(title?.innerText));
+    }
+
     let current = element.parentElement;
     for (let depth = 0; current && depth < 4; depth += 1) {
-      if (current.querySelector?.('[aria-required="true"], [data-required="true"]')) return true;
-      const labels = [...(current.querySelectorAll?.("label, legend, [class*=label], [class*=Label]") || [])];
+      if (current.matches?.("form")) break;
+      if (current.matches?.('[aria-required="true"], [data-required="true"]')) return true;
+      const labels = [...(current.querySelectorAll?.(
+        ":scope > label, :scope > legend, :scope > [class*=label], :scope > [class*=Label]"
+      ) || [])];
       if (labels.some((node) => /\*\s*$|\brequired\b/i.test(normalize(node.innerText)))) return true;
       current = current.parentElement;
     }
@@ -315,17 +391,35 @@
   }
 
   function allQuestionControls() {
-    const selector = ["input", "textarea", "select", '[role="combobox"]', '[aria-haspopup="listbox"]'].join(",");
+    const selector = [
+      "input",
+      "textarea",
+      "select",
+      '[role="combobox"]',
+      '[aria-haspopup="listbox"]',
+      ".ashby-application-form-input-autocomplete",
+    ].join(",");
     const result = [];
     const seen = new Set();
-    for (const element of document.querySelectorAll(selector)) {
-      if (!visible(element) || element.disabled || element.readOnly) continue;
+    for (const rawElement of document.querySelectorAll(selector)) {
+      const rawRole = lower(rawElement.getAttribute?.("role"));
+      const rawCustom = rawRole === "combobox"
+        || rawElement.getAttribute?.("aria-haspopup") === "listbox"
+        || rawElement.classList?.contains("ashby-application-form-input-autocomplete");
+      const element = rawCustom && rawElement.tagName !== "INPUT"
+        ? rawElement.querySelector?.('input[role="combobox"], input[aria-autocomplete], input') || rawElement
+        : rawElement;
+      if (rawCustom) customControls.add(element);
+      if (!questionControlVisible(element, rawElement) || element.disabled || element.readOnly) continue;
       const type = lower(element.type);
       const role = lower(element.getAttribute?.("role"));
       if (["hidden", "submit", "button", "file", "image", "reset"].includes(type) && role !== "combobox") continue;
       const groupType = lower(element.type);
+      const custom = isCustomControl(element) || rawCustom;
       const key = ["radio", "checkbox"].includes(groupType)
         ? `${groupType}|${element.name || fieldName(element)}`
+        : custom
+        ? `custom|${fieldName(element)}`
         : `${element.tagName}|${fieldName(element)}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -342,70 +436,124 @@
     const text = lower(labelText(element));
     const name = lower(fieldName(element));
     const combined = `${text} ${name}`;
-    return /(^|\b)(full )?name(\b|$)/.test(text)
+    return /^(?:(?:full|legal|preferred) )?name$/.test(text)
       || /\bfirst name\b|\blast name\b/.test(combined)
       || /\be-?mail\b|\bphone\b|\bresume\b|\bcv\b/.test(combined)
       || /\blinkedin\b|\bgithub\b|\bwebsite\b|\bportfolio\b/.test(combined)
-      || (/\blocation\b/.test(combined) && !/\brelocat/.test(combined))
-      || ["city", "state", "state / province", "postal code", "zip code"].includes(text);
+      || [
+        "city",
+        "current city",
+        "location",
+        "current location",
+        "city and state",
+        "city / state",
+        "state",
+        "state / province",
+        "province",
+        "country",
+        "postal code",
+        "zip code",
+      ].includes(text);
   }
 
   function controlHasAnyValue(element) {
     const type = lower(element.type);
     if (type === "radio" || type === "checkbox") return groupControls(element).some((item) => item.checked);
     if (element.tagName === "SELECT") {
-      if (element.multiple) return [...element.selectedOptions].some((option) => normalize(option.value || option.textContent));
-      return Boolean(normalize(element.value || element.options[element.selectedIndex]?.textContent));
+      if (element.multiple) {
+        return [...element.selectedOptions].some((option) => {
+          const value = normalize(option.value);
+          const text = normalize(option.textContent);
+          return Boolean(value || (text && !placeholderChoice(text)));
+        });
+      }
+      const option = element.options[element.selectedIndex];
+      const value = normalize(option?.value ?? element.value);
+      const text = normalize(option?.textContent);
+      if (option?.disabled && !value) return false;
+      return Boolean(value || (text && !placeholderChoice(text)));
     }
-    if (lower(element.getAttribute?.("role")) === "combobox" || element.getAttribute?.("aria-haspopup") === "listbox") {
+    if (isCustomControl(element)) {
       const text = normalize(element.value || element.textContent);
-      return Boolean(text && !/^(select|choose)(\.\.\.)?$/i.test(text));
+      return Boolean(text && !placeholderChoice(text));
     }
     return Boolean(normalize(element.value));
+  }
+
+  function placeholderChoice(value) {
+    return /^(?:please\s+)?(?:select|choose)(?:\s+(?:an?\s+)?option)?(?:\.\.\.)?$/i.test(normalize(value));
+  }
+
+  function visibleOptionNodes() {
+    return [...document.querySelectorAll(
+      [
+        '[role="option"]',
+        '[data-radix-collection-item]',
+        '[data-testid*=option]',
+        '[data-testid*=Option]',
+        ".ashby-application-form-input-autocomplete-popup-result",
+      ].join(",")
+    )].filter(visible);
   }
 
   async function chooseCustomOption(element, value) {
     const groups = answerGroups(value);
     if (!groups.length) return false;
-    const wanted = new Set(groups.flat().map(lower));
+    const requestedGroups = controlType(element) === "multiselect" ? groups : [groups[0]];
+    const originalValue = normalize(element.value);
+    let matchedCount = 0;
 
-    if (element.tagName === "INPUT") {
-      element.focus();
-      setText(element, groups[0][0]);
-      element.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
-    } else {
-      element.click();
-    }
+    for (const group of requestedGroups) {
+      const wanted = new Set(group.map(lower));
+      if (element.tagName === "INPUT") {
+        element.focus();
+        setText(element, group[0], {blur: false});
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+      } else {
+        element.click();
+      }
 
-    const started = Date.now();
-    while (Date.now() - started < 3500) {
-      await sleep(150);
-      const options = [...document.querySelectorAll('[role="option"], [data-radix-collection-item], [data-testid*=option], [data-testid*=Option]')]
-        .filter(visible);
-      let selected = options.find((option) => {
-        const values = [lower(option.getAttribute?.("data-value")), lower(option.getAttribute?.("value")), lower(option.innerText)];
-        return values.some((item) => item && wanted.has(item));
-      });
-      if (!selected) {
+      const started = Date.now();
+      let selected = null;
+      while (Date.now() - started < 3500 && !selected) {
+        await sleep(150);
+        const options = visibleOptionNodes();
         selected = options.find((option) => {
+          const values = [
+            lower(option.getAttribute?.("data-value")),
+            lower(option.getAttribute?.("value")),
+            lower(option.innerText),
+          ];
+          return values.some((item) => item && wanted.has(item));
+        }) || options.find((option) => {
           const text = lower(option.innerText);
-          return text && [...wanted].some((candidate) => candidate && (text.includes(candidate) || candidate.includes(text)));
+          return text && [...wanted].some(
+            (candidate) => candidate && (text.includes(candidate) || candidate.includes(text))
+          );
         });
       }
-      if (selected) {
-        selected.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, view: window}));
-        selected.click();
-        await sleep(100);
-        dispatchEvents(element);
-        return true;
+
+      if (!selected) {
+        if (!matchedCount && element.tagName === "INPUT") {
+          setText(element, originalValue, {blur: false});
+          element.dispatchEvent(new Event("blur", {bubbles: true}));
+        }
+        return false;
       }
+
+      selected.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, view: window}));
+      selected.click();
+      matchedCount += 1;
+      await sleep(150);
     }
-    return false;
+
+    dispatchEvents(element);
+    return matchedCount === requestedGroups.length;
   }
 
   async function applyValue(element, value) {
     if (value === null || value === undefined || value === "") return false;
-    if (lower(element.getAttribute?.("role")) === "combobox" || element.getAttribute?.("aria-haspopup") === "listbox") {
+    if (isCustomControl(element)) {
       return chooseCustomOption(element, value);
     }
 
@@ -418,7 +566,9 @@
           option.selected = isMatch;
           matched = matched || isMatch;
         } else if (isMatch) {
-          element.value = option.value;
+          const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+          if (setter) setter.call(element, option.value);
+          else element.value = option.value;
           dispatchEvents(element);
           return true;
         }
@@ -432,9 +582,9 @@
       const wanted = new Set(answerGroups(value).flat().map(lower));
       for (const radio of groupControls(element)) {
         if ([lower(radio.value), lower(choiceLabel(radio))].some((item) => wanted.has(item))) {
-          radio.checked = true;
-          dispatchEvents(radio);
-          return true;
+          if (!radio.checked) radio.click();
+          else dispatchEvents(radio);
+          return radio.checked;
         }
       }
       return false;
@@ -445,8 +595,8 @@
       let matched = false;
       for (const box of groupControls(element)) {
         const shouldCheck = [lower(box.value), lower(choiceLabel(box))].some((item) => wanted.has(item));
-        box.checked = shouldCheck;
-        dispatchEvents(box);
+        if (box.checked !== shouldCheck) box.click();
+        else dispatchEvents(box);
         matched = matched || shouldCheck;
       }
       return matched;
@@ -455,7 +605,7 @@
     return setText(element, answerText(value));
   }
 
-  function questionChoices(element) {
+  async function questionChoices(element) {
     if (element.tagName === "SELECT") {
       return [...element.options].map((option) => ({
         value: normalize(option.value || option.textContent),
@@ -469,16 +619,33 @@
         label: normalize(choiceLabel(control) || control.value),
       })).filter((choice) => choice.value || choice.label);
     }
+
+    if (isCustomControl(element)) {
+      if (element.tagName === "INPUT") {
+        element.focus();
+        element.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+      } else {
+        element.click();
+      }
+      await sleep(200);
+      const choices = visibleOptionNodes().map((option) => ({
+        value: normalize(option.getAttribute?.("data-value") || option.getAttribute?.("value") || option.innerText),
+        label: normalize(option.innerText || option.getAttribute?.("data-value") || option.getAttribute?.("value")),
+      })).filter((choice) => choice.value && !placeholderChoice(choice.label));
+      element.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      element.dispatchEvent(new Event("blur", {bubbles: true}));
+      return choices;
+    }
     return [];
   }
 
-  function descriptor(element) {
+  async function descriptor(element) {
     return {
       field_name: fieldName(element),
       text: labelText(element),
       type: controlType(element),
       required: isRequiredControl(element),
-      choices: questionChoices(element),
+      choices: await questionChoices(element),
       adapter: "ashby_hosted",
     };
   }
@@ -566,7 +733,7 @@
   }
 
   async function applyReusableAshbyAnswers(task) {
-    for (const element of requiredControls()) {
+    for (const element of allQuestionControls()) {
       if (coreQuestion(element) || controlHasAnyValue(element)) continue;
       const remembered = rememberedAnswer(task, labelText(element));
       const answer = remembered !== null ? remembered : reusableAnswer(task, labelText(element));
@@ -574,27 +741,32 @@
     }
   }
 
-  function fillByLabel(pattern, value) {
+  async function fillByLabel(pattern, value) {
     if (!value) return false;
     for (const element of allQuestionControls()) {
       if (["INPUT", "TEXTAREA"].includes(element.tagName) && pattern.test(lower(labelText(element)))) {
-        if (setText(element, value)) return true;
+        if (await applyValue(element, value)) return true;
       }
     }
     return false;
   }
 
-  function fillIdentity(identity) {
-    fillByLabel(/^(full )?name$|legal name/, identity.full_name);
-    fillByLabel(/first name|given name/, identity.first_name);
-    fillByLabel(/last name|family name|surname/, identity.last_name);
-    fillByLabel(/e-?mail/, identity.email);
-    fillByLabel(/phone|mobile/, identity.phone);
-    fillByLabel(/linkedin/, identity.linkedin_url);
-    fillByLabel(/github/, identity.github_url);
-    fillByLabel(/website|portfolio|personal site/, identity.website_url);
-    fillByLabel(/^city$/, identity.city);
-    fillByLabel(/postal code|zip code/, identity.postal_code);
+  async function fillIdentity(identity) {
+    await fillByLabel(/^(full )?name$|legal name/, identity.full_name);
+    await fillByLabel(/first name|given name/, identity.first_name);
+    await fillByLabel(/last name|family name|surname/, identity.last_name);
+    await fillByLabel(/e-?mail/, identity.email);
+    await fillByLabel(/phone|mobile/, identity.phone);
+    await fillByLabel(/linkedin/, identity.linkedin_url);
+    await fillByLabel(/github/, identity.github_url);
+    await fillByLabel(/website|portfolio|personal site/, identity.website_url);
+    await fillByLabel(
+      /^(?:current )?(?:city|location)(?:\s*(?:and|\/)\s*(?:state|region))?$/,
+      identity.location_text || identity.city
+    );
+    await fillByLabel(/^state(?:\s*\/\s*province)?$|^province$/, identity.state_region);
+    await fillByLabel(/^country$/, identity.country);
+    await fillByLabel(/postal code|zip code/, identity.postal_code);
   }
 
   async function fetchResume(launch, task) {
@@ -613,15 +785,28 @@
       const meta = lower(`${input.name || ""} ${input.id || ""} ${labelText(input)} ${input.getAttribute("accept") || ""}`);
       return meta.includes("resume") || meta.includes("cv");
     }) || (inputs.length === 1 ? inputs[0] : null);
-    if (!selected) return false;
+    if (!selected) return null;
     const transfer = new DataTransfer();
     transfer.items.add(file);
     selected.files = transfer.files;
     dispatchEvents(selected);
-    return true;
+    return selected;
+  }
+
+  function resumeFileAttached(input, file) {
+    if ([...(input?.files || [])].some((item) => item.name === file.name && item.size === file.size)) {
+      return true;
+    }
+    const entryText = normalize(
+      input?.closest?.(".ashby-application-form-field-entry")?.innerText
+    );
+    return Boolean(entryText && entryText.includes(file.name));
   }
 
   function hasAshbyForm() {
+    if ([...document.querySelectorAll(".ashby-application-form-container")].some(visible)) {
+      return true;
+    }
     return Boolean(
       document.querySelector('input[type="file"]')
       || (document.querySelector('input[type="email"]')
@@ -670,9 +855,62 @@
     }
   }
 
-  function customQuestion(element, task) {
-    if (coreQuestion(element)) return false;
-    return reusableAnswer(task, labelText(element)) === null;
+  function applicationAnswerQuestion(element) {
+    return !coreQuestion(element);
+  }
+
+  function ashbyControlInvalid(element) {
+    if (!controlHasAnyValue(element)) return true;
+    const type = lower(element.type);
+    if (!["radio", "checkbox"].includes(type)
+        && typeof element.checkValidity === "function"
+        && !element.checkValidity()) {
+      return true;
+    }
+    if (lower(element.getAttribute?.("aria-invalid")) === "true") return true;
+
+    const entry = element.closest?.(".ashby-application-form-field-entry");
+    if (!entry) return false;
+    const errorNodes = entry.querySelectorAll(
+      '[role="alert"], [aria-live="assertive"], [class*="error" i], [data-testid*="error" i]'
+    );
+    return [...errorNodes].some((node) => visible(node) && normalize(node.innerText));
+  }
+
+  async function describeControls(controls) {
+    const questions = [];
+    const seen = new Set();
+    for (const element of controls) {
+      const key = fieldName(element);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      questions.push(await descriptor(element));
+    }
+    return questions;
+  }
+
+  async function reportRequiredAnswers(launch, questions, message, validationSource) {
+    statusBox("more Ashby application answers are required in Jobfinitum.", "warning");
+    const reportResponse = await report(launch, {
+      status: "needs_application_answer",
+      message,
+      questions,
+      detail: {
+        url: location.href,
+        required_fields: questions.map((item) => item.text),
+        validation_source: validationSource,
+        executor: "chrome_agent",
+        adapter: "ashby_hosted",
+      },
+    });
+    if (reportResponse?.result?.retry_with_saved_answers) {
+      statusBox("saved answers found; retrying the Ashby form.");
+      await sleep(300);
+      location.reload();
+      return;
+    }
+    clearLaunch();
+    await closeCompletedAgentTab(launch);
   }
 
   async function report(launch, payload) {
@@ -712,8 +950,17 @@
   }
 
   async function finishConfirmedAshbySubmission(launch) {
+    const successContainer = [...document.querySelectorAll(
+      ".ashby-application-form-success-container"
+    )].find(visible);
+    const successText = lower(successContainer?.innerText);
+    const stableConfirmation = successContainer
+      && SUCCESS_PHRASES.some((phrase) => successText.includes(phrase));
     const body = lower(document.body?.innerText);
-    if (!SUCCESS_PHRASES.some((phrase) => body.includes(phrase))) return false;
+    const fallbackConfirmation = !hasAshbyForm()
+      && !submitButton()
+      && body.includes("your application was successfully submitted");
+    if (!stableConfirmation && !fallbackConfirmation) return false;
     statusBox("Ashby confirms the application was submitted.", "success");
     await report(launch, {
       status: "submitted",
@@ -727,12 +974,45 @@
   }
 
   function visibleVerificationChallenge() {
-    return [...document.querySelectorAll(
-      'iframe[src*="hcaptcha"], iframe[src*="recaptcha"], iframe[src*="challenges.cloudflare.com"]'
-    )].some(visible);
+    const selectors = [
+      'iframe[src*="hcaptcha" i]',
+      'iframe[src*="recaptcha" i][title*="challenge" i]',
+      '.g-recaptcha iframe[src*="recaptcha" i]',
+      'iframe[src*="challenges.cloudflare.com" i]',
+      'iframe[src*="challenge-platform" i]',
+      '.h-captcha[data-sitekey]',
+      '.cf-turnstile[data-sitekey]',
+    ];
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) {
+        if (!visible(element)) continue;
+        const rect = element.getBoundingClientRect();
+        const intersectsViewport = rect.right > 0
+          && rect.bottom > 0
+          && rect.left < window.innerWidth
+          && rect.top < window.innerHeight;
+        if (intersectsViewport && rect.width >= 40 && rect.height >= 30) return true;
+      }
+    }
+    return false;
+  }
+
+  function visibleVerificationError() {
+    const candidates = [...document.querySelectorAll(
+      '[role="alert"], [aria-live="assertive"], [class*="error" i], [data-testid*="error" i]'
+    )].filter(visible);
+    for (const element of candidates) {
+      const text = lower(element.innerText);
+      if (VERIFY_ERROR_PHRASES.some((phrase) => text.includes(phrase))) return normalize(element.innerText);
+    }
+    return "";
   }
 
   function submitButton() {
+    const preferred = [...document.querySelectorAll(
+      '.ashby-application-form-submit-button button, .ashby-application-form-submit-button input[type="submit"]'
+    )].find((element) => visible(element) && !element.disabled);
+    if (preferred) return preferred;
     const buttons = [...document.querySelectorAll('button, input[type="submit"]')]
       .filter((element) => visible(element) && !element.disabled);
     return buttons.find((element) => /^submit application$/i.test(normalize(element.innerText || element.value)))
@@ -759,7 +1039,8 @@
     const identity = task.identity || {};
     statusBox("uploading resume...");
     const resume = await fetchResume(launch, task);
-    if (!setResumeFile(resume)) {
+    const resumeInput = setResumeFile(resume);
+    if (!resumeInput) {
       await handOffToManualApply(
         launch,
         "Chrome Agent could not locate a supported Ashby resume upload field.",
@@ -770,50 +1051,60 @@
 
     statusBox("waiting for Ashby form updates...");
     await waitForAshbySettle();
+    if (!resumeFileAttached(resumeInput, resume)) {
+      await handOffToManualApply(
+        launch,
+        "Chrome Agent could not confirm that Ashby accepted the selected resume.",
+        {reason: "resume_upload_failed"}
+      );
+      return;
+    }
 
     for (let pass = 0; pass < 3; pass += 1) {
       statusBox("applying saved Ashby answers...");
-      fillIdentity(identity);
+      await fillIdentity(identity);
       await applySavedAshbyAnswers(task);
       await applyReusableAshbyAnswers(task);
       if (pass < 2) await sleep(600);
     }
 
-    await sleep(400);
-    const unresolved = [];
-    for (const element of requiredControls()) {
-      if (!customQuestion(element, task)) continue;
-      if (!controlHasAnyValue(element)) unresolved.push(descriptor(element));
-    }
+    await waitForAshbySettle(5000);
+    await fillIdentity(identity);
+    await applySavedAshbyAnswers(task);
+    await applyReusableAshbyAnswers(task);
+    await sleep(500);
+
+    const unresolvedControls = requiredControls().filter(
+      (element) => applicationAnswerQuestion(element) && !controlHasAnyValue(element)
+    );
+    const unresolved = await describeControls(unresolvedControls);
 
     if (unresolved.length) {
-      statusBox("more Ashby application answers are required in Jobfinitum.", "warning");
-      const reportResponse = await report(launch, {
-        status: "needs_application_answer",
-        message: "Ashby requires additional application answers before submission.",
-        questions: unresolved,
-        detail: {
-          url: location.href,
-          required_fields: unresolved.map((item) => item.text),
-          executor: "chrome_agent",
-          adapter: "ashby_hosted",
-        },
-      });
-      if (reportResponse?.result?.retry_with_saved_answers) {
-        statusBox("saved answers found; retrying the Ashby form.");
-        await sleep(300);
-        location.reload();
-        return;
-      }
-      clearLaunch();
-      await closeCompletedAgentTab(launch);
+      await reportRequiredAnswers(
+        launch,
+        unresolved,
+        "Ashby requires additional application answers before submission.",
+        "ashby_required_fields"
+      );
       return;
     }
 
-    const stillInvalid = requiredControls().filter((element) => {
-      if (!controlHasAnyValue(element)) return true;
-      return typeof element.checkValidity === "function" && !element.checkValidity();
-    });
+    const invalidAnswerControls = requiredControls().filter(
+      (element) => applicationAnswerQuestion(element) && ashbyControlInvalid(element)
+    );
+    if (invalidAnswerControls.length) {
+      await reportRequiredAnswers(
+        launch,
+        await describeControls(invalidAnswerControls),
+        "Ashby rejected required application answers before submission.",
+        "ashby_client_validation"
+      );
+      return;
+    }
+
+    const stillInvalid = requiredControls().filter(
+      (element) => coreQuestion(element) && ashbyControlInvalid(element)
+    );
 
     if (stillInvalid.length) {
       statusBox("Ashby still has required fields Jobfinitum could not fill.", "warning");
@@ -846,22 +1137,40 @@
     submit.click();
 
     const started = Date.now();
+    let deadline = started + 30000;
     let verificationReported = false;
-    while (Date.now() - started < 30000) {
+    let verificationError = "";
+    while (Date.now() < deadline) {
       await sleep(750);
       if (await finishConfirmedAshbySubmission(launch)) return;
-      const body = lower(document.body?.innerText);
-      const verificationError = VERIFY_PHRASES.some((phrase) => body.includes(phrase));
+
+      if (Date.now() - started >= 1500) {
+        const rejectedControls = requiredControls().filter(
+          (element) => applicationAnswerQuestion(element) && ashbyControlInvalid(element)
+        );
+        if (rejectedControls.length) {
+          await reportRequiredAnswers(
+            launch,
+            await describeControls(rejectedControls),
+            "Ashby rejected required fields after submission.",
+            "ashby_submit_validation"
+          );
+          return;
+        }
+      }
+
+      verificationError = visibleVerificationError() || verificationError;
       const captchaVisible = visibleVerificationChallenge();
-      if ((verificationError || captchaVisible) && !verificationReported) {
+      if (captchaVisible && !verificationReported) {
         verificationReported = true;
-        statusBox("human verification is required; complete it here and the agent will keep watching.", "warning");
+        deadline = Date.now() + 300000;
+        statusBox("human verification is required; complete the visible challenge here and the agent will keep watching.", "warning");
         await report(launch, {
           status: "waiting_verification",
-          message: "Ashby requires human verification in normal Chrome. Complete it here; the Chrome Agent is still watching.",
+          message: "Ashby has a visible human-verification challenge. Complete it here; the Chrome Agent is still watching.",
           detail: {
             url: location.href,
-            verification_error: verificationError,
+            verification_error: Boolean(verificationError),
             captcha_visible: captchaVisible,
             executor: "chrome_agent",
             adapter: "ashby_hosted",
@@ -881,8 +1190,13 @@
 
     await handOffToManualApply(
       launch,
-      "Ashby did not return a recognizable submission confirmation within 30 seconds. Review it from Manual Apply.",
-      {reason: "submission_confirmation_timeout"}
+      verificationError
+        ? "Ashby could not verify the submission with CAPTCHA and did not show a challenge that can be completed. Review it from Manual Apply."
+        : "Ashby did not return a recognizable submission confirmation within 30 seconds. Review it from Manual Apply.",
+      {
+        reason: verificationError ? "captcha_verification_failed" : "submission_confirmation_timeout",
+        verification_error: verificationError,
+      }
     );
   }
 
