@@ -6,6 +6,7 @@
     "boards.eu.greenhouse.io",
     "job-boards.greenhouse.io",
     "job-boards.eu.greenhouse.io",
+    "grnh.se",
   ]);
 
   const SUCCESS_PHRASES = [
@@ -3531,6 +3532,15 @@
         ],
         values.willing_to_travel,
       ],
+      [
+        [
+          "currently reside in japan",
+          "currently residing in japan",
+          "current resident of japan",
+          "currently live in japan",
+        ],
+        values.currently_residing_in_japan,
+      ],
     ];
 
     for (
@@ -3556,6 +3566,46 @@
             ? "Yes"
             : "No"
         );
+      }
+    }
+
+    const languageRules = [
+      [
+        [
+          "japanese proficiency",
+          "japanese language level",
+          "level of japanese",
+          "fluency in japanese",
+          "fluent in japanese",
+          "speak japanese fluently",
+          "japanese ability",
+          "how well do you speak japanese",
+        ],
+        values.japanese_proficiency,
+      ],
+      [
+        [
+          "english proficiency",
+          "english language level",
+          "level of english",
+          "fluency in english",
+          "fluent in english",
+          "speak english fluently",
+          "english ability",
+          "how well do you speak english",
+        ],
+        values.english_proficiency,
+      ],
+    ];
+
+    for (const [patterns, rawValue] of languageRules) {
+      const configured = String(rawValue || "").trim();
+      if (
+        configured
+        && lower(configured) !== "unknown"
+        && patterns.some((pattern) => question.includes(pattern))
+      ) {
+        return configured;
       }
     }
 

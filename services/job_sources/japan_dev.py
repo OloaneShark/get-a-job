@@ -1255,6 +1255,16 @@ class JapanDevJobSource(BaseJobSource):
         soup,
         posting_url,
     ):
+        embedded_url = (
+            cls.extract_embedded_application_url(
+                soup,
+                posting_url,
+            )
+        )
+
+        if embedded_url:
+            return embedded_url
+
         fallback_url = None
 
         for anchor in soup.find_all(
@@ -1288,7 +1298,7 @@ class JapanDevJobSource(BaseJobSource):
             if absolute_url == posting_url:
                 continue
 
-            if parsed.netloc.lower() not in {
+            if (parsed.hostname or "").lower() not in {
                 "japan-dev.com",
                 "www.japan-dev.com",
             }:
@@ -1297,6 +1307,105 @@ class JapanDevJobSource(BaseJobSource):
             fallback_url = absolute_url
 
         return fallback_url or posting_url
+
+    @classmethod
+    def extract_embedded_application_url(
+        cls,
+        soup,
+        posting_url,
+    ):
+        script = soup.find(
+            "script",
+            id="__NUXT_DATA__",
+        )
+
+        if script is None:
+            return None
+
+        raw_payload = (
+            script.string
+            or script.get_text()
+        )
+
+        if not raw_payload:
+            return None
+
+        try:
+            payload = json.loads(raw_payload)
+        except (TypeError, ValueError):
+            return None
+
+        if not isinstance(payload, list):
+            return None
+
+        def resolve_reference(value):
+            if (
+                type(value) is int
+                and 0 <= value < len(payload)
+            ):
+                return payload[value]
+
+            return value
+
+        path_parts = [
+            part
+            for part in urlparse(
+                posting_url
+            ).path.split("/")
+            if part
+        ]
+        expected_slug = (
+            path_parts[-1]
+            if path_parts
+            else ""
+        )
+
+        for value in payload:
+            if (
+                not isinstance(value, dict)
+                or "application_url" not in value
+            ):
+                continue
+
+            record_slug = cls.normalize_space(
+                resolve_reference(
+                    value.get("slug")
+                )
+            )
+
+            if (
+                expected_slug
+                and record_slug != expected_slug
+            ):
+                continue
+
+            application_url = cls.normalize_space(
+                resolve_reference(
+                    value.get(
+                        "application_url"
+                    )
+                )
+            )
+
+            if not application_url:
+                continue
+
+            parsed = urlparse(application_url)
+            host = (parsed.hostname or "").lower()
+
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not host
+                or host in {
+                    "japan-dev.com",
+                    "www.japan-dev.com",
+                }
+            ):
+                continue
+
+            return application_url
+
+        return None
 
     @classmethod
     def parse_job_page(

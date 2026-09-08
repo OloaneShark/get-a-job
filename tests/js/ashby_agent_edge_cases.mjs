@@ -26,6 +26,7 @@ const exposedFunctions = [
   "labelText",
   "placeholderChoice",
   "questionControlVisible",
+  "reusableAnswer",
   "reportRequiredAnswers",
   "resumeFileAttached",
   "run",
@@ -436,6 +437,35 @@ function configureRunnerDom({controls = [], resumeInput, submit, challenge = nul
     return {ok: true};
   };
 }
+
+await edgeCase("Japan language answers use profile values without guessing", async () => {
+  const configured = {
+    reusable_answers: {
+      japanese_proficiency: "Conversational",
+      english_proficiency: "Fluent",
+      currently_residing_in_japan: "No",
+    },
+  };
+  assert.equal(
+    hooks.reusableAnswer(configured, "Are you fluent in Japanese?"),
+    "Conversational"
+  );
+  assert.equal(
+    hooks.reusableAnswer(configured, "What is your English ability?"),
+    "Fluent"
+  );
+  assert.equal(
+    hooks.reusableAnswer(configured, "Do you currently reside in Japan?"),
+    "No"
+  );
+  assert.equal(
+    hooks.reusableAnswer(
+      {reusable_answers: {japanese_proficiency: "Unknown"}},
+      "What is your Japanese proficiency?"
+    ),
+    null
+  );
+});
 
 await edgeCase("blank select placeholders stay unanswered", async () => {
   const select = new MockSelect({

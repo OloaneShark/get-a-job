@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.6.0",
+  "version": "0.6.4",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -9,10 +9,17 @@
     "https://jobfinitum.com/*",
     "https://www.jobfinitum.com/*",
     "https://boards-api.greenhouse.io/*",
+    "https://grnh.se/*",
     "https://himalayas.app/*",
     "https://www.himalayas.app/*",
     "https://remotefirstjobs.com/*",
     "https://www.remotefirstjobs.com/*",
+    "https://japan-dev.com/*",
+    "https://www.japan-dev.com/*",
+    "https://weworkremotely.com/*",
+    "https://www.weworkremotely.com/*",
+    "https://jooble.org/*",
+    "https://www.jooble.org/*",
     "https://jobs.ashbyhq.com/*"
   ],
   "background": {
@@ -46,7 +53,8 @@
         "https://boards.greenhouse.io/*",
         "https://boards.eu.greenhouse.io/*",
         "https://job-boards.greenhouse.io/*",
-        "https://job-boards.eu.greenhouse.io/*"
+        "https://job-boards.eu.greenhouse.io/*",
+        "https://grnh.se/*"
       ],
       "js": [
         "greenhouse_agent.js"
@@ -75,6 +83,36 @@
     },
     {
       "matches": [
+        "https://japan-dev.com/*",
+        "https://www.japan-dev.com/*"
+      ],
+      "js": [
+        "japan_dev_agent.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://weworkremotely.com/*",
+        "https://www.weworkremotely.com/*"
+      ],
+      "js": [
+        "we_work_remotely_agent.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://jooble.org/*",
+        "https://www.jooble.org/*"
+      ],
+      "js": [
+        "jooble_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
         "https://jobs.ashbyhq.com/*"
       ],
       "js": [
@@ -85,6 +123,7 @@
   ],
   "permissions": [
     "tabs",
-    "storage"
+    "storage",
+    "webNavigation"
   ]
 }

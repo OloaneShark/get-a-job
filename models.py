@@ -790,6 +790,21 @@ class ApplicantProfile(db.Model):
         db.String(150),
         nullable=True,
     )
+    japanese_proficiency = db.Column(
+        db.String(40),
+        nullable=False,
+        default="Unknown",
+    )
+    english_proficiency = db.Column(
+        db.String(40),
+        nullable=False,
+        default="Unknown",
+    )
+    currently_residing_in_japan = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Unknown",
+    )
 
     # Reusable application-answer defaults.
     # "Unknown" means Jobfinitum must not guess.

@@ -3991,6 +3991,18 @@ def auto_apply_applicant_profile():
                 (form.education_discipline.data or "").strip()
                 or None
             )
+            profile.japanese_proficiency = (
+                form.japanese_proficiency.data
+                or "Unknown"
+            )
+            profile.english_proficiency = (
+                form.english_proficiency.data
+                or "Unknown"
+            )
+            profile.currently_residing_in_japan = (
+                form.currently_residing_in_japan.data
+                or "Unknown"
+            )
 
             profile.is_18_or_older = (
                 form.is_18_or_older.data

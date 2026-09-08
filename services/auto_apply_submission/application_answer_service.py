@@ -116,6 +116,20 @@ def get_application_answer(
                 "Unknown",
             ),
         ),
+        (
+            "currently_residing_in_japan",
+            (
+                "currently reside in japan",
+                "currently residing in japan",
+                "current resident of japan",
+                "currently live in japan",
+            ),
+            getattr(
+                identity,
+                "currently_residing_in_japan",
+                "Unknown",
+            ),
+        ),
     ]
 
     for key, patterns, raw_value in rules:
@@ -135,6 +149,68 @@ def get_application_answer(
         return {
             "key": key,
             "type": "yes_no",
+            "value": value,
+        }
+
+    language_rules = [
+        (
+            "japanese_proficiency",
+            (
+                "japanese proficiency",
+                "japanese language level",
+                "level of japanese",
+                "fluency in japanese",
+                "fluent in japanese",
+                "speak japanese fluently",
+                "japanese ability",
+                "how well do you speak japanese",
+            ),
+            getattr(
+                identity,
+                "japanese_proficiency",
+                "Unknown",
+            ),
+        ),
+        (
+            "english_proficiency",
+            (
+                "english proficiency",
+                "english language level",
+                "level of english",
+                "fluency in english",
+                "fluent in english",
+                "speak english fluently",
+                "english ability",
+                "how well do you speak english",
+            ),
+            getattr(
+                identity,
+                "english_proficiency",
+                "Unknown",
+            ),
+        ),
+    ]
+
+    for key, patterns, raw_value in language_rules:
+        if not any(
+            pattern in question
+            for pattern in patterns
+        ):
+            continue
+
+        value = str(
+            raw_value or ""
+        ).strip()
+
+        if (
+            not value
+            or value.lower() == "unknown"
+        ):
+            return None
+
+        return {
+            "key": key,
+            "type": "text",
             "value": value,
         }
 

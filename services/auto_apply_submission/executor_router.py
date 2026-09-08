@@ -12,10 +12,17 @@ CHROME_AGENT_HOSTS = {
     "boards.eu.greenhouse.io",
     "job-boards.greenhouse.io",
     "job-boards.eu.greenhouse.io",
+    "grnh.se",
     "himalayas.app",
     "www.himalayas.app",
     "remotefirstjobs.com",
     "www.remotefirstjobs.com",
+    "japan-dev.com",
+    "www.japan-dev.com",
+    "weworkremotely.com",
+    "www.weworkremotely.com",
+    "jooble.org",
+    "www.jooble.org",
     "jobs.ashbyhq.com",
 }
 

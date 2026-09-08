@@ -550,6 +550,38 @@ class ApplicantProfileForm(FlaskForm):
         ("No", "No"),
     ]
 
+    language_proficiency_choices = [
+        ("Unknown", "Ask me / Do not guess"),
+        ("None", "None"),
+        ("Beginner", "Beginner"),
+        ("Basic", "Basic"),
+        ("Conversational", "Conversational"),
+        ("Business Level", "Business level"),
+        ("Fluent", "Fluent"),
+        ("Native", "Native"),
+    ]
+
+    japanese_proficiency = SelectField(
+        "Japanese proficiency",
+        choices=language_proficiency_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    english_proficiency = SelectField(
+        "English proficiency",
+        choices=language_proficiency_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
+    currently_residing_in_japan = SelectField(
+        "Do you currently reside in Japan?",
+        choices=answer_choices,
+        default="Unknown",
+        validators=[Optional()],
+    )
+
     is_18_or_older = SelectField(
         "Are you 18 years of age or older?",
         choices=answer_choices,

@@ -381,6 +381,12 @@ const JOB_BOARD_RESOLVER_HOSTS =
     "www.himalayas.app",
     "remotefirstjobs.com",
     "www.remotefirstjobs.com",
+    "japan-dev.com",
+    "www.japan-dev.com",
+    "weworkremotely.com",
+    "www.weworkremotely.com",
+    "jooble.org",
+    "www.jooble.org",
   ]);
 
 function resolverNameForUrl(value) {
@@ -402,6 +408,27 @@ function resolverNameForUrl(value) {
     ) {
       return "remote_first_jobs_browser_agent";
     }
+
+    if (
+      host === "japan-dev.com"
+      || host === "www.japan-dev.com"
+    ) {
+      return "japan_dev_browser_agent";
+    }
+
+    if (
+      host === "weworkremotely.com"
+      || host === "www.weworkremotely.com"
+    ) {
+      return "we_work_remotely_browser_agent";
+    }
+
+    if (
+      host === "jooble.org"
+      || host === "www.jooble.org"
+    ) {
+      return "jooble_browser_agent";
+    }
   } catch (error) {
     return "";
   }
@@ -409,8 +436,97 @@ function resolverNameForUrl(value) {
   return "";
 }
 
+function resolverLaunchFromUrl(value) {
+  try {
+    const parsed = new URL(
+      String(value || "")
+    );
+    const resolver =
+      resolverNameForUrl(parsed.href);
+
+    if (!resolver) {
+      return null;
+    }
+
+    const params = new URLSearchParams(
+      parsed.hash.replace(/^#/, "")
+    );
+    const token = String(
+      params.get("jobfinitum_agent")
+      || ""
+    );
+    const rawOrigin = String(
+      params.get("jobfinitum_origin")
+      || ""
+    );
+
+    if (!token || !rawOrigin) {
+      return null;
+    }
+
+    return {
+      token,
+      origin: normalizeOrigin(rawOrigin),
+      batch: (
+        params.get("jobfinitum_batch")
+        === "1"
+      ),
+      resolver,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function registerResolverLaunchFromUrl(
+  tabId,
+  value
+) {
+  if (typeof tabId !== "number") {
+    return null;
+  }
+
+  const launch =
+    resolverLaunchFromUrl(value);
+
+  if (!launch) {
+    return null;
+  }
+
+  const session = {
+    ...launch,
+    resolverTabId: tabId,
+  };
+
+  await saveHimalayasResolverSession(
+    tabId,
+    session
+  );
+
+  if (session.batch === true) {
+    await saveBatchRunner(
+      tabId,
+      session.origin
+    );
+  }
+
+  return session;
+}
+
 const BATCH_RUNNER_STORAGE_KEY =
   "jobfinitum_batch_runner_v1";
+
+const TERMINAL_AGENT_TAB_STATUSES =
+  new Set([
+    "submitted",
+    "needs_application_answer",
+    "needs_user_action",
+    "unsupported",
+    "failed",
+    "rejected",
+    "posting_closed",
+    "needs_manual_destination",
+  ]);
 
 const CHAINED_AGENT_LAUNCH_PREFIX =
   "jobfinitum_chained_agent_launch_v1_";
@@ -624,6 +740,94 @@ async function closeBatchRunner(origin) {
   return true;
 }
 
+async function cleanupTerminalAgentTab(
+  tabId,
+  origin
+) {
+  if (typeof tabId !== "number") {
+    return false;
+  }
+
+  let currentTab;
+
+  try {
+    currentTab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    return false;
+  }
+
+  try {
+    if (
+      new URL(
+        String(currentTab.url || "")
+      ).origin === origin
+    ) {
+      return false;
+    }
+  } catch (error) {
+    // Blank and transitional tabs still need cleanup.
+  }
+
+  const resolverSession =
+    await getHimalayasResolverSession(tabId);
+
+  await clearChainedAgentLaunch(tabId);
+  await deleteHimalayasResolverSession(tabId);
+
+  const resolverTabId = Number(
+    resolverSession?.resolverTabId
+  );
+
+  if (
+    Number.isInteger(resolverTabId)
+    && resolverTabId !== tabId
+  ) {
+    await clearChainedAgentLaunch(
+      resolverTabId
+    );
+    await deleteHimalayasResolverSession(
+      resolverTabId
+    );
+
+    try {
+      await chrome.tabs.remove(
+        resolverTabId
+      );
+    } catch (error) {
+      // The middleman listing tab may already be closed.
+    }
+  }
+
+  const runner = await getBatchRunner();
+
+  if (
+    runner?.tabId === tabId
+    && runner.origin === origin
+  ) {
+    const waitingUrl = new URL(
+      "/browser-agent",
+      origin
+    );
+    waitingUrl.searchParams.set(
+      "batch_wait",
+      "1"
+    );
+    await chrome.tabs.update(
+      tabId,
+      {url: waitingUrl.href}
+    );
+    return true;
+  }
+
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch (error) {
+    // The application tab may have already closed itself.
+  }
+
+  return true;
+}
+
 function himalayasResolverKey(tabId) {
   return (
     HIMALAYAS_RESOLVER_PREFIX
@@ -691,6 +895,12 @@ function externalHimalayasTarget(
       "www.himalayas.app",
       "remotefirstjobs.com",
       "www.remotefirstjobs.com",
+      "japan-dev.com",
+      "www.japan-dev.com",
+      "weworkremotely.com",
+      "www.weworkremotely.com",
+      "jooble.org",
+      "www.jooble.org",
       "127.0.0.1",
       "localhost",
       "jobfinitum.com",
@@ -1015,6 +1225,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (
+      message.type
+      === "jobfinitum-job-board-restore"
+    ) {
+      const tabId = sender?.tab?.id;
+      const session = (
+        typeof tabId === "number"
+        ? await getHimalayasResolverSession(
+            tabId
+          )
+        : null
+      );
+      const resolver = resolverNameForUrl(
+        sender?.tab?.url
+      );
+
+      sendResponse({
+        ok: true,
+        launch: (
+          session
+          && resolver
+          && session.resolver === resolver
+        )
+          ? {
+              token: String(
+                session.token || ""
+              ),
+              origin: String(
+                session.origin || ""
+              ),
+              batch:
+                session.batch === true,
+            }
+          : null,
+      });
+      return;
+    }
+
     const origin = normalizeOrigin(message.origin);
 
     if (
@@ -1177,6 +1425,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         && [
           "needs_manual_destination",
           "posting_closed",
+          "waiting_sign_in",
         ].includes(resultStatus)
       ) {
         const resolverSession =
@@ -1211,6 +1460,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       sendResponse({ok: true, result});
+
+      if (
+        typeof senderTabId === "number"
+        && TERMINAL_AGENT_TAB_STATUSES.has(
+          resultStatus
+        )
+      ) {
+        setTimeout(() => {
+          cleanupTerminalAgentTab(
+            senderTabId,
+            origin
+          ).catch((error) => {
+            console.warn(
+              "Jobfinitum could not clean up a completed application tab:",
+              error
+            );
+          });
+        }, 150);
+      }
+
       return;
     }
 
@@ -1535,6 +1804,14 @@ chrome.tabs.onUpdated.addListener(
           tabId
         );
 
+      if (!session) {
+        session =
+          await registerResolverLaunchFromUrl(
+            tabId,
+            changeInfo.url
+          );
+      }
+
       if (
         !session
         && typeof tab.openerTabId
@@ -1642,3 +1919,30 @@ chrome.tabs.onUpdated.addListener(
     }
   }
 );
+
+if (
+  chrome.webNavigation
+    ?.onBeforeNavigate
+    ?.addListener
+) {
+  chrome.webNavigation.onBeforeNavigate
+    .addListener((details) => {
+      if (
+        details.frameId !== 0
+        || typeof details.tabId
+          !== "number"
+      ) {
+        return;
+      }
+
+      registerResolverLaunchFromUrl(
+        details.tabId,
+        details.url
+      ).catch((error) => {
+        console.warn(
+          "Jobfinitum could not capture a resolver launch before navigation:",
+          error
+        );
+      });
+    });
+}

@@ -709,6 +709,9 @@ def save_discovered_jobs(
                     not current_apply_url
                     or "himalayas.app/" in current_apply_url
                     or "remotefirstjobs.com/" in current_apply_url
+                    or "japan-dev.com/" in current_apply_url
+                    or "weworkremotely.com/" in current_apply_url
+                    or "jooble.org/" in current_apply_url
                 ):
                     existing_job.apply_url = (
                         job.get("apply_url")

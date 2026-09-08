@@ -54,6 +54,7 @@ GREENHOUSE_HOSTS = {
     "boards.eu.greenhouse.io",
     "job-boards.greenhouse.io",
     "job-boards.eu.greenhouse.io",
+    "grnh.se",
 }
 
 HIMALAYAS_HOSTS = {
@@ -66,6 +67,21 @@ REMOTE_FIRST_JOBS_HOSTS = {
     "www.remotefirstjobs.com",
 }
 
+JAPAN_DEV_HOSTS = {
+    "japan-dev.com",
+    "www.japan-dev.com",
+}
+
+WE_WORK_REMOTELY_HOSTS = {
+    "weworkremotely.com",
+    "www.weworkremotely.com",
+}
+
+JOOBLE_HOSTS = {
+    "jooble.org",
+    "www.jooble.org",
+}
+
 ASHBY_HOSTS = {
     "jobs.ashbyhq.com",
 }
@@ -75,6 +91,9 @@ SUPPORTED_HOSTS = (
     | GREENHOUSE_HOSTS
     | HIMALAYAS_HOSTS
     | REMOTE_FIRST_JOBS_HOSTS
+    | JAPAN_DEV_HOSTS
+    | WE_WORK_REMOTELY_HOSTS
+    | JOOBLE_HOSTS
     | ASHBY_HOSTS
 )
 
@@ -92,6 +111,27 @@ RESOLVER_ADAPTERS = {
         "browser_agent": "remote_first_jobs_browser_agent",
         "discovery_method": "remote_first_jobs_browser_resolver",
         "closed_paths": {"/jobs"},
+    },
+    "japan_dev_resolver": {
+        "platform_name": "Japan Dev",
+        "hosts": JAPAN_DEV_HOSTS,
+        "browser_agent": "japan_dev_browser_agent",
+        "discovery_method": "japan_dev_browser_resolver",
+        "closed_paths": {"/jobs"},
+    },
+    "we_work_remotely_resolver": {
+        "platform_name": "We Work Remotely",
+        "hosts": WE_WORK_REMOTELY_HOSTS,
+        "browser_agent": "we_work_remotely_browser_agent",
+        "discovery_method": "we_work_remotely_browser_resolver",
+        "closed_paths": {"", "/remote-jobs"},
+    },
+    "jooble_resolver": {
+        "platform_name": "Jooble",
+        "hosts": JOOBLE_HOSTS,
+        "browser_agent": "jooble_browser_agent",
+        "discovery_method": "jooble_browser_resolver",
+        "closed_paths": {"", "/searchresult"},
     },
 }
 
@@ -134,6 +174,15 @@ def chrome_agent_adapter(job):
 
     if host in REMOTE_FIRST_JOBS_HOSTS:
         return "remote_first_jobs_resolver"
+
+    if host in JAPAN_DEV_HOSTS:
+        return "japan_dev_resolver"
+
+    if host in WE_WORK_REMOTELY_HOSTS:
+        return "we_work_remotely_resolver"
+
+    if host in JOOBLE_HOSTS:
+        return "jooble_resolver"
 
     if host in ASHBY_HOSTS:
         return "ashby_hosted"
@@ -404,6 +453,23 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
             "education_school": identity.education_school or "",
             "education_degree": identity.education_degree or "",
             "education_discipline": identity.education_discipline or "",
+            "japanese_proficiency": getattr(
+                identity,
+                "japanese_proficiency",
+                "Unknown",
+            ),
+            "english_proficiency": getattr(
+                identity,
+                "english_proficiency",
+                "Unknown",
+            ),
+            "currently_residing_in_japan": (
+                getattr(
+                    identity,
+                    "currently_residing_in_japan",
+                    "Unknown",
+                )
+            ),
         },
         "application_questions": questions,
         "answer_memories": answer_memories_for_agent(
@@ -742,6 +808,74 @@ def _record_resolver_manual_handoff(
     }
 
 
+def _record_resolver_pause(
+    *,
+    candidate,
+    user,
+    application,
+    package,
+    message,
+    detail,
+    adapter_name,
+    resolver_config,
+    status,
+    detail_flag,
+):
+    now = utcnow_naive()
+    normalized_detail = dict(detail or {})
+    normalized_detail.update(
+        {
+            "resolver": resolver_config["browser_agent"],
+            detail_flag: True,
+        }
+    )
+    attempt = ApplicationSubmissionAttempt(
+        user_id=user.id,
+        auto_apply_candidate_id=candidate.id,
+        application_id=application.id,
+        application_package_id=package.id,
+        adapter_name=adapter_name,
+        status=status,
+        message=message,
+        detail_json=json.dumps(
+            normalized_detail,
+            sort_keys=True,
+        ),
+        started_at=now,
+        finished_at=now,
+    )
+    db.session.add(attempt)
+
+    candidate.last_submission_attempt_at = now
+    candidate.execution_status = status
+    application.status = f"Auto Apply - {status}"
+    package.status = status
+    package.failure_reason = message
+
+    return {
+        "status": status,
+        "message": message,
+        "continue_in_chrome_agent": False,
+        detail_flag: True,
+    }
+
+
+def _record_resolver_sign_in_required(**kwargs):
+    return _record_resolver_pause(
+        **kwargs,
+        status="Waiting for Sign-In",
+        detail_flag="sign_in_required",
+    )
+
+
+def _record_resolver_verification_required(**kwargs):
+    return _record_resolver_pause(
+        **kwargs,
+        status="Waiting for Verification",
+        detail_flag="verification_required",
+    )
+
+
 def _is_resolver_jobs_index(
     value,
     resolver_config,
@@ -877,6 +1011,47 @@ def apply_chrome_agent_result(candidate, user, payload):
                 resolved_host=None,
             )
 
+        if resolver_status == "waiting_sign_in":
+            message = str(
+                payload.get("message")
+                or (
+                    f"{platform_name} requires an account before it "
+                    "reveals the employer application destination. "
+                    f"Sign into {platform_name}, then resume this application."
+                )
+            ).strip()
+
+            return _record_resolver_sign_in_required(
+                candidate=candidate,
+                user=user,
+                application=application,
+                package=package,
+                message=message,
+                detail=detail,
+                adapter_name=adapter_name,
+                resolver_config=resolver_config,
+            )
+
+        if resolver_status == "waiting_verification":
+            message = str(
+                payload.get("message")
+                or (
+                    f"{platform_name} requires human verification "
+                    "before it can reveal the employer application."
+                )
+            ).strip()
+
+            return _record_resolver_verification_required(
+                candidate=candidate,
+                user=user,
+                application=application,
+                package=package,
+                message=message,
+                detail=detail,
+                adapter_name=adapter_name,
+                resolver_config=resolver_config,
+            )
+
         if resolver_status != "resolved_application_target":
             raise ValueError(
                 f"{platform_name} Browser Agent did not return "
@@ -987,6 +1162,7 @@ def apply_chrome_agent_result(candidate, user, payload):
     status_map = {
         "submitted": "Submitted",
         "waiting_verification": "Waiting for Verification",
+        "waiting_sign_in": "Waiting for Sign-In",
         "needs_application_answer": "Needs Application Answer",
         "needs_user_action": "Needs User Action",
         "unsupported": "Unsupported",
@@ -1006,6 +1182,9 @@ def apply_chrome_agent_result(candidate, user, payload):
         "Waiting for Verification": (
             f"{platform_name} requires human "
             "verification in normal Chrome."
+        ),
+        "Waiting for Sign-In": (
+            f"{platform_name} requires sign-in before Auto Apply can continue."
         ),
         "Needs Application Answer": (
             f"{platform_name} requires additional "
@@ -1239,6 +1418,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         package.failure_reason = None
     elif status in {
         "Waiting for Verification",
+        "Waiting for Sign-In",
         "Needs Application Answer",
         "Needs User Action",
     }:

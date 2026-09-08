@@ -2,7 +2,7 @@
   "use strict";
 
   const SOURCE = "jobfinitum-chrome-agent";
-  const REQUIRED_AGENT_VERSION = "0.6.0";
+  const REQUIRED_AGENT_VERSION = "0.6.4";
 
   const statusBox = document.getElementById(
     "jobfinitum-browser-agent-status"
@@ -248,7 +248,7 @@
     "jobfinitum-site";
 
   const REQUIRED_AGENT_VERSION =
-    "0.6.0";
+    "0.6.4";
 
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";
@@ -943,17 +943,6 @@
         === RESOLVED_APPLICATION_STATUS
         && result.continue_in_chrome_agent
       ) {
-        const relaunchCount = Number(
-          state.current.resolved_relaunch_count
-          || 0
-        );
-
-        if (relaunchCount > 0) {
-          return;
-        }
-
-        state.current.resolved_relaunch_count =
-          relaunchCount + 1;
         state.current_started_at = Date.now();
         clearBatchWatchdog();
         clearResolvedRelaunch();
@@ -961,33 +950,7 @@
         updateControls(state);
         progress.textContent =
           "Opening the resolved employer application";
-
-        resolvedRelaunchTimer =
-          window.setTimeout(
-            () => {
-              resolvedRelaunchTimer = null;
-              const latestState = loadState();
-
-              if (
-                !latestState?.active
-                || Number(
-                  latestState.current?.candidate_id
-                ) !== Number(
-                  result.candidate_id
-                )
-              ) {
-                return;
-              }
-
-              submitCandidate(
-                latestState.current
-              );
-              scheduleBatchWatchdog(
-                latestState
-              );
-            },
-            1500
-          );
+        scheduleBatchWatchdog(state);
         return;
       }
 

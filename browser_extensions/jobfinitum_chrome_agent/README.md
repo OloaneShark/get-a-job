@@ -8,6 +8,9 @@ Current Browser Agent support:
 - Ashby
 - Remote First Jobs employer-site resolver
 - Himalayas employer-site resolver
+- Japan Dev employer-site resolver
+- We Work Remotely employer-site resolver with sign-in pause support
+- Jooble employer-site redirect resolver
 
 The Agent can:
 - fill identity fields
