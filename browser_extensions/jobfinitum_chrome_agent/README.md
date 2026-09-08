@@ -11,6 +11,9 @@ Current Browser Agent support:
 - Japan Dev employer-site resolver
 - We Work Remotely employer-site resolver with sign-in pause support
 - Jooble employer-site redirect resolver
+- Remote OK employer-site redirect resolver
+- Jobicy guest-application redirect resolver
+- TokyoDev employer-application redirect resolver
 
 The Agent can:
 - fill identity fields

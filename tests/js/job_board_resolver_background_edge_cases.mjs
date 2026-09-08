@@ -123,6 +123,20 @@ assert.equal(
   hooks.resolverNameForUrl("https://jooble.org/away/123"),
   "jooble_browser_agent"
 );
+assert.equal(
+  hooks.resolverNameForUrl("https://remoteok.com/remote-jobs/example"),
+  "remote_ok_browser_agent"
+);
+assert.equal(
+  hooks.resolverNameForUrl("https://jobicy.com/jobs/152678-example"),
+  "jobicy_browser_agent"
+);
+assert.equal(
+  hooks.resolverNameForUrl(
+    "https://www.tokyodev.com/c/acme/j/role/applications/new"
+  ),
+  "tokyo_dev_browser_agent"
+);
 assert.equal(hooks.resolverNameForUrl("https://jobs.ashbyhq.com/example"), "");
 
 for (const blocked of [
@@ -131,6 +145,9 @@ for (const blocked of [
   "https://japan-dev.com/jobs/example/current-job",
   "https://weworkremotely.com/remote-jobs/example",
   "https://jooble.org/away/123",
+  "https://remoteok.com/l/123",
+  "https://jobicy.com/jobs/152678-example",
+  "https://www.tokyodev.com/c/acme/j/role/applications/new",
   "http://127.0.0.1:5000/auto-apply",
 ]) {
   assert.throws(
@@ -200,6 +217,28 @@ assert.equal(
   "jooble_browser_agent"
 );
 
+const tokyoDevLaunchUrl = (
+  "https://www.tokyodev.com/c/acme/j/role/applications/new"
+  + "#jobfinitum_agent=tokyodev-token"
+  + "&jobfinitum_origin=http%3A%2F%2F127.0.0.1%3A5000"
+  + "&jobfinitum_batch=1"
+);
+const tokyoDevLaunch = hooks.resolverLaunchFromUrl(tokyoDevLaunchUrl);
+assert.equal(tokyoDevLaunch.token, "tokyodev-token");
+assert.equal(tokyoDevLaunch.origin, "http://127.0.0.1:5000");
+assert.equal(tokyoDevLaunch.batch, true);
+assert.equal(tokyoDevLaunch.resolver, "tokyo_dev_browser_agent");
+
+const registeredTokyoDev = await hooks.registerResolverLaunchFromUrl(
+  89,
+  tokyoDevLaunchUrl
+);
+assert.equal(registeredTokyoDev.resolverTabId, 89);
+assert.equal(
+  (await hooks.getHimalayasResolverSession(89)).resolver,
+  "tokyo_dev_browser_agent"
+);
+
 await hooks.resolveHimalayasTargetOnce(
   88,
   "https://jobs.lever.co/example/role/apply",
@@ -264,7 +303,7 @@ assert.equal(
 assert.equal(tabRemovals.includes(79), false);
 
 console.log(JSON.stringify({
-  passed: 18,
+  passed: 22,
   failed: 0,
   checks: [
     "Himalayas resolver identity",
@@ -272,6 +311,9 @@ console.log(JSON.stringify({
     "Japan Dev resolver identity",
     "We Work Remotely resolver identity",
     "Jooble resolver identity",
+    "Remote OK resolver identity",
+    "Jobicy resolver identity",
+    "TokyoDev resolver identity",
     "unsupported resolver host",
     "aggregator target rejection",
     "external ATS acceptance",
@@ -280,6 +322,7 @@ console.log(JSON.stringify({
     "chained ATS launch state",
     "Jooble launch parsing",
     "Jooble pre-navigation registration",
+    "TokyoDev pre-navigation registration",
     "Jooble backend resolver attribution",
     "Jooble chained ATS launch state",
     "terminal batch-tab recycling",

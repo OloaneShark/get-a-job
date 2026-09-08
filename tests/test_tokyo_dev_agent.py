@@ -6,6 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from bs4 import BeautifulSoup
+
 from services.auto_apply_submission import chrome_agent_service
 from services.auto_apply_submission.chrome_agent_service import (
     apply_chrome_agent_result,
@@ -16,24 +18,25 @@ from services.auto_apply_submission.executor_router import (
     EXECUTOR_CHROME_AGENT,
     get_submission_executor,
 )
+from services.job_sources.tokyo_dev import TokyoDevJobSource
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_ROOT = ROOT / "browser_extensions" / "jobfinitum_chrome_agent"
-AGENT_PATH = EXTENSION_ROOT / "jooble_agent.js"
+AGENT_PATH = EXTENSION_ROOT / "tokyo_dev_agent.js"
 BACKGROUND_PATH = EXTENSION_ROOT / "background.js"
 MANIFEST_PATH = EXTENSION_ROOT / "manifest.json"
 SETTINGS_PATH = ROOT / "templates" / "browser_agent_settings.html"
 QUEUE_PATH = ROOT / "templates" / "auto_apply_queue.html"
 SCHEDULER_PATH = ROOT / "services" / "scheduler_service.py"
 README_PATH = EXTENSION_ROOT / "README.md"
-EDGE_CASE_PATH = ROOT / "tests" / "js" / "jooble_agent_edge_cases.mjs"
+EDGE_CASE_PATH = ROOT / "tests" / "js" / "tokyo_dev_agent_edge_cases.mjs"
 BACKGROUND_EDGE_CASE_PATH = (
     ROOT / "tests" / "js" / "job_board_resolver_background_edge_cases.mjs"
 )
 
 
-class JoobleAgentTests(unittest.TestCase):
+class TokyoDevAgentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
@@ -69,41 +72,103 @@ class JoobleAgentTests(unittest.TestCase):
             "identity": SimpleNamespace(),
         }
 
-    def test_backend_routes_jooble_to_the_resolver(self):
-        job = self.job("https://jooble.org/away/123")
-        self.assertTrue(chrome_agent_supports_job(job))
-        self.assertEqual(chrome_agent_adapter(job), "jooble_resolver")
-        self.assertEqual(get_submission_executor(job), EXECUTOR_CHROME_AGENT)
+    def test_source_keeps_the_real_tokyodev_application_route(self):
+        posting_url = (
+            "https://www.tokyodev.com/companies/acme/"
+            "jobs/platform-engineer"
+        )
+        soup = BeautifulSoup(
+            """
+            <a href="/about">About</a>
+            <a href="/c/acme/j/platform-engineer/applications/new">
+                Continue applying
+            </a>
+            """,
+            "html.parser",
+        )
 
-    def test_manifest_and_ui_register_jooble(self):
+        self.assertEqual(
+            TokyoDevJobSource.find_apply_url(soup, posting_url),
+            (
+                "https://www.tokyodev.com/c/acme/j/"
+                "platform-engineer/applications/new"
+            ),
+        )
+
+    def test_source_falls_back_to_the_listing_without_an_apply_route(self):
+        posting_url = (
+            "https://www.tokyodev.com/companies/acme/"
+            "jobs/platform-engineer"
+        )
+        soup = BeautifulSoup("<a href='/about'>About</a>", "html.parser")
+        self.assertEqual(
+            TokyoDevJobSource.find_apply_url(soup, posting_url),
+            posting_url,
+        )
+
+    def test_backend_routes_tokyodev_to_the_resolver(self):
+        job = self.job(
+            "https://www.tokyodev.com/c/acme/j/"
+            "platform-engineer/applications/new"
+        )
+        self.assertTrue(chrome_agent_supports_job(job))
+        self.assertEqual(
+            chrome_agent_adapter(job),
+            "tokyo_dev_resolver",
+        )
+        self.assertEqual(
+            get_submission_executor(job),
+            EXECUTOR_CHROME_AGENT,
+        )
+
+    def test_manifest_and_ui_register_tokyodev(self):
         expected_hosts = {
-            "https://jooble.org/*",
-            "https://www.jooble.org/*",
+            "https://tokyodev.com/*",
+            "https://www.tokyodev.com/*",
         }
         self.assertEqual(self.manifest["version"], "0.6.7")
-        self.assertTrue(expected_hosts.issubset(
-            self.manifest["host_permissions"]
-        ))
+        self.assertTrue(
+            expected_hosts.issubset(
+                self.manifest["host_permissions"]
+            )
+        )
         matching_scripts = [
             script
             for script in self.manifest["content_scripts"]
             if expected_hosts.issubset(set(script.get("matches", [])))
-            and "jooble_agent.js" in script.get("js", [])
+            and "tokyo_dev_agent.js" in script.get("js", [])
         ]
         self.assertEqual(len(matching_scripts), 1)
-        self.assertEqual(matching_scripts[0].get("run_at"), "document_start")
+        self.assertEqual(
+            matching_scripts[0].get("run_at"),
+            "document_start",
+        )
         self.assertIn("webNavigation", self.manifest["permissions"])
         self.assertRegex(
             self.settings,
-            r"<span>Jooble</span>\s*<strong>Browser Agent resolver</strong>",
+            (
+                r"<span>TokyoDev</span>\s*"
+                r"<strong>Browser Agent resolver</strong>"
+            ),
         )
-        self.assertEqual(self.queue.count('"jooble.org/"'), 2)
-        self.assertIn('or "jooble.org/" in current_apply_url', self.scheduler)
-        self.assertIn("Jooble employer-site redirect resolver", self.readme)
+        self.assertEqual(self.queue.count('"tokyodev.com/"'), 2)
+        self.assertIn(
+            'or "tokyodev.com/" in current_apply_url',
+            self.scheduler,
+        )
+        self.assertIn(
+            "TokyoDev employer-application redirect resolver",
+            self.readme,
+        )
 
     def test_resolver_updates_the_job_and_chains_to_greenhouse(self):
-        listing_url = "https://jooble.org/away/123"
-        resolved_url = "https://job-boards.greenhouse.io/example/jobs/123"
+        listing_url = (
+            "https://www.tokyodev.com/c/acme/j/"
+            "platform-engineer/applications/new"
+        )
+        resolved_url = (
+            "https://job-boards.greenhouse.io/acme/jobs/123"
+        )
         job, candidate = self.candidate_for(listing_url)
 
         with (
@@ -130,38 +195,24 @@ class JoobleAgentTests(unittest.TestCase):
 
         self.assertEqual(job.apply_url, resolved_url)
         self.assertTrue(result["continue_in_chrome_agent"])
-        self.assertEqual(result["resolved_adapter"], "greenhouse_hosted")
+        self.assertEqual(
+            result["resolved_adapter"],
+            "greenhouse_hosted",
+        )
         self.assertEqual(
             discover.call_args.args[2]["discovery_method"],
-            "jooble_browser_resolver",
+            "tokyo_dev_browser_resolver",
         )
 
-    def test_resolver_rejects_a_same_site_destination(self):
-        job, candidate = self.candidate_for("https://jooble.org/away/123")
-
-        with patch.object(
-            chrome_agent_service,
-            "prepare_chrome_agent_candidate",
-            return_value=self.prepared(),
-        ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "invalid external application target",
-            ):
-                apply_chrome_agent_result(
-                    candidate,
-                    SimpleNamespace(),
-                    {
-                        "status": "resolved_application_target",
-                        "resolved_url": "https://www.jooble.org/away/456",
-                    },
-                )
-
-        self.assertEqual(job.apply_url, "https://jooble.org/away/123")
-
     def test_unsupported_destination_falls_back_to_manual_apply(self):
-        resolved_url = "https://apply.workable.com/example/j/123/apply/"
-        job, candidate = self.candidate_for("https://jooble.org/away/123")
+        listing_url = (
+            "https://www.tokyodev.com/c/acme/j/"
+            "platform-engineer/applications/new"
+        )
+        resolved_url = (
+            "https://apply.workable.com/acme/j/ABC123/"
+        )
+        job, candidate = self.candidate_for(listing_url)
         manual_result = {
             "status": "Unsupported",
             "continue_in_chrome_agent": False,
@@ -202,86 +253,84 @@ class JoobleAgentTests(unittest.TestCase):
             manual_handoff.call_args.kwargs["message"],
         )
 
-    def test_challenge_is_saved_as_waiting_for_verification(self):
-        job = SimpleNamespace(
-            apply_url="https://jooble.org/away/123",
-            posting_url="https://jooble.org/away/123",
-            company_name="Example",
+    def test_resolver_rejects_a_same_site_destination(self):
+        listing_url = (
+            "https://www.tokyodev.com/c/acme/j/"
+            "platform-engineer/applications/new"
         )
-        candidate = SimpleNamespace(
-            id=22,
-            status="Approved",
-            discovered_job=job,
-            execution_status="Running",
-            last_submission_attempt_at=None,
-        )
-        application = SimpleNamespace(id=33, status="Pending")
-        package = SimpleNamespace(
-            id=44,
-            status="Prepared",
-            failure_reason=None,
-        )
-        prepared = {
-            "ok": True,
-            "application": application,
-            "package": package,
-            "identity": SimpleNamespace(),
-        }
-        attempts = []
+        job, candidate = self.candidate_for(listing_url)
 
-        with (
-            patch.object(
-                chrome_agent_service,
-                "prepare_chrome_agent_candidate",
-                return_value=prepared,
-            ),
-            patch.object(
-                chrome_agent_service,
-                "ApplicationSubmissionAttempt",
-                side_effect=lambda **values: SimpleNamespace(**values),
-            ),
-            patch.object(
-                chrome_agent_service.db.session,
-                "add",
-                side_effect=attempts.append,
-            ),
+        with patch.object(
+            chrome_agent_service,
+            "prepare_chrome_agent_candidate",
+            return_value=self.prepared(),
         ):
-            result = apply_chrome_agent_result(
-                candidate,
-                SimpleNamespace(id=11),
-                {
-                    "status": "waiting_verification",
-                    "message": "Complete the visible Jooble challenge.",
-                    "detail": {"url": "https://jooble.org/away/123"},
-                },
-            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "invalid external application target",
+            ):
+                apply_chrome_agent_result(
+                    candidate,
+                    SimpleNamespace(),
+                    {
+                        "status": "resolved_application_target",
+                        "resolved_url": (
+                            "https://www.tokyodev.com/jobs"
+                        ),
+                    },
+                )
 
-        self.assertEqual(result["status"], "Waiting for Verification")
-        self.assertTrue(result["verification_required"])
-        self.assertEqual(candidate.execution_status, "Waiting for Verification")
-        self.assertEqual(
-            application.status,
-            "Auto Apply - Waiting for Verification",
+        self.assertEqual(job.apply_url, listing_url)
+
+    def test_resolver_only_affirms_explicit_japan_residency(self):
+        self.assertIn(
+            'currently_residing_in_japan',
+            self.source,
         )
-        self.assertEqual(package.status, "Waiting for Verification")
-        self.assertEqual(attempts[0].status, "Waiting for Verification")
-        detail = json.loads(attempts[0].detail_json)
-        self.assertTrue(detail["verification_required"])
-        self.assertEqual(detail["resolver"], "jooble_browser_agent")
+        self.assertIn(
+            'answer !== "yes"',
+            self.source,
+        )
+        self.assertIn(
+            '"resident of japan"',
+            self.source,
+        )
+        self.assertIn(
+            '"needs_manual_destination"',
+            self.source,
+        )
 
-    def test_resolver_has_no_submission_logic_of_its_own(self):
-        self.assertIn('const ADAPTER = "jooble_resolver"', self.source)
-        self.assertIn('"waiting_verification"', self.source)
-        self.assertIn('"needs_manual_destination"', self.source)
-        self.assertIn('"jobfinitum-job-board-watch"', self.source)
-        self.assertIn('"jobfinitum-job-board-restore"', self.source)
+    def test_resolver_has_no_application_submission_logic(self):
+        self.assertIn(
+            'const ADAPTER = "tokyo_dev_resolver"',
+            self.source,
+        )
+        self.assertIn(
+            '"waiting_verification"',
+            self.source,
+        )
+        self.assertIn(
+            '"jobfinitum-job-board-watch"',
+            self.source,
+        )
+        self.assertIn(
+            '"jobfinitum-job-board-restore"',
+            self.source,
+        )
+        self.assertNotIn("window.open(", self.source)
         self.assertNotIn("Submit Application", self.source)
         self.assertNotIn('status: "submitted"', self.source)
-        self.assertIn('"jooble_browser_agent"', self.background)
-        self.assertIn("registerResolverLaunchFromUrl", self.background)
+        self.assertIn(
+            '"tokyo_dev_browser_agent"',
+            self.background,
+        )
+        self.assertIn(
+            "registerResolverLaunchFromUrl",
+            self.background,
+        )
 
 
-class JoobleAgentScriptTests(unittest.TestCase):
+class TokyoDevAgentScriptTests(unittest.TestCase):
     def test_javascript_syntax(self):
         node = shutil.which("node")
         if not node:

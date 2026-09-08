@@ -712,6 +712,9 @@ def save_discovered_jobs(
                     or "japan-dev.com/" in current_apply_url
                     or "weworkremotely.com/" in current_apply_url
                     or "jooble.org/" in current_apply_url
+                    or "remoteok.com/" in current_apply_url
+                    or "jobicy.com/" in current_apply_url
+                    or "tokyodev.com/" in current_apply_url
                 ):
                     existing_job.apply_url = (
                         job.get("apply_url")

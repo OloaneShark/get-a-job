@@ -82,6 +82,21 @@ JOOBLE_HOSTS = {
     "www.jooble.org",
 }
 
+REMOTE_OK_HOSTS = {
+    "remoteok.com",
+    "www.remoteok.com",
+}
+
+JOBICY_HOSTS = {
+    "jobicy.com",
+    "www.jobicy.com",
+}
+
+TOKYO_DEV_HOSTS = {
+    "tokyodev.com",
+    "www.tokyodev.com",
+}
+
 ASHBY_HOSTS = {
     "jobs.ashbyhq.com",
 }
@@ -94,6 +109,9 @@ SUPPORTED_HOSTS = (
     | JAPAN_DEV_HOSTS
     | WE_WORK_REMOTELY_HOSTS
     | JOOBLE_HOSTS
+    | REMOTE_OK_HOSTS
+    | JOBICY_HOSTS
+    | TOKYO_DEV_HOSTS
     | ASHBY_HOSTS
 )
 
@@ -132,6 +150,27 @@ RESOLVER_ADAPTERS = {
         "browser_agent": "jooble_browser_agent",
         "discovery_method": "jooble_browser_resolver",
         "closed_paths": {"", "/searchresult"},
+    },
+    "remote_ok_resolver": {
+        "platform_name": "Remote OK",
+        "hosts": REMOTE_OK_HOSTS,
+        "browser_agent": "remote_ok_browser_agent",
+        "discovery_method": "remote_ok_browser_resolver",
+        "closed_paths": {"", "/remote-jobs"},
+    },
+    "jobicy_resolver": {
+        "platform_name": "Jobicy",
+        "hosts": JOBICY_HOSTS,
+        "browser_agent": "jobicy_browser_agent",
+        "discovery_method": "jobicy_browser_resolver",
+        "closed_paths": {"", "/jobs"},
+    },
+    "tokyo_dev_resolver": {
+        "platform_name": "TokyoDev",
+        "hosts": TOKYO_DEV_HOSTS,
+        "browser_agent": "tokyo_dev_browser_agent",
+        "discovery_method": "tokyo_dev_browser_resolver",
+        "closed_paths": {"", "/jobs"},
     },
 }
 
@@ -183,6 +222,15 @@ def chrome_agent_adapter(job):
 
     if host in JOOBLE_HOSTS:
         return "jooble_resolver"
+
+    if host in REMOTE_OK_HOSTS:
+        return "remote_ok_resolver"
+
+    if host in JOBICY_HOSTS:
+        return "jobicy_resolver"
+
+    if host in TOKYO_DEV_HOSTS:
+        return "tokyo_dev_resolver"
 
     if host in ASHBY_HOSTS:
         return "ashby_hosted"

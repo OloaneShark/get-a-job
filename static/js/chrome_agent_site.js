@@ -2,7 +2,7 @@
   "use strict";
 
   const SOURCE = "jobfinitum-chrome-agent";
-  const REQUIRED_AGENT_VERSION = "0.6.4";
+  const REQUIRED_AGENT_VERSION = "0.6.7";
 
   const statusBox = document.getElementById(
     "jobfinitum-browser-agent-status"
@@ -248,7 +248,7 @@
     "jobfinitum-site";
 
   const REQUIRED_AGENT_VERSION =
-    "0.6.4";
+    "0.6.7";
 
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";

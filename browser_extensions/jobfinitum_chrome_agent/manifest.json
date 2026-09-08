@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.6.4",
+  "version": "0.6.7",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -20,6 +20,12 @@
     "https://www.weworkremotely.com/*",
     "https://jooble.org/*",
     "https://www.jooble.org/*",
+    "https://remoteok.com/*",
+    "https://www.remoteok.com/*",
+    "https://jobicy.com/*",
+    "https://www.jobicy.com/*",
+    "https://tokyodev.com/*",
+    "https://www.tokyodev.com/*",
     "https://jobs.ashbyhq.com/*"
   ],
   "background": {
@@ -108,6 +114,36 @@
       ],
       "js": [
         "jooble_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://remoteok.com/*",
+        "https://www.remoteok.com/*"
+      ],
+      "js": [
+        "remote_ok_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://jobicy.com/*",
+        "https://www.jobicy.com/*"
+      ],
+      "js": [
+        "jobicy_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://tokyodev.com/*",
+        "https://www.tokyodev.com/*"
+      ],
+      "js": [
+        "tokyo_dev_agent.js"
       ],
       "run_at": "document_start"
     },

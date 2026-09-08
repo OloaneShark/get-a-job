@@ -23,6 +23,12 @@ CHROME_AGENT_HOSTS = {
     "www.weworkremotely.com",
     "jooble.org",
     "www.jooble.org",
+    "remoteok.com",
+    "www.remoteok.com",
+    "jobicy.com",
+    "www.jobicy.com",
+    "tokyodev.com",
+    "www.tokyodev.com",
     "jobs.ashbyhq.com",
 }
 

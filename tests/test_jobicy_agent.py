@@ -20,19 +20,20 @@ from services.auto_apply_submission.executor_router import (
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_ROOT = ROOT / "browser_extensions" / "jobfinitum_chrome_agent"
-AGENT_PATH = EXTENSION_ROOT / "we_work_remotely_agent.js"
+AGENT_PATH = EXTENSION_ROOT / "jobicy_agent.js"
 BACKGROUND_PATH = EXTENSION_ROOT / "background.js"
 MANIFEST_PATH = EXTENSION_ROOT / "manifest.json"
 SETTINGS_PATH = ROOT / "templates" / "browser_agent_settings.html"
 QUEUE_PATH = ROOT / "templates" / "auto_apply_queue.html"
 SCHEDULER_PATH = ROOT / "services" / "scheduler_service.py"
-EDGE_CASE_PATH = ROOT / "tests" / "js" / "we_work_remotely_agent_edge_cases.mjs"
+README_PATH = EXTENSION_ROOT / "README.md"
+EDGE_CASE_PATH = ROOT / "tests" / "js" / "jobicy_agent_edge_cases.mjs"
 BACKGROUND_EDGE_CASE_PATH = (
     ROOT / "tests" / "js" / "job_board_resolver_background_edge_cases.mjs"
 )
 
 
-class WeWorkRemotelyAgentTests(unittest.TestCase):
+class JobicyAgentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
@@ -41,77 +42,78 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
         cls.settings = SETTINGS_PATH.read_text(encoding="utf-8")
         cls.queue = QUEUE_PATH.read_text(encoding="utf-8")
         cls.scheduler = SCHEDULER_PATH.read_text(encoding="utf-8")
+        cls.readme = README_PATH.read_text(encoding="utf-8")
 
     @staticmethod
     def job(url):
         return SimpleNamespace(apply_url=url, posting_url=url)
 
-    def test_backend_routes_we_work_remotely_to_the_resolver(self):
-        job = self.job(
-            "https://weworkremotely.com/remote-jobs/example-role"
-        )
-        self.assertTrue(chrome_agent_supports_job(job))
-        self.assertEqual(
-            chrome_agent_adapter(job),
-            "we_work_remotely_resolver",
-        )
-        self.assertEqual(get_submission_executor(job), EXECUTOR_CHROME_AGENT)
-
-    def test_manifest_and_ui_register_we_work_remotely(self):
-        expected_hosts = {
-            "https://weworkremotely.com/*",
-            "https://www.weworkremotely.com/*",
-        }
-        self.assertEqual(self.manifest["version"], "0.6.7")
-        self.assertTrue(expected_hosts.issubset(
-            self.manifest["host_permissions"]
-        ))
-        self.assertTrue(any(
-            expected_hosts.issubset(set(script.get("matches", [])))
-            and "we_work_remotely_agent.js" in script.get("js", [])
-            for script in self.manifest["content_scripts"]
-        ))
-        self.assertRegex(
-            self.settings,
-            (
-                r"<span>We Work Remotely</span>\s*"
-                r"<strong>Browser Agent resolver</strong>"
-            ),
-        )
-        self.assertEqual(self.queue.count('"weworkremotely.com/"'), 2)
-        self.assertIn(
-            'or "weworkremotely.com/" in current_apply_url',
-            self.scheduler,
-        )
-
-    def test_resolver_updates_the_job_and_chains_to_greenhouse(self):
-        listing_url = (
-            "https://weworkremotely.com/remote-jobs/example-role"
-        )
-        resolved_url = (
-            "https://job-boards.greenhouse.io/example/jobs/123"
-        )
+    @staticmethod
+    def candidate_for(url):
         job = SimpleNamespace(
-            apply_url=listing_url,
-            posting_url=listing_url,
+            apply_url=url,
+            posting_url=url,
             company_name="Example",
         )
-        candidate = SimpleNamespace(
+        return job, SimpleNamespace(
             status="Approved",
             discovered_job=job,
         )
-        prepared = {
+
+    @staticmethod
+    def prepared():
+        return {
             "ok": True,
             "application": SimpleNamespace(),
             "package": SimpleNamespace(),
             "identity": SimpleNamespace(),
         }
 
+    def test_backend_routes_jobicy_to_the_resolver(self):
+        job = self.job("https://jobicy.com/jobs/152678-example-role")
+        self.assertTrue(chrome_agent_supports_job(job))
+        self.assertEqual(chrome_agent_adapter(job), "jobicy_resolver")
+        self.assertEqual(get_submission_executor(job), EXECUTOR_CHROME_AGENT)
+
+    def test_manifest_and_ui_register_jobicy(self):
+        expected_hosts = {
+            "https://jobicy.com/*",
+            "https://www.jobicy.com/*",
+        }
+        self.assertEqual(self.manifest["version"], "0.6.7")
+        self.assertTrue(expected_hosts.issubset(
+            self.manifest["host_permissions"]
+        ))
+        matching_scripts = [
+            script
+            for script in self.manifest["content_scripts"]
+            if expected_hosts.issubset(set(script.get("matches", [])))
+            and "jobicy_agent.js" in script.get("js", [])
+        ]
+        self.assertEqual(len(matching_scripts), 1)
+        self.assertEqual(matching_scripts[0].get("run_at"), "document_start")
+        self.assertIn("webNavigation", self.manifest["permissions"])
+        self.assertRegex(
+            self.settings,
+            r"<span>Jobicy</span>\s*<strong>Browser Agent resolver</strong>",
+        )
+        self.assertEqual(self.queue.count('"jobicy.com/"'), 2)
+        self.assertIn('or "jobicy.com/" in current_apply_url', self.scheduler)
+        self.assertIn(
+            "Jobicy guest-application redirect resolver",
+            self.readme,
+        )
+
+    def test_resolver_updates_the_job_and_chains_to_greenhouse(self):
+        listing_url = "https://jobicy.com/jobs/152678-example-role"
+        resolved_url = "https://job-boards.greenhouse.io/example/jobs/123"
+        job, candidate = self.candidate_for(listing_url)
+
         with (
             patch.object(
                 chrome_agent_service,
                 "prepare_chrome_agent_candidate",
-                return_value=prepared,
+                return_value=self.prepared(),
             ),
             patch.object(
                 chrome_agent_service,
@@ -134,33 +136,16 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
         self.assertEqual(result["resolved_adapter"], "greenhouse_hosted")
         self.assertEqual(
             discover.call_args.args[2]["discovery_method"],
-            "we_work_remotely_browser_resolver",
+            "jobicy_browser_resolver",
         )
 
     def test_resolver_rejects_a_same_site_destination(self):
-        listing_url = (
-            "https://weworkremotely.com/remote-jobs/example-role"
-        )
-        job = SimpleNamespace(
-            apply_url=listing_url,
-            posting_url=listing_url,
-            company_name="Example",
-        )
-        candidate = SimpleNamespace(
-            status="Approved",
-            discovered_job=job,
-        )
-        prepared = {
-            "ok": True,
-            "application": SimpleNamespace(),
-            "package": SimpleNamespace(),
-            "identity": SimpleNamespace(),
-        }
+        job, candidate = self.candidate_for("https://jobicy.com/jobs/152678-example-role")
 
         with patch.object(
             chrome_agent_service,
             "prepare_chrome_agent_candidate",
-            return_value=prepared,
+            return_value=self.prepared(),
         ):
             with self.assertRaisesRegex(
                 ValueError,
@@ -171,43 +156,26 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
                     SimpleNamespace(),
                     {
                         "status": "resolved_application_target",
-                        "resolved_url": (
-                            "https://weworkremotely.com/"
-                            "remote-jobs/example-role/apply"
-                        ),
+                        "resolved_url": "https://www.jobicy.com/l/456",
                     },
                 )
 
-    def test_unsupported_employer_destination_falls_back_to_manual_apply(self):
-        listing_url = (
-            "https://weworkremotely.com/remote-jobs/example-role"
-        )
+        self.assertEqual(job.apply_url, "https://jobicy.com/jobs/152678-example-role")
+
+    def test_unsupported_destination_falls_back_to_manual_apply(self):
         resolved_url = "https://apply.workable.com/example/j/123/apply/"
-        job = SimpleNamespace(
-            apply_url=listing_url,
-            posting_url=listing_url,
-            company_name="Example",
-        )
-        candidate = SimpleNamespace(
-            status="Approved",
-            discovered_job=job,
-        )
-        prepared = {
-            "ok": True,
-            "application": SimpleNamespace(),
-            "package": SimpleNamespace(),
-            "identity": SimpleNamespace(),
-        }
+        job, candidate = self.candidate_for("https://jobicy.com/jobs/152678-example-role")
         manual_result = {
             "status": "Unsupported",
             "continue_in_chrome_agent": False,
             "manual_application": True,
         }
+
         with (
             patch.object(
                 chrome_agent_service,
                 "prepare_chrome_agent_candidate",
-                return_value=prepared,
+                return_value=self.prepared(),
             ),
             patch.object(
                 chrome_agent_service,
@@ -237,13 +205,10 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
             manual_handoff.call_args.kwargs["message"],
         )
 
-    def test_account_gate_is_saved_as_waiting_for_sign_in(self):
-        listing_url = (
-            "https://weworkremotely.com/remote-jobs/example-role"
-        )
+    def test_challenge_is_saved_as_waiting_for_verification(self):
         job = SimpleNamespace(
-            apply_url=listing_url,
-            posting_url=listing_url,
+            apply_url="https://jobicy.com/jobs/152678-example-role",
+            posting_url="https://jobicy.com/jobs/152678-example-role",
             company_name="Example",
         )
         candidate = SimpleNamespace(
@@ -288,50 +253,43 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
                 candidate,
                 SimpleNamespace(id=11),
                 {
-                    "status": "waiting_sign_in",
-                    "message": "Sign into We Work Remotely, then resume.",
-                    "detail": {
-                        "sign_in_url": (
-                            "https://weworkremotely.com/"
-                            "job-seekers/account/register"
-                        ),
-                    },
+                    "status": "waiting_verification",
+                    "message": "Complete the visible Jobicy challenge.",
+                    "detail": {"url": "https://jobicy.com/jobs/152678-example-role"},
                 },
             )
 
-        self.assertEqual(result["status"], "Waiting for Sign-In")
-        self.assertTrue(result["sign_in_required"])
-        self.assertEqual(candidate.execution_status, "Waiting for Sign-In")
+        self.assertEqual(result["status"], "Waiting for Verification")
+        self.assertTrue(result["verification_required"])
+        self.assertEqual(candidate.execution_status, "Waiting for Verification")
         self.assertEqual(
             application.status,
-            "Auto Apply - Waiting for Sign-In",
+            "Auto Apply - Waiting for Verification",
         )
-        self.assertEqual(package.status, "Waiting for Sign-In")
-        self.assertEqual(attempts[0].status, "Waiting for Sign-In")
+        self.assertEqual(package.status, "Waiting for Verification")
+        self.assertEqual(attempts[0].status, "Waiting for Verification")
         detail = json.loads(attempts[0].detail_json)
-        self.assertTrue(detail["sign_in_required"])
-        self.assertEqual(
-            detail["resolver"],
-            "we_work_remotely_browser_agent",
-        )
+        self.assertTrue(detail["verification_required"])
+        self.assertEqual(detail["resolver"], "jobicy_browser_agent")
 
     def test_resolver_has_no_submission_logic_of_its_own(self):
-        self.assertIn(
-            'const ADAPTER = "we_work_remotely_resolver"',
-            self.source,
-        )
-        self.assertIn('"waiting_sign_in"', self.source)
+        self.assertIn('const ADAPTER = "jobicy_resolver"', self.source)
+        self.assertIn('"waiting_verification"', self.source)
         self.assertIn('"needs_manual_destination"', self.source)
-        self.assertIn('"jobfinitum-job-board-resolved"', self.source)
+        self.assertIn('"jobfinitum-job-board-watch"', self.source)
+        self.assertIn('"jobfinitum-job-board-restore"', self.source)
+        self.assertIn('"/signals.php"', self.source)
+        self.assertIn('"X-Jobicy-Ajax"', self.source)
+        self.assertIn("JOBICY_APPLICATION_STARTED", self.source)
+        self.assertIn("Continue as guest", self.source)
+        self.assertNotIn("window.open(", self.source)
         self.assertNotIn("Submit Application", self.source)
         self.assertNotIn('status: "submitted"', self.source)
-        self.assertIn(
-            '"we_work_remotely_browser_agent"',
-            self.background,
-        )
+        self.assertIn('"jobicy_browser_agent"', self.background)
+        self.assertIn("registerResolverLaunchFromUrl", self.background)
 
 
-class WeWorkRemotelyAgentScriptTests(unittest.TestCase):
+class JobicyAgentScriptTests(unittest.TestCase):
     def test_javascript_syntax(self):
         node = shutil.which("node")
         if not node:

@@ -387,6 +387,12 @@ const JOB_BOARD_RESOLVER_HOSTS =
     "www.weworkremotely.com",
     "jooble.org",
     "www.jooble.org",
+    "remoteok.com",
+    "www.remoteok.com",
+    "jobicy.com",
+    "www.jobicy.com",
+    "tokyodev.com",
+    "www.tokyodev.com",
   ]);
 
 function resolverNameForUrl(value) {
@@ -428,6 +434,27 @@ function resolverNameForUrl(value) {
       || host === "www.jooble.org"
     ) {
       return "jooble_browser_agent";
+    }
+
+    if (
+      host === "remoteok.com"
+      || host === "www.remoteok.com"
+    ) {
+      return "remote_ok_browser_agent";
+    }
+
+    if (
+      host === "jobicy.com"
+      || host === "www.jobicy.com"
+    ) {
+      return "jobicy_browser_agent";
+    }
+
+    if (
+      host === "tokyodev.com"
+      || host === "www.tokyodev.com"
+    ) {
+      return "tokyo_dev_browser_agent";
     }
   } catch (error) {
     return "";
@@ -901,6 +928,12 @@ function externalHimalayasTarget(
       "www.weworkremotely.com",
       "jooble.org",
       "www.jooble.org",
+      "remoteok.com",
+      "www.remoteok.com",
+      "jobicy.com",
+      "www.jobicy.com",
+      "tokyodev.com",
+      "www.tokyodev.com",
       "127.0.0.1",
       "localhost",
       "jobfinitum.com",
