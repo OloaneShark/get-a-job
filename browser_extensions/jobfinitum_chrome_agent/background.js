@@ -375,6 +375,54 @@ function bufferToBase64(buffer) {
 const HIMALAYAS_RESOLVER_PREFIX =
   "jobfinitum_himalayas_resolver_";
 
+const ADZUNA_RESOLVER_HOSTS =
+  new Set([
+    "adzuna.com",
+    "www.adzuna.com",
+    "adzuna.com.au",
+    "www.adzuna.com.au",
+    "adzuna.at",
+    "www.adzuna.at",
+    "adzuna.be",
+    "www.adzuna.be",
+    "adzuna.com.br",
+    "www.adzuna.com.br",
+    "adzuna.ca",
+    "www.adzuna.ca",
+    "adzuna.fr",
+    "www.adzuna.fr",
+    "adzuna.de",
+    "www.adzuna.de",
+    "adzuna.in",
+    "www.adzuna.in",
+    "adzuna.it",
+    "www.adzuna.it",
+    "adzuna.com.mx",
+    "www.adzuna.com.mx",
+    "adzuna.nl",
+    "www.adzuna.nl",
+    "adzuna.co.nz",
+    "www.adzuna.co.nz",
+    "adzuna.pl",
+    "www.adzuna.pl",
+    "adzuna.sg",
+    "www.adzuna.sg",
+    "adzuna.co.za",
+    "www.adzuna.co.za",
+    "adzuna.es",
+    "www.adzuna.es",
+    "adzuna.ch",
+    "www.adzuna.ch",
+    "adzuna.co.uk",
+    "www.adzuna.co.uk",
+  ]);
+
+const THE_MUSE_RESOLVER_HOSTS =
+  new Set([
+    "themuse.com",
+    "www.themuse.com",
+  ]);
+
 const JOB_BOARD_RESOLVER_HOSTS =
   new Set([
     "himalayas.app",
@@ -393,6 +441,8 @@ const JOB_BOARD_RESOLVER_HOSTS =
     "www.jobicy.com",
     "tokyodev.com",
     "www.tokyodev.com",
+    ...ADZUNA_RESOLVER_HOSTS,
+    ...THE_MUSE_RESOLVER_HOSTS,
   ]);
 
 function resolverNameForUrl(value) {
@@ -455,6 +505,14 @@ function resolverNameForUrl(value) {
       || host === "www.tokyodev.com"
     ) {
       return "tokyo_dev_browser_agent";
+    }
+
+    if (ADZUNA_RESOLVER_HOSTS.has(host)) {
+      return "adzuna_browser_agent";
+    }
+
+    if (THE_MUSE_RESOLVER_HOSTS.has(host)) {
+      return "the_muse_browser_agent";
     }
   } catch (error) {
     return "";
@@ -934,6 +992,8 @@ function externalHimalayasTarget(
       "www.jobicy.com",
       "tokyodev.com",
       "www.tokyodev.com",
+      ...ADZUNA_RESOLVER_HOSTS,
+      ...THE_MUSE_RESOLVER_HOSTS,
       "127.0.0.1",
       "localhost",
       "jobfinitum.com",

@@ -6,10 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from bs4 import BeautifulSoup
-
 from services.auto_apply_submission import chrome_agent_service
 from services.auto_apply_submission.chrome_agent_service import (
+    ADZUNA_HOSTS,
     apply_chrome_agent_result,
     chrome_agent_adapter,
     chrome_agent_supports_job,
@@ -18,30 +17,32 @@ from services.auto_apply_submission.executor_router import (
     EXECUTOR_CHROME_AGENT,
     get_submission_executor,
 )
-from services.job_sources.tokyo_dev import TokyoDevJobSource
+from services.job_sources.adzuna import AdzunaJobSource
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION_ROOT = ROOT / "browser_extensions" / "jobfinitum_chrome_agent"
-AGENT_PATH = EXTENSION_ROOT / "tokyo_dev_agent.js"
+AGENT_PATH = EXTENSION_ROOT / "adzuna_agent.js"
 BACKGROUND_PATH = EXTENSION_ROOT / "background.js"
 MANIFEST_PATH = EXTENSION_ROOT / "manifest.json"
 SETTINGS_PATH = ROOT / "templates" / "browser_agent_settings.html"
 QUEUE_PATH = ROOT / "templates" / "auto_apply_queue.html"
 SCHEDULER_PATH = ROOT / "services" / "scheduler_service.py"
 README_PATH = EXTENSION_ROOT / "README.md"
-EDGE_CASE_PATH = ROOT / "tests" / "js" / "tokyo_dev_agent_edge_cases.mjs"
+EDGE_CASE_PATH = ROOT / "tests" / "js" / "adzuna_agent_edge_cases.mjs"
 BACKGROUND_EDGE_CASE_PATH = (
     ROOT / "tests" / "js" / "job_board_resolver_background_edge_cases.mjs"
 )
 
 
-class TokyoDevAgentTests(unittest.TestCase):
+class AdzunaAgentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
         cls.background = BACKGROUND_PATH.read_text(encoding="utf-8")
-        cls.manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        cls.manifest = json.loads(
+            MANIFEST_PATH.read_text(encoding="utf-8")
+        )
         cls.settings = SETTINGS_PATH.read_text(encoding="utf-8")
         cls.queue = QUEUE_PATH.read_text(encoding="utf-8")
         cls.scheduler = SCHEDULER_PATH.read_text(encoding="utf-8")
@@ -49,7 +50,10 @@ class TokyoDevAgentTests(unittest.TestCase):
 
     @staticmethod
     def job(url):
-        return SimpleNamespace(apply_url=url, posting_url=url)
+        return SimpleNamespace(
+            apply_url=url,
+            posting_url=url,
+        )
 
     @staticmethod
     def candidate_for(url):
@@ -72,71 +76,65 @@ class TokyoDevAgentTests(unittest.TestCase):
             "identity": SimpleNamespace(),
         }
 
-    def test_source_keeps_the_real_tokyodev_application_route(self):
-        posting_url = (
-            "https://www.tokyodev.com/companies/acme/"
-            "jobs/platform-engineer"
+    def test_source_preserves_adzuna_redirect_url(self):
+        redirect_url = (
+            "https://www.adzuna.com/land/ad/5849361556"
+            "?utm_medium=api"
         )
-        soup = BeautifulSoup(
-            """
-            <a href="/about">About</a>
-            <a href="/c/acme/j/platform-engineer/applications/new">
-                Continue applying
-            </a>
-            """,
-            "html.parser",
+        job = AdzunaJobSource.normalize_job(
+            {
+                "id": "5849361556",
+                "redirect_url": redirect_url,
+                "title": "Platform Engineer",
+                "company": {"display_name": "Example"},
+            },
+            "us",
         )
+        self.assertEqual(job["posting_url"], redirect_url)
+        self.assertEqual(job["apply_url"], redirect_url)
 
-        self.assertEqual(
-            TokyoDevJobSource.find_apply_url(soup, posting_url),
-            (
-                "https://www.tokyodev.com/c/acme/j/"
-                "platform-engineer/applications/new"
-            ),
-        )
+    def test_backend_routes_every_adzuna_country_host(self):
+        self.assertEqual(len(ADZUNA_HOSTS), 38)
 
-    def test_source_falls_back_to_the_listing_without_an_apply_route(self):
-        posting_url = (
-            "https://www.tokyodev.com/companies/acme/"
-            "jobs/platform-engineer"
-        )
-        soup = BeautifulSoup("<a href='/about'>About</a>", "html.parser")
-        self.assertEqual(
-            TokyoDevJobSource.find_apply_url(soup, posting_url),
-            posting_url,
-        )
+        for host in ADZUNA_HOSTS:
+            with self.subTest(host=host):
+                job = self.job(
+                    f"https://{host}/land/ad/123"
+                )
+                self.assertTrue(
+                    chrome_agent_supports_job(job)
+                )
+                self.assertEqual(
+                    chrome_agent_adapter(job),
+                    "adzuna_resolver",
+                )
+                self.assertEqual(
+                    get_submission_executor(job),
+                    EXECUTOR_CHROME_AGENT,
+                )
 
-    def test_backend_routes_tokyodev_to_the_resolver(self):
-        job = self.job(
-            "https://www.tokyodev.com/c/acme/j/"
-            "platform-engineer/applications/new"
-        )
-        self.assertTrue(chrome_agent_supports_job(job))
-        self.assertEqual(
-            chrome_agent_adapter(job),
-            "tokyo_dev_resolver",
-        )
-        self.assertEqual(
-            get_submission_executor(job),
-            EXECUTOR_CHROME_AGENT,
-        )
-
-    def test_manifest_and_ui_register_tokyodev(self):
-        expected_hosts = {
-            "https://tokyodev.com/*",
-            "https://www.tokyodev.com/*",
+    def test_manifest_and_ui_register_adzuna(self):
+        expected_patterns = {
+            "https://*.adzuna.com/*",
+            "https://*.adzuna.com.au/*",
+            "https://*.adzuna.co.uk/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.9")
+        self.assertEqual(
+            self.manifest["version"],
+            "0.6.9",
+        )
         self.assertTrue(
-            expected_hosts.issubset(
+            expected_patterns.issubset(
                 self.manifest["host_permissions"]
             )
         )
         matching_scripts = [
             script
             for script in self.manifest["content_scripts"]
-            if expected_hosts.issubset(set(script.get("matches", [])))
-            and "tokyo_dev_agent.js" in script.get("js", [])
+            if expected_patterns.issubset(
+                set(script.get("matches", []))
+            )
+            and "adzuna_agent.js" in script.get("js", [])
         ]
         self.assertEqual(len(matching_scripts), 1)
         self.assertEqual(
@@ -147,24 +145,34 @@ class TokyoDevAgentTests(unittest.TestCase):
         self.assertRegex(
             self.settings,
             (
-                r"<span>TokyoDev</span>\s*"
+                r"<span>Adzuna</span>\s*"
                 r"<strong>Browser Agent resolver</strong>"
             ),
         )
-        self.assertEqual(self.queue.count('"tokyodev.com/"'), 2)
+        self.assertEqual(
+            self.queue.count(
+                'or "adzuna." in application_target'
+            ),
+            1,
+        )
+        self.assertEqual(
+            self.queue.count(
+                'or "adzuna." in answer_application_target'
+            ),
+            1,
+        )
         self.assertIn(
-            'or "tokyodev.com/" in current_apply_url',
+            'or "adzuna." in current_apply_url',
             self.scheduler,
         )
         self.assertIn(
-            "TokyoDev employer-application redirect resolver",
+            "Adzuna employer-application redirect resolver",
             self.readme,
         )
 
-    def test_resolver_updates_the_job_and_chains_to_greenhouse(self):
+    def test_resolver_updates_job_and_chains_to_greenhouse(self):
         listing_url = (
-            "https://www.tokyodev.com/c/acme/j/"
-            "platform-engineer/applications/new"
+            "https://www.adzuna.com/land/ad/5849361556"
         )
         resolved_url = (
             "https://job-boards.greenhouse.io/acme/jobs/123"
@@ -182,7 +190,10 @@ class TokyoDevAgentTests(unittest.TestCase):
                 "_discover_resolver_source",
                 return_value={"status": "created"},
             ) as discover,
-            patch.object(chrome_agent_service.db.session, "flush"),
+            patch.object(
+                chrome_agent_service.db.session,
+                "flush",
+            ),
         ):
             result = apply_chrome_agent_result(
                 candidate,
@@ -201,13 +212,12 @@ class TokyoDevAgentTests(unittest.TestCase):
         )
         self.assertEqual(
             discover.call_args.args[2]["discovery_method"],
-            "tokyo_dev_browser_resolver",
+            "adzuna_browser_resolver",
         )
 
-    def test_unsupported_destination_falls_back_to_manual_apply(self):
+    def test_unsupported_destination_falls_back_to_manual(self):
         listing_url = (
-            "https://www.tokyodev.com/c/acme/j/"
-            "platform-engineer/applications/new"
+            "https://www.adzuna.com/land/ad/5849361556"
         )
         resolved_url = (
             "https://apply.workable.com/acme/j/ABC123/"
@@ -230,7 +240,10 @@ class TokyoDevAgentTests(unittest.TestCase):
                 "_discover_resolver_source",
                 return_value=None,
             ),
-            patch.object(chrome_agent_service.db.session, "flush"),
+            patch.object(
+                chrome_agent_service.db.session,
+                "flush",
+            ),
             patch.object(
                 chrome_agent_service,
                 "_record_resolver_manual_handoff",
@@ -253,10 +266,9 @@ class TokyoDevAgentTests(unittest.TestCase):
             manual_handoff.call_args.kwargs["message"],
         )
 
-    def test_resolver_rejects_a_same_site_destination(self):
+    def test_resolver_rejects_same_site_destination(self):
         listing_url = (
-            "https://www.tokyodev.com/c/acme/j/"
-            "platform-engineer/applications/new"
+            "https://www.adzuna.com/land/ad/5849361556"
         )
         job, candidate = self.candidate_for(listing_url)
 
@@ -275,34 +287,17 @@ class TokyoDevAgentTests(unittest.TestCase):
                     {
                         "status": "resolved_application_target",
                         "resolved_url": (
-                            "https://www.tokyodev.com/jobs"
+                            "https://www.adzuna.co.uk/"
+                            "jobs/land/ad/123"
                         ),
                     },
                 )
 
         self.assertEqual(job.apply_url, listing_url)
 
-    def test_resolver_only_affirms_explicit_japan_residency(self):
+    def test_resolver_has_no_submission_logic(self):
         self.assertIn(
-            'currently_residing_in_japan',
-            self.source,
-        )
-        self.assertIn(
-            'answer !== "yes"',
-            self.source,
-        )
-        self.assertIn(
-            '"resident of japan"',
-            self.source,
-        )
-        self.assertIn(
-            '"needs_manual_destination"',
-            self.source,
-        )
-
-    def test_resolver_has_no_application_submission_logic(self):
-        self.assertIn(
-            'const ADAPTER = "tokyo_dev_resolver"',
+            'const ADAPTER = "adzuna_resolver"',
             self.source,
         )
         self.assertIn(
@@ -321,7 +316,7 @@ class TokyoDevAgentTests(unittest.TestCase):
         self.assertNotIn("Submit Application", self.source)
         self.assertNotIn('status: "submitted"', self.source)
         self.assertIn(
-            '"tokyo_dev_browser_agent"',
+            '"adzuna_browser_agent"',
             self.background,
         )
         self.assertIn(
@@ -330,7 +325,7 @@ class TokyoDevAgentTests(unittest.TestCase):
         )
 
 
-class TokyoDevAgentScriptTests(unittest.TestCase):
+class AdzunaAgentScriptTests(unittest.TestCase):
     def test_javascript_syntax(self):
         node = shutil.which("node")
         if not node:

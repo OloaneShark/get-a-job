@@ -14,6 +14,8 @@ Current Browser Agent support:
 - Remote OK employer-site redirect resolver
 - Jobicy guest-application redirect resolver
 - TokyoDev employer-application redirect resolver
+- Adzuna employer-application redirect resolver
+- The Muse employer-application data resolver
 
 The Agent can:
 - fill identity fields

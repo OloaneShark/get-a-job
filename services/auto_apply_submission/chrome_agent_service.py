@@ -97,6 +97,52 @@ TOKYO_DEV_HOSTS = {
     "www.tokyodev.com",
 }
 
+ADZUNA_HOSTS = {
+    "adzuna.com",
+    "www.adzuna.com",
+    "adzuna.com.au",
+    "www.adzuna.com.au",
+    "adzuna.at",
+    "www.adzuna.at",
+    "adzuna.be",
+    "www.adzuna.be",
+    "adzuna.com.br",
+    "www.adzuna.com.br",
+    "adzuna.ca",
+    "www.adzuna.ca",
+    "adzuna.fr",
+    "www.adzuna.fr",
+    "adzuna.de",
+    "www.adzuna.de",
+    "adzuna.in",
+    "www.adzuna.in",
+    "adzuna.it",
+    "www.adzuna.it",
+    "adzuna.com.mx",
+    "www.adzuna.com.mx",
+    "adzuna.nl",
+    "www.adzuna.nl",
+    "adzuna.co.nz",
+    "www.adzuna.co.nz",
+    "adzuna.pl",
+    "www.adzuna.pl",
+    "adzuna.sg",
+    "www.adzuna.sg",
+    "adzuna.co.za",
+    "www.adzuna.co.za",
+    "adzuna.es",
+    "www.adzuna.es",
+    "adzuna.ch",
+    "www.adzuna.ch",
+    "adzuna.co.uk",
+    "www.adzuna.co.uk",
+}
+
+THE_MUSE_HOSTS = {
+    "themuse.com",
+    "www.themuse.com",
+}
+
 ASHBY_HOSTS = {
     "jobs.ashbyhq.com",
 }
@@ -112,6 +158,8 @@ SUPPORTED_HOSTS = (
     | REMOTE_OK_HOSTS
     | JOBICY_HOSTS
     | TOKYO_DEV_HOSTS
+    | ADZUNA_HOSTS
+    | THE_MUSE_HOSTS
     | ASHBY_HOSTS
 )
 
@@ -172,6 +220,20 @@ RESOLVER_ADAPTERS = {
         "discovery_method": "tokyo_dev_browser_resolver",
         "closed_paths": {"", "/jobs"},
     },
+    "adzuna_resolver": {
+        "platform_name": "Adzuna",
+        "hosts": ADZUNA_HOSTS,
+        "browser_agent": "adzuna_browser_agent",
+        "discovery_method": "adzuna_browser_resolver",
+        "closed_paths": {"", "/jobs", "/search"},
+    },
+    "the_muse_resolver": {
+        "platform_name": "The Muse",
+        "hosts": THE_MUSE_HOSTS,
+        "browser_agent": "the_muse_browser_agent",
+        "discovery_method": "the_muse_browser_resolver",
+        "closed_paths": {"", "/jobs", "/search"},
+    },
 }
 
 
@@ -231,6 +293,12 @@ def chrome_agent_adapter(job):
 
     if host in TOKYO_DEV_HOSTS:
         return "tokyo_dev_resolver"
+
+    if host in ADZUNA_HOSTS:
+        return "adzuna_resolver"
+
+    if host in THE_MUSE_HOSTS:
+        return "the_muse_resolver"
 
     if host in ASHBY_HOSTS:
         return "ashby_hosted"

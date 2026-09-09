@@ -137,6 +137,18 @@ assert.equal(
   ),
   "tokyo_dev_browser_agent"
 );
+assert.equal(
+  hooks.resolverNameForUrl(
+    "https://www.adzuna.co.uk/jobs/land/ad/123"
+  ),
+  "adzuna_browser_agent"
+);
+assert.equal(
+  hooks.resolverNameForUrl(
+    "https://www.themuse.com/jobs/acme/platform-engineer"
+  ),
+  "the_muse_browser_agent"
+);
 assert.equal(hooks.resolverNameForUrl("https://jobs.ashbyhq.com/example"), "");
 
 for (const blocked of [
@@ -148,6 +160,8 @@ for (const blocked of [
   "https://remoteok.com/l/123",
   "https://jobicy.com/jobs/152678-example",
   "https://www.tokyodev.com/c/acme/j/role/applications/new",
+  "https://www.adzuna.com.au/land/ad/123",
+  "https://www.themuse.com/jobs/acme/platform-engineer",
   "http://127.0.0.1:5000/auto-apply",
 ]) {
   assert.throws(
@@ -239,6 +253,68 @@ assert.equal(
   "tokyo_dev_browser_agent"
 );
 
+const adzunaLaunchUrl = (
+  "https://www.adzuna.com/land/ad/5849361556"
+  + "#jobfinitum_agent=adzuna-token"
+  + "&jobfinitum_origin=http%3A%2F%2F127.0.0.1%3A5000"
+  + "&jobfinitum_batch=1"
+);
+const adzunaLaunch = hooks.resolverLaunchFromUrl(
+  adzunaLaunchUrl
+);
+assert.equal(adzunaLaunch.token, "adzuna-token");
+assert.equal(
+  adzunaLaunch.origin,
+  "http://127.0.0.1:5000"
+);
+assert.equal(adzunaLaunch.batch, true);
+assert.equal(
+  adzunaLaunch.resolver,
+  "adzuna_browser_agent"
+);
+
+const registeredAdzuna =
+  await hooks.registerResolverLaunchFromUrl(
+    90,
+    adzunaLaunchUrl
+  );
+assert.equal(registeredAdzuna.resolverTabId, 90);
+assert.equal(
+  (await hooks.getHimalayasResolverSession(90)).resolver,
+  "adzuna_browser_agent"
+);
+
+const theMuseLaunchUrl = (
+  "https://www.themuse.com/jobs/acme/platform-engineer"
+  + "#jobfinitum_agent=the-muse-token"
+  + "&jobfinitum_origin=http%3A%2F%2F127.0.0.1%3A5000"
+  + "&jobfinitum_batch=1"
+);
+const theMuseLaunch = hooks.resolverLaunchFromUrl(
+  theMuseLaunchUrl
+);
+assert.equal(theMuseLaunch.token, "the-muse-token");
+assert.equal(
+  theMuseLaunch.origin,
+  "http://127.0.0.1:5000"
+);
+assert.equal(theMuseLaunch.batch, true);
+assert.equal(
+  theMuseLaunch.resolver,
+  "the_muse_browser_agent"
+);
+
+const registeredTheMuse =
+  await hooks.registerResolverLaunchFromUrl(
+    91,
+    theMuseLaunchUrl
+  );
+assert.equal(registeredTheMuse.resolverTabId, 91);
+assert.equal(
+  (await hooks.getHimalayasResolverSession(91)).resolver,
+  "the_muse_browser_agent"
+);
+
 await hooks.resolveHimalayasTargetOnce(
   88,
   "https://jobs.lever.co/example/role/apply",
@@ -303,7 +379,7 @@ assert.equal(
 assert.equal(tabRemovals.includes(79), false);
 
 console.log(JSON.stringify({
-  passed: 22,
+  passed: 28,
   failed: 0,
   checks: [
     "Himalayas resolver identity",
@@ -314,8 +390,12 @@ console.log(JSON.stringify({
     "Remote OK resolver identity",
     "Jobicy resolver identity",
     "TokyoDev resolver identity",
+    "Adzuna resolver identity",
+    "The Muse resolver identity",
     "unsupported resolver host",
     "aggregator target rejection",
+    "Adzuna country-domain target rejection",
+    "The Muse target rejection",
     "external ATS acceptance",
     "child-session resolver preservation",
     "backend resolver attribution",
@@ -323,6 +403,8 @@ console.log(JSON.stringify({
     "Jooble launch parsing",
     "Jooble pre-navigation registration",
     "TokyoDev pre-navigation registration",
+    "Adzuna pre-navigation registration",
+    "The Muse pre-navigation registration",
     "Jooble backend resolver attribution",
     "Jooble chained ATS launch state",
     "terminal batch-tab recycling",

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.6.7",
+  "version": "0.6.9",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
@@ -26,6 +26,27 @@
     "https://www.jobicy.com/*",
     "https://tokyodev.com/*",
     "https://www.tokyodev.com/*",
+    "https://*.adzuna.com/*",
+    "https://*.adzuna.com.au/*",
+    "https://*.adzuna.at/*",
+    "https://*.adzuna.be/*",
+    "https://*.adzuna.com.br/*",
+    "https://*.adzuna.ca/*",
+    "https://*.adzuna.fr/*",
+    "https://*.adzuna.de/*",
+    "https://*.adzuna.in/*",
+    "https://*.adzuna.it/*",
+    "https://*.adzuna.com.mx/*",
+    "https://*.adzuna.nl/*",
+    "https://*.adzuna.co.nz/*",
+    "https://*.adzuna.pl/*",
+    "https://*.adzuna.sg/*",
+    "https://*.adzuna.co.za/*",
+    "https://*.adzuna.es/*",
+    "https://*.adzuna.ch/*",
+    "https://*.adzuna.co.uk/*",
+    "https://themuse.com/*",
+    "https://www.themuse.com/*",
     "https://jobs.ashbyhq.com/*"
   ],
   "background": {
@@ -144,6 +165,43 @@
       ],
       "js": [
         "tokyo_dev_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://*.adzuna.com/*",
+        "https://*.adzuna.com.au/*",
+        "https://*.adzuna.at/*",
+        "https://*.adzuna.be/*",
+        "https://*.adzuna.com.br/*",
+        "https://*.adzuna.ca/*",
+        "https://*.adzuna.fr/*",
+        "https://*.adzuna.de/*",
+        "https://*.adzuna.in/*",
+        "https://*.adzuna.it/*",
+        "https://*.adzuna.com.mx/*",
+        "https://*.adzuna.nl/*",
+        "https://*.adzuna.co.nz/*",
+        "https://*.adzuna.pl/*",
+        "https://*.adzuna.sg/*",
+        "https://*.adzuna.co.za/*",
+        "https://*.adzuna.es/*",
+        "https://*.adzuna.ch/*",
+        "https://*.adzuna.co.uk/*"
+      ],
+      "js": [
+        "adzuna_agent.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://themuse.com/*",
+        "https://www.themuse.com/*"
+      ],
+      "js": [
+        "the_muse_agent.js"
       ],
       "run_at": "document_start"
     },
