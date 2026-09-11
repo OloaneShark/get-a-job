@@ -150,6 +150,12 @@ assert.equal(
   "the_muse_browser_agent"
 );
 assert.equal(hooks.resolverNameForUrl("https://jobs.ashbyhq.com/example"), "");
+assert.equal(
+  hooks.resolverNameForUrl(
+    "https://careers.example.com/jobs/platform-engineer"
+  ),
+  "employer_site_browser_agent"
+);
 
 for (const blocked of [
   "https://himalayas.app/jobs/example",
@@ -175,6 +181,14 @@ assert.equal(
     "http://127.0.0.1:5000"
   ),
   "https://jobs.ashbyhq.com/example/application"
+);
+assert.equal(
+  hooks.externalHimalayasTarget(
+    "https://www.themuse.com/jobs/acme/platform-engineer",
+    "http://127.0.0.1:5000",
+    "employer_site_browser_agent"
+  ),
+  "https://www.themuse.com/jobs/acme/platform-engineer"
 );
 
 const session = {
@@ -215,6 +229,22 @@ const joobleLaunchUrl = (
   + "&jobfinitum_origin=http%3A%2F%2F127.0.0.1%3A5000"
   + "&jobfinitum_batch=1"
 );
+
+const employerLaunchUrl = (
+  "https://careers.example.com/jobs/platform-engineer"
+  + "#jobfinitum_agent=employer-token"
+  + "&jobfinitum_origin=http%3A%2F%2F127.0.0.1%3A5000"
+  + "&jobfinitum_batch=1"
+);
+const employerLaunch = hooks.resolverLaunchFromUrl(
+  employerLaunchUrl
+);
+assert.equal(employerLaunch.token, "employer-token");
+assert.equal(
+  employerLaunch.resolver,
+  "employer_site_browser_agent"
+);
+assert.equal(employerLaunch.batch, true);
 const joobleLaunch = hooks.resolverLaunchFromUrl(joobleLaunchUrl);
 assert.equal(joobleLaunch.token, "jooble-token");
 assert.equal(joobleLaunch.origin, "http://127.0.0.1:5000");
@@ -379,7 +409,7 @@ assert.equal(
 assert.equal(tabRemovals.includes(79), false);
 
 console.log(JSON.stringify({
-  passed: 28,
+  passed: 31,
   failed: 0,
   checks: [
     "Himalayas resolver identity",
@@ -393,14 +423,17 @@ console.log(JSON.stringify({
     "Adzuna resolver identity",
     "The Muse resolver identity",
     "unsupported resolver host",
+    "generic employer-site resolver identity",
     "aggregator target rejection",
     "Adzuna country-domain target rejection",
     "The Muse target rejection",
     "external ATS acceptance",
+    "employer-site to named-resolver chaining",
     "child-session resolver preservation",
     "backend resolver attribution",
     "chained ATS launch state",
     "Jooble launch parsing",
+    "employer-site launch parsing",
     "Jooble pre-navigation registration",
     "TokyoDev pre-navigation registration",
     "Adzuna pre-navigation registration",

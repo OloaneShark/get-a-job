@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Jobfinitum Chrome Agent",
-  "version": "0.6.9",
+  "version": "0.6.12",
   "description": "Runs supported Jobfinitum Auto Apply tasks inside ordinary Chrome.",
   "host_permissions": [
     "http://127.0.0.1/*",
     "http://localhost/*",
     "https://jobfinitum.com/*",
     "https://www.jobfinitum.com/*",
+    "https://*/*",
     "https://boards-api.greenhouse.io/*",
     "https://grnh.se/*",
     "https://himalayas.app/*",
@@ -213,6 +214,15 @@
         "ashby_agent.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "js": [
+        "employer_site_agent.js"
+      ],
+      "run_at": "document_start"
     }
   ],
   "permissions": [

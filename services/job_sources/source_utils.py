@@ -1,5 +1,5 @@
 
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 GREENHOUSE_HOSTS = {
@@ -62,6 +62,17 @@ def extract_greenhouse_board_token(value):
         for part in parsed_url.path.split("/")
         if part
     ]
+
+    if path_parts[:2] == ["embed", "job_app"]:
+        board_token = str(
+            (
+                parse_qs(parsed_url.query).get("for")
+                or [""]
+            )[0]
+        ).strip()
+
+        if board_token:
+            return board_token
 
     if not path_parts:
         raise ValueError(

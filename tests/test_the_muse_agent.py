@@ -130,7 +130,7 @@ class TheMuseAgentTests(unittest.TestCase):
         }
         self.assertEqual(
             self.manifest["version"],
-            "0.6.9",
+            "0.6.12",
         )
         self.assertTrue(
             expected_patterns.issubset(

@@ -31,7 +31,7 @@ class AshbyAgentSourceTests(unittest.TestCase):
         cls.settings_source = SETTINGS_PATH.read_text(encoding="utf-8")
 
     def test_manifest_registers_ashby(self):
-        self.assertEqual(self.manifest["version"], "0.6.9")
+        self.assertEqual(self.manifest["version"], "0.6.12")
         self.assertIn("https://jobs.ashbyhq.com/*", self.manifest["host_permissions"])
         self.assertTrue(any(
             "https://jobs.ashbyhq.com/*" in script.get("matches", [])

@@ -80,7 +80,7 @@ class JoobleAgentTests(unittest.TestCase):
             "https://jooble.org/*",
             "https://www.jooble.org/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.9")
+        self.assertEqual(self.manifest["version"], "0.6.12")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))

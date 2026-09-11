@@ -445,11 +445,33 @@ const JOB_BOARD_RESOLVER_HOSTS =
     ...THE_MUSE_RESOLVER_HOSTS,
   ]);
 
+const HOSTED_APPLICATION_HOSTS =
+  new Set([
+    "jobs.lever.co",
+    "jobs.eu.lever.co",
+    "boards.greenhouse.io",
+    "boards.eu.greenhouse.io",
+    "job-boards.greenhouse.io",
+    "job-boards.eu.greenhouse.io",
+    "grnh.se",
+    "jobs.ashbyhq.com",
+  ]);
+
+const JOBFINITUM_HOSTS =
+  new Set([
+    "127.0.0.1",
+    "localhost",
+    "jobfinitum.com",
+    "www.jobfinitum.com",
+  ]);
+
 function resolverNameForUrl(value) {
   try {
-    const host = new URL(
+    const parsed = new URL(
       String(value || "")
-    ).hostname.toLowerCase();
+    );
+    const host =
+      parsed.hostname.toLowerCase();
 
     if (
       host === "himalayas.app"
@@ -513,6 +535,14 @@ function resolverNameForUrl(value) {
 
     if (THE_MUSE_RESOLVER_HOSTS.has(host)) {
       return "the_muse_browser_agent";
+    }
+
+    if (
+      parsed.protocol === "https:"
+      && !HOSTED_APPLICATION_HOSTS.has(host)
+      && !JOBFINITUM_HOSTS.has(host)
+    ) {
+      return "employer_site_browser_agent";
     }
   } catch (error) {
     return "";
@@ -954,7 +984,8 @@ async function deleteHimalayasResolverSession(
 
 function externalHimalayasTarget(
   value,
-  jobfinitumOrigin = ""
+  jobfinitumOrigin = "",
+  currentResolver = ""
 ) {
   const parsed =
     new URL(
@@ -1013,9 +1044,20 @@ function externalHimalayasTarget(
     normalizedJobfinitumOrigin = "";
   }
 
+  const targetResolver =
+    resolverNameForUrl(parsed.href);
+  const canChainToDifferentResolver = (
+    currentResolver
+    && targetResolver
+    && targetResolver !== currentResolver
+  );
+
   if (
     !host
-    || blockedHosts.has(host)
+    || (
+      blockedHosts.has(host)
+      && !canChainToDifferentResolver
+    )
     || (
       normalizedJobfinitumOrigin
       && parsed.origin === normalizedJobfinitumOrigin
@@ -1079,7 +1121,8 @@ async function resolveHimalayasTargetOnce(
   const resolvedUrl =
     externalHimalayasTarget(
       value,
-      currentSession.origin
+      currentSession.origin,
+      currentSession.resolver
     );
 
   const origin =
@@ -1953,6 +1996,26 @@ chrome.tabs.onUpdated.addListener(
           host
         )
       ) {
+        if (
+          session.resolver
+          === "employer_site_browser_agent"
+        ) {
+          await resolveHimalayasTarget(
+            tabId,
+            changeInfo.url,
+            session
+          );
+        }
+        return;
+      }
+
+      if (
+        session.resolver
+          === "employer_site_browser_agent"
+        && resolverNameForUrl(
+          changeInfo.url
+        ) === "employer_site_browser_agent"
+      ) {
         return;
       }
 
@@ -1989,7 +2052,8 @@ chrome.tabs.onUpdated.addListener(
       try {
         externalHimalayasTarget(
           settledUrl,
-          session.origin
+          session.origin,
+          session.resolver
         );
       } catch (error) {
         await deleteHimalayasResolverSession(

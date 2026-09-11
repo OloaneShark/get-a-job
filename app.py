@@ -203,6 +203,7 @@ from services.auto_apply_submission.chrome_agent_service import (
     create_chrome_agent_token,
     decode_chrome_agent_token,
     prepare_chrome_agent_candidate,
+    unsupported_candidate_became_retryable,
 )
 from services.auto_apply_submission.executor_router import (
     EXECUTOR_CHROME_AGENT,
@@ -4113,6 +4114,73 @@ def delete_auto_apply_remembered_question(memory_id):
     )
 
 
+def _recover_newly_supported_manual_candidates(user_id):
+    candidates = (
+        AutoApplyCandidate.query
+        .filter(
+            AutoApplyCandidate.user_id == user_id,
+            AutoApplyCandidate.execution_status == "Unsupported",
+            AutoApplyCandidate.status != "Rejected",
+        )
+        .all()
+    )
+
+    if not candidates:
+        return 0
+
+    candidate_ids = [
+        candidate.id
+        for candidate in candidates
+    ]
+    latest_attempts = {}
+    attempts = (
+        ApplicationSubmissionAttempt.query
+        .filter(
+            ApplicationSubmissionAttempt.user_id == user_id,
+            ApplicationSubmissionAttempt
+            .auto_apply_candidate_id
+            .in_(candidate_ids),
+        )
+        .order_by(
+            ApplicationSubmissionAttempt
+            .auto_apply_candidate_id.asc(),
+            ApplicationSubmissionAttempt.started_at.desc(),
+            ApplicationSubmissionAttempt.id.desc(),
+        )
+        .all()
+    )
+
+    for attempt in attempts:
+        latest_attempts.setdefault(
+            attempt.auto_apply_candidate_id,
+            attempt,
+        )
+
+    recovered = []
+
+    for candidate in candidates:
+        if not unsupported_candidate_became_retryable(
+            candidate,
+            latest_attempts.get(candidate.id),
+        ):
+            continue
+
+        reset_candidate_submission(candidate)
+        recovered.append(candidate.id)
+
+    if recovered:
+        db.session.commit()
+        log_action(
+            user_id,
+            (
+                "Recovered newly supported Auto Apply candidates: "
+                f"{len(recovered)}"
+            ),
+        )
+
+    return len(recovered)
+
+
 @app.route("/auto-apply")
 @login_required
 def auto_apply_queue():
@@ -4124,6 +4192,10 @@ def auto_apply_queue():
             "warning",
         )
         return redirect(url_for("search_profiles"))
+
+    _recover_newly_supported_manual_candidates(
+        current_user.id
+    )
 
     page = request.args.get("page", 1, type=int)
     selected_status = request.args.get("status", "all").strip()
@@ -4328,6 +4400,10 @@ def auto_apply_batch_candidates_api():
                 )
             }
         ), 403
+
+    _recover_newly_supported_manual_candidates(
+        current_user.id
+    )
 
     stale_before = (
         datetime.now(timezone.utc)

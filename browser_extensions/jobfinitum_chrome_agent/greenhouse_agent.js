@@ -286,6 +286,25 @@
       .split("/")
       .filter(Boolean);
 
+    if (
+      parts[0] === "embed"
+      && parts[1] === "job_app"
+    ) {
+      const params = new URLSearchParams(
+        location.search
+      );
+      const boardToken = params.get("for");
+      const jobId = params.get("token");
+
+      if (
+        boardToken
+        && /^[A-Za-z0-9_-]+$/.test(boardToken)
+        && /^\d+$/.test(jobId || "")
+      ) {
+        return {boardToken, jobId};
+      }
+    }
+
     const jobsIndex = parts.indexOf("jobs");
 
     if (
@@ -6826,6 +6845,35 @@
     return result;
   }
 
+  function greenhousePostingClosed() {
+    const params = new URLSearchParams(
+      location.search
+    );
+
+    if (
+      params.get("error") === "true"
+      && location.pathname.includes(
+        "/embed/job_board"
+      )
+    ) {
+      return true;
+    }
+
+    const body = lower(
+      document.body?.innerText
+      || document.body?.textContent
+      || ""
+    );
+
+    return [
+      "this job is no longer available",
+      "this position is no longer available",
+      "this job has been removed",
+      "job not found",
+      "the job you are looking for is no longer open",
+    ].some((phrase) => body.includes(phrase));
+  }
+
   async function run(
     launch,
     task
@@ -6837,6 +6885,39 @@
       throw new Error(
         "Greenhouse Agent received a non-Greenhouse task."
       );
+    }
+
+    if (greenhousePostingClosed()) {
+      const message =
+        "Greenhouse reports that this job is no longer available.";
+
+      statusBox(
+        message,
+        "warning"
+      );
+
+      await report(
+        launch,
+        {
+          status: "posting_closed",
+          message,
+          final_url: location.href,
+          detail: {
+            url: location.href,
+            final_url: location.href,
+            executor: "chrome_agent",
+            adapter: "greenhouse_hosted",
+          },
+        }
+      );
+
+      clearLaunch();
+
+      await closeCompletedAgentTab(
+        launch
+      );
+
+      return;
     }
 
     const initialBody =

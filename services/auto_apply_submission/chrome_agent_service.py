@@ -30,6 +30,10 @@ from services.auto_apply_submission.engine import (
     get_or_create_package,
     resume_path,
 )
+from services.auto_apply_submission.executor_router import (
+    application_target,
+    browser_resolvable_application,
+)
 from services.job_lifecycle_service import (
     record_job_health_result,
 )
@@ -164,6 +168,13 @@ SUPPORTED_HOSTS = (
 )
 
 RESOLVER_ADAPTERS = {
+    "employer_site_resolver": {
+        "platform_name": "Employer site",
+        "hosts": set(),
+        "browser_agent": "employer_site_browser_agent",
+        "discovery_method": "employer_site_browser_resolver",
+        "closed_paths": set(),
+    },
     "himalayas_resolver": {
         "platform_name": "Himalayas",
         "hosts": HIMALAYAS_HOSTS,
@@ -236,13 +247,19 @@ RESOLVER_ADAPTERS = {
     },
 }
 
+HOSTED_ADAPTERS = {
+    "lever_hosted",
+    "greenhouse_hosted",
+    "ashby_hosted",
+}
+
 
 def utcnow_naive():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def chrome_agent_target(job):
-    return str(job.apply_url or job.posting_url or "").strip()
+    return application_target(job)
 
 
 def chrome_agent_supports_job(job):
@@ -253,7 +270,10 @@ def chrome_agent_supports_job(job):
         or ""
     ).lower()
 
-    return host in SUPPORTED_HOSTS
+    return (
+        host in SUPPORTED_HOSTS
+        or browser_resolvable_application(job)
+    )
 
 
 def chrome_agent_adapter(job):
@@ -303,9 +323,49 @@ def chrome_agent_adapter(job):
     if host in ASHBY_HOSTS:
         return "ashby_hosted"
 
+    if browser_resolvable_application(job):
+        return "employer_site_resolver"
+
     raise ValueError(
         "The Chrome Agent does not support "
         "this application host yet."
+    )
+
+
+def unsupported_candidate_became_retryable(
+    candidate,
+    latest_attempt=None,
+):
+    if (
+        getattr(candidate, "execution_status", None)
+        != "Unsupported"
+        or getattr(candidate, "status", None) == "Rejected"
+    ):
+        return False
+
+    job = getattr(candidate, "discovered_job", None)
+
+    if job is None or not chrome_agent_supports_job(job):
+        return False
+
+    current_adapter = chrome_agent_adapter(job)
+    previous_adapter = str(
+        getattr(latest_attempt, "adapter_name", "")
+        or ""
+    ).strip()
+
+    if previous_adapter in {
+        "",
+        "unsupported",
+        "legacy_submission",
+    }:
+        return True
+
+    return (
+        current_adapter
+        in HOSTED_ADAPTERS
+        | {"employer_site_resolver"}
+        and previous_adapter != current_adapter
     )
 
 
@@ -538,6 +598,17 @@ def build_chrome_agent_task(candidate, user, *, token, resume_url):
         "adapter": adapter_name,
         "candidate_id": candidate.id,
         "target_url": prepared["target"],
+        "job": {
+            "company_name": (
+                candidate.discovered_job.company_name or ""
+            ),
+            "position_title": (
+                candidate.discovered_job.position_title or ""
+            ),
+            "posting_url": (
+                candidate.discovered_job.posting_url or ""
+            ),
+        },
         "identity": {
             "first_name": identity.first_name,
             "last_name": identity.last_name,
@@ -1012,6 +1083,48 @@ def _is_resolver_jobs_index(
     )
 
 
+def _record_closed_posting(
+    candidate,
+    platform_name,
+    *,
+    final_url="",
+    reason="",
+):
+    posting_url = str(
+        candidate.discovered_job.posting_url
+        or candidate.discovered_job.apply_url
+        or ""
+    ).strip()
+    reason = str(reason or "").strip() or (
+        f"{platform_name} reported that the posting is closed"
+    )
+    message = (
+        f"{platform_name} confirmed that this job is no longer "
+        "available."
+    )
+    cleanup_stats = record_job_health_result(
+        {
+            "posting_url": posting_url,
+            "status": "Closed",
+            "reason": reason,
+            "final_url": (
+                str(final_url or "").strip()
+                or posting_url
+            ),
+            "http_status": None,
+            "checked_at": utcnow_naive(),
+        }
+    )
+    db.session.flush()
+
+    return {
+        "status": "Closed",
+        "message": message,
+        "posting_removed": True,
+        "cleanup": cleanup_stats,
+    }
+
+
 def apply_chrome_agent_result(candidate, user, payload):
     if candidate.status == "Rejected":
         return {
@@ -1065,45 +1178,23 @@ def apply_chrome_agent_result(candidate, user, payload):
                 resolver_config,
             )
         ):
-            posting_url = str(
-                candidate.discovered_job.posting_url
-                or candidate.discovered_job.apply_url
-                or ""
-            ).strip()
-            message = (
-                f"{platform_name} redirected this posting to its jobs "
-                "index, confirming that the job is no longer available."
+            return _record_closed_posting(
+                candidate,
+                platform_name,
+                final_url=final_url,
+                reason=(
+                    str(
+                        payload.get("message")
+                        or detail.get("closure_reason")
+                        or ""
+                    ).strip()
+                    if resolver_status == "posting_closed"
+                    else (
+                        f"{platform_name} redirected the posting "
+                        "to its jobs index"
+                    )
+                ),
             )
-            cleanup_stats = (
-                record_job_health_result(
-                    {
-                        "posting_url": posting_url,
-                        "status": "Closed",
-                        "reason": (
-                            f"{platform_name} redirected the posting "
-                            "to its jobs index"
-                        ),
-                        "final_url": (
-                            final_url
-                            or str(
-                                candidate.discovered_job.posting_url
-                                or candidate.discovered_job.apply_url
-                                or ""
-                            )
-                        ),
-                        "http_status": None,
-                        "checked_at": utcnow_naive(),
-                    }
-                )
-            )
-            db.session.flush()
-
-            return {
-                "status": "Closed",
-                "message": message,
-                "posting_removed": True,
-                "cleanup": cleanup_stats,
-            }
 
         if resolver_status == "needs_manual_destination":
             message = str(
@@ -1206,16 +1297,21 @@ def apply_chrome_agent_result(candidate, user, payload):
         )
         db.session.flush()
 
-        continue_in_chrome_agent = (
-            chrome_agent_supports_job(job)
-            and chrome_agent_adapter(job)
-            not in RESOLVER_ADAPTERS
+        resolved_adapter = (
+            chrome_agent_adapter(job)
+            if chrome_agent_supports_job(job)
+            else None
         )
-
-        resolved_adapter = None
-
-        if continue_in_chrome_agent:
-            resolved_adapter = chrome_agent_adapter(job)
+        continue_in_chrome_agent = (
+            resolved_adapter is not None
+            and (
+                resolved_adapter not in RESOLVER_ADAPTERS
+                or (
+                    adapter_name == "employer_site_resolver"
+                    and resolved_adapter != adapter_name
+                )
+            )
+        )
 
         if not continue_in_chrome_agent:
             manual_detail = (
@@ -1275,6 +1371,31 @@ def apply_chrome_agent_result(candidate, user, payload):
         else "application host"
     )
 
+    payload_status = str(
+        payload.get("status") or ""
+    ).strip().lower()
+
+    if payload_status == "posting_closed":
+        detail = payload.get("detail")
+
+        if not isinstance(detail, dict):
+            detail = {}
+
+        return _record_closed_posting(
+            candidate,
+            platform_name,
+            final_url=(
+                payload.get("final_url")
+                or detail.get("final_url")
+                or detail.get("url")
+                or ""
+            ),
+            reason=(
+                f"{platform_name} application form reported that "
+                "the posting is closed"
+            ),
+        )
+
     status_map = {
         "submitted": "Submitted",
         "waiting_verification": "Waiting for Verification",
@@ -1285,7 +1406,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         "failed": "Failed",
     }
     status = status_map.get(
-        str(payload.get("status") or "").strip().lower()
+        payload_status
     )
     if status is None:
         raise ValueError("Chrome Agent returned an unsupported status.")

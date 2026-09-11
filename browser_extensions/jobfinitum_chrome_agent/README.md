@@ -16,6 +16,8 @@ Current Browser Agent support:
 - TokyoDev employer-application redirect resolver
 - Adzuna employer-application redirect resolver
 - The Muse employer-application data resolver
+- employer-branded Greenhouse application links with `gh_jid`
+- branded employer-site scanner for supported ATS wrappers and redirects
 
 The Agent can:
 - fill identity fields
