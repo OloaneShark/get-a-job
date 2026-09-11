@@ -12,4 +12,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "python migrate_account_security.py && python migrate_shared_job_cache.py && python migrate_auto_apply.py && python migrate_auto_apply_submission.py && python migrate_application_answer_profile.py && exec gunicorn --bind 0.0.0.0:5000 app:app"]
+CMD ["sh", "-c", "python migrate_account_security.py && python migrate_shared_job_cache.py && python migrate_auto_apply.py && python migrate_auto_apply_submission.py && python migrate_application_answer_memory.py && python migrate_application_answer_profile.py && python migrate_job_application_capacity.py && exec gunicorn --bind 0.0.0.0:5000 app:app"]

@@ -7659,24 +7659,6 @@ def view_interview_prep(prep_id):
     )
 
 
-@app.route("/applications/<int:application_id>")
-@login_required
-def view_application(application_id):
-    application = JobApplication.query.get_or_404(application_id)
-
-    if application.user_id != current_user.id:
-        flash("You are not authorized to view this application.", "danger")
-        return redirect(url_for("dashboard"))
-
-    decrypted_notes = decrypt_text(application.notes)
-
-    return render_template(
-        "view_application.html",
-        application=application,
-        decrypted_notes=decrypted_notes
-    )
-
-
 @app.route("/job-descriptions/new", methods=["GET", "POST"])
 @login_required
 def save_job_description():

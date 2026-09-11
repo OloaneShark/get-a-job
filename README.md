@@ -1,140 +1,221 @@
-# Get a Job
+# Jobfinitum
 
-Get a Job is a full-stack job search command center — track applications, vet company legitimacy, analyze your resume against real job descriptions, and generate AI-assisted resumes, cover letters, and interview prep, all in one Flask app.
+Jobfinitum is a job-search operations workspace for discovering roles, managing
+applications, maintaining resume versions, researching employers, and reducing
+repetitive application work.
 
-This project is being built in phases. **Phase 1 (core tracking + AI tools) is complete.** See [Roadmap](#roadmap) for what's next.
+The application is under active development. It currently includes the core
+tracking platform, multi-source job discovery, scheduled lifecycle cleanup,
+search profiles, AI-assisted preparation tools, and a normal-Chrome Auto Apply
+agent.
 
-## Table of Contents
+## Current Capabilities
 
-- [Phase 1 Features](#phase-1-features)
-- [Tech Stack](#tech-stack)
-- [Architecture](#architecture)
-- [Local Setup](#local-setup)
-- [Environment Variables](#environment-variables)
-- [Deployment](#deployment)
-- [Roadmap](#roadmap)
+### Accounts and security
 
-## Phase 1 Features
+- Email/password registration with bcrypt password hashing
+- Email verification with console, Resend, or Amazon SES delivery
+- Google OAuth login
+- Optional TOTP two-factor authentication and recovery codes
+- Profile, password, 2FA, and account-deletion settings
+- Per-user data isolation, CSRF protection, encrypted notes, and audit logging
 
-**Application Tracking**
-- Add, edit, and delete job applications with company, position, salary, and status
-- Status history log per application (auto-tracks changes over time)
-- Search and filter dashboard by company name, status, and visa sponsorship
-- Follow-up and last-contacted date tracking
-- Export all applications to CSV
+### Job discovery
 
-**Company & Job Legitimacy**
-- Company reputation lookup with strengths/warnings breakdown
-- Automated legitimacy scoring and risk level for each application (flags scam red flags from company website, posting URL, recruiter email, and salary)
+- 28 registered source adapters
+- Public feeds, job boards, ATS boards, and configurable company sources
+- Search profiles with title, location, remote, salary, technology, visa, and
+  Auto Apply preferences
+- Shared job cache, deduplication, saved jobs, ignored jobs, and bulk actions
+- Job lifecycle checks that remove closed or stale postings
+- Admin source registry, source discovery queue, validation, and approval tools
 
-**Resume Tools**
-- Upload and store multiple resume versions (PDF/DOCX supported)
-- Automatically extracts and stores resume text for reuse across AI features
-- Latest uploaded resume is automatically used for AI resume review, cover letters, and interview preparation
-- In-browser resume preview and download
-- Rule-based resume strength scoring with specific improvement suggestions
-- AI-powered resume review against a specific job description
-- Resume-to-job-description keyword match scoring, with matched/missing keywords and priority gaps
+Registered discovery sources:
 
-**AI-Assisted Writing**
-- AI cover letter generation automatically tailored to a company, role, and the user's latest uploaded resume
-- AI interview coach that generates role-specific behavioral questions, technical questions, study topics, interview strategy, and preparation checklists using both the job description and the user's latest resume
-- Saved interview prep, viewable later per application
-- **Graceful AI fallback:** if the AI API is unavailable, the app builds a manual prompt you can paste directly into ChatGPT instead of failing outright
+`Greenhouse`, `Lever`, `Ashby`, `Remote OK`, `We Work Remotely`, `Remotive`,
+`Himalayas`, `Jobicy`, `Arbeitnow`, `Japan Dev`, `TokyoDev`, `Workday`,
+`Recruitee`, `Adzuna`, `Jooble`, `USAJobs`, `The Muse`, `Python.org Jobs`,
+`Hacker News Jobs`, `CNCF GitJobs`, `Remote First Jobs`, `Y Combinator Jobs`,
+`AI Dev Jobs`, `Green Japan`, `BambooHR`, `Workable`, `Amazon Jobs`, and
+`Apple Jobs`.
 
-**Job Import**
-- Import job postings directly from a URL
-- Automatically cleans and extracts job posting content
-- Review and edit imported information before saving
-- Save imported postings directly into the application tracker
-- Built on a generic extraction pipeline that can be expanded to support multiple job platforms
+Discovery support does not automatically mean submission support. Unsupported
+application systems are handed to the user as Manual Apply instead of being
+reported as submitted.
 
-**Job Descriptions**
-- Save job descriptions independently of an application for later reference
-- Edit and delete saved job descriptions
+### Auto Apply
 
-**Security & Accounts**
-- User registration and login (bcrypt-hashed passwords, Flask-Login sessions)
-- Per-user data isolation — every application, resume, and prep is scoped to its owner
-- Sensitive notes encrypted at rest
-- Audit logging of key user actions
+- Search-profile staging rules and account-wide daily limits
+- Explicit resume selection per Auto Apply profile
+- Applicant Profile identity, contact, authorization, education, language, and
+  reusable-answer fields
+- Remembered application answers with per-answer deletion
+- Queue states for review, sign-in, verification, missing answers, user action,
+  manual apply, failure, submission, and rejection
+- Batch execution with watchdog handling and managed tab cleanup
+- Unknown required questions return to Jobfinitum as Needs Application Answer
+- CAPTCHA and genuine human verification pause for the user; they are never
+  bypassed
+- Submission is marked complete only after the employer page confirms it
 
-## Tech Stack
+Normal-Chrome submission adapters:
 
-| Category | Tools |
-|---|---|
-| Language | Python |
-| Web Framework | Flask |
-| Auth | Flask-Login, bcrypt |
-| Forms | Flask-WTF, WTForms |
-| ORM | SQLAlchemy (Flask-SQLAlchemy) |
-| Database | PostgreSQL |
-| AI | OpenAI API |
-| Resume Parsing | pypdf, python-docx |
-| Containerization | Docker, Docker Compose |
-| App Server | Gunicorn |
-| CI/CD | GitHub Actions |
+- Hosted ATS forms: Greenhouse, Lever, and Ashby
+- Middleman resolvers: Himalayas, Remote First Jobs, Japan Dev, We Work
+  Remotely, Jooble, Remote OK, Jobicy, TokyoDev, Adzuna, and The Muse
+- Evidence-gated employer-site scanner for branded Greenhouse, Lever, and Ashby
+  wrappers
+
+The unpacked extension lives in
+`browser_extensions/jobfinitum_chrome_agent`.
+
+### Applications, resumes, and AI
+
+- Application create, edit, detail, delete, search, status history, and CSV
+  export workflows
+- Job URL import and independent saved job descriptions
+- Company legitimacy, risk, and application-intelligence reports
+- Multiple PDF/DOCX resume versions with extraction, preview, and download
+- Resume analysis, resume-to-job matching, AI resume review, cover letters,
+  interview coaching, and saved interview preparation
+- Manual prompt fallback when an AI request cannot be completed
 
 ## Architecture
 
-```
-User → Flask App → SQLAlchemy → PostgreSQL
-                 → OpenAI API (resume review, cover letters, interview coaching)
-                 → Local file storage (uploaded resumes)
-                 → Job URL Import Pipeline
-                 → Resume Extraction (DOCX/PDF)
+```text
+Browser
+  -> Flask routes and Jinja templates
+  -> SQLAlchemy models
+  -> PostgreSQL
+  -> job-source services and schedulers
+  -> OpenAI-backed analysis services
+  -> Jobfinitum Chrome Agent
+       -> board resolver
+       -> hosted ATS adapter
+       -> confirmed result API
 ```
 
-If the OpenAI API call fails, the relevant route catches the exception and returns a manually-copyable prompt instead of erroring out, so the AI features degrade instead of breaking.
+Runtime route handlers currently live in `app.py`. The root `routes.py` module
+provides a live, duplicate-aware route catalog while route extraction into
+Flask blueprints remains future architecture work.
+
+## Requirements
+
+- Python 3.12 or newer; the Docker image currently uses Python 3.14
+- PostgreSQL
+- Chrome for the normal-browser Auto Apply agent
+- Node.js only when running the JavaScript edge-case harnesses directly
+- An OpenAI API key only for AI-backed features
+
+Python packages are pinned in `requirements.txt`.
 
 ## Local Setup
 
-```bash
-git clone https://github.com/OloaneShark/get-a-job.git
-cd get-a-job
-pip install -r requirements.txt
-cp .env.example .env   # then fill in your own values
+Windows PowerShell:
+
+```powershell
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+Create a `.env` file and configure at least the required values below, then run
+the idempotent migrations used by the application:
+
+```powershell
+python migrate_account_security.py
+python migrate_shared_job_cache.py
+python migrate_auto_apply.py
+python migrate_auto_apply_submission.py
+python migrate_application_answer_memory.py
+python migrate_application_answer_profile.py
+python migrate_job_application_capacity.py
 python app.py
 ```
 
-Or with Docker:
+Jobfinitum will be available at `http://127.0.0.1:5000`.
+
+Docker:
 
 ```bash
 docker compose up --build
 ```
 
-The app will be available at `http://localhost:5000`.
+## Environment
 
-## Environment Variables
+Required:
 
-**Required**
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Flask sessions and signed Chrome Agent task tokens |
+| `DATABASE_URL` | SQLAlchemy PostgreSQL connection URL |
+| `ENCRYPTION_KEY` | Encryption for sensitive stored fields |
+| `SECURITY_HASH_KEY` | Stable hashing for security-sensitive values |
 
+Optional feature configuration:
+
+| Variable | Purpose |
+|---|---|
+| `OPENAI_API_KEY` | AI resume, cover-letter, interview, and intelligence tools |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Google OAuth |
+| `EMAIL_BACKEND` | `console`, `resend`, or `ses` |
+| `EMAIL_FROM`, `RESEND_API_KEY`, `AWS_SES_REGION` | Verification email delivery |
+| `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` | Adzuna discovery |
+| `JOOBLE_API_KEY` | Jooble discovery |
+| `USAJOBS_API_KEY`, `USAJOBS_API_EMAIL` | USAJobs discovery |
+| `THE_MUSE_API_KEY` | The Muse discovery |
+| `AI_DEV_JOBS_API_KEY` | AI Dev Jobs discovery |
+| `GREENHOUSE_EDUCATION_BOARD_TOKEN` | Greenhouse school lookup seed |
+| `JOB_SCHEDULER_ENABLED` | Enables scheduled discovery |
+| `JOB_LIFECYCLE_ENABLED` | Enables closed-posting lifecycle checks |
+| `JOB_SOURCE_DEBUG` | Enables source diagnostics |
+| `AUTO_APPLY_BROWSER_MODE` | Legacy Playwright mode: `ephemeral` or `persistent` |
+| `AUTO_APPLY_BROWSER_CHANNEL` | Persistent browser channel |
+| `AUTO_APPLY_BROWSER_PROFILE_DIR` | Persistent browser profile directory |
+| `AUTO_APPLY_BROWSER_HEADLESS` | Legacy browser visibility |
+| `AUTO_APPLY_HUMAN_HANDOFF_TIMEOUT_SECONDS` | Human handoff timeout |
+
+Do not commit `.env` or production credentials.
+
+## Chrome Agent
+
+1. Open `chrome://extensions`.
+2. Enable Developer mode.
+3. Choose Load unpacked.
+4. Select `browser_extensions/jobfinitum_chrome_agent`.
+5. Reload the extension after any agent or manifest change.
+
+Jobfinitum checks the installed extension version on the Browser Agent settings
+page.
+
+## Routes
+
+Print the current route inventory:
+
+```powershell
+python routes.py
 ```
-SECRET_KEY=
-DATABASE_URL=
-OPENAI_API_KEY=
+
+The command groups routes by feature, reports the total, and exits with an error
+if two handlers claim an overlapping method on the same URL rule.
+
+## Tests
+
+```powershell
+python -m unittest discover -s tests
+python -m compileall -q app.py services tests
+python -m pip check
 ```
 
-> Secrets are never committed to this repository.
+The JavaScript edge harnesses use Node. The Playwright package includes a Node
+runtime in this development environment:
 
-## Deployment
+```powershell
+.\venv\Lib\site-packages\playwright\driver\node.exe tests\js\employer_site_agent_edge_cases.mjs
+.\venv\Lib\site-packages\playwright\driver\node.exe tests\js\job_board_resolver_background_edge_cases.mjs
+```
 
-Deployed via Docker with Gunicorn as the app server. GitHub Actions handles CI on push to `main`.
+## Project Status
 
-## Roadmap
-
-Get a Job is being built in phases. Planned for future phases:
-
-- Intelligent multi-source job discovery (supported job boards and company career pages)
-- AI-powered structured extraction of job postings
-- Company OSINT and trust scoring
-- Automated skill-gap analysis and resume optimization
-- Email parsing for application status changes
-- Browser extension for one-click application logging
-- Analytics dashboard (response rates, interview rate, offer rate, ATS score trends)
-- Email parsing to auto-detect application status changes
-- Browser extension for one-click application logging
-- Team/mentor sharing of application progress
-- Analytics dashboard (response rates, time-to-offer, etc.)
-
-Phase details will be updated here as each phase ships.
+See `ROADMAP.md` for current priorities and `CHANGELOG.md` for shipped work.

@@ -1,3 +1,5 @@
+# Reproducible Jobfinitum runtime dependency lock.
+# Run python -m pip check after changing package versions.
 annotated-types==0.7.0
 anyio==4.14.1
 APScheduler==3.11.3
@@ -66,5 +68,6 @@ qrcode[pil]==8.2
 Pillow==12.3.0
 country-state-city==0.1.0
 playwright==1.62.0
+pyee==13.0.1
 phonenumbers==9.0.36
 resend==2.42.0
