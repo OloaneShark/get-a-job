@@ -36,7 +36,10 @@ BACKGROUND_EDGE_CASE_PATH = (
 )
 
 
-class TokyoDevAgentTests(unittest.TestCase):
+from tests.runner_test_support import ResolverTransitionTestMixin
+
+
+class TokyoDevAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
@@ -126,7 +129,7 @@ class TokyoDevAgentTests(unittest.TestCase):
             "https://tokyodev.com/*",
             "https://www.tokyodev.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.14")
+        self.assertEqual(self.manifest["version"], "0.6.16")
         self.assertTrue(
             expected_hosts.issubset(
                 self.manifest["host_permissions"]

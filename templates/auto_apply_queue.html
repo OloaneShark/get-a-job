@@ -187,6 +187,7 @@
             {% for candidate in candidates %}
                 {% set execution = candidate.execution_status or "Not Started" %}
                 {% set latest_attempt = latest_attempts.get(candidate.id) %}
+                {% set diagnostic = (runner_diagnostics|default({})).get(candidate.id) %}
                 {% set chrome_agent_supported = candidate.id in chrome_agent_candidate_ids %}
 
                 <div
@@ -301,6 +302,29 @@
                                 {% endif %}
                             </div>
                         {% endif %}
+
+                        <details class="mt-3" data-runner-details="{{ candidate.id }}" {% if not diagnostic %}hidden{% endif %}>
+                            <summary><strong>Runner details</strong><span data-runner-reason>{% if diagnostic %}: {{ diagnostic.reason_label }}{% endif %}</span></summary>
+                            <dl class="row mt-2 mb-0" data-runner-fields>
+                                {% if diagnostic %}
+                                    {% for label, value in [
+                                        ("Reason", diagnostic.reason_code),
+                                        ("System", diagnostic.adapter),
+                                        ("Stage", diagnostic.phase),
+                                        ("Fields", diagnostic.failed_fields|join("; ") or "None reported"),
+                                        ("Elapsed", ((diagnostic.elapsed_ms / 1000)|round(1)|string + " seconds") if diagnostic.elapsed_ms is not none else "Not recorded"),
+                                        ("Retries", diagnostic.retry_count if diagnostic.retry_count is not none else "Not recorded"),
+                                        ("Application tab", diagnostic.tab_outcome|replace("_", " ")),
+                                        ("Batch", diagnostic.batch_outcome|replace("_", " ")),
+                                        ("Agent version", diagnostic.agent_version or "Not recorded"),
+                                        ("Page", diagnostic.url or "Not recorded"),
+                                    ] %}
+                                        <dt class="col-sm-3">{{ label }}</dt>
+                                        <dd class="col-sm-9 text-break">{{ value }}</dd>
+                                    {% endfor %}
+                                {% endif %}
+                            </dl>
+                        </details>
 
                         {% if execution == "Needs Application Answer" %}
                             {% set question_state = application_question_states.get(candidate.id, {}) %}

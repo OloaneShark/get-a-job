@@ -28,7 +28,8 @@ The Agent can:
 - return unknown required questions to Jobfinitum
 - click the final application submit control
 - report submission state back to Jobfinitum
-- leave genuine CAPTCHA / verification for the user instead of bypassing it
+- report genuine CAPTCHA / verification without bypassing it; batch runs recycle
+  the blocked tab and continue to the next job
 
 ## Development install
 

@@ -29,7 +29,10 @@ QUEUE_PATH = ROOT / "templates" / "auto_apply_queue.html"
 EDGE_CASE_PATH = ROOT / "tests" / "js" / "employer_site_agent_edge_cases.mjs"
 
 
-class EmployerSiteAgentTests(unittest.TestCase):
+from tests.runner_test_support import ResolverTransitionTestMixin
+
+
+class EmployerSiteAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
@@ -288,7 +291,7 @@ class EmployerSiteAgentTests(unittest.TestCase):
         )
 
     def test_manifest_registers_the_limited_all_site_scanner(self):
-        self.assertEqual(self.manifest["version"], "0.6.14")
+        self.assertEqual(self.manifest["version"], "0.6.16")
         self.assertIn(
             "https://*/*",
             self.manifest["host_permissions"],

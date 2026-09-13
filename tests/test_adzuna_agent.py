@@ -35,7 +35,10 @@ BACKGROUND_EDGE_CASE_PATH = (
 )
 
 
-class AdzunaAgentTests(unittest.TestCase):
+from tests.runner_test_support import ResolverTransitionTestMixin
+
+
+class AdzunaAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")
@@ -121,7 +124,7 @@ class AdzunaAgentTests(unittest.TestCase):
         }
         self.assertEqual(
             self.manifest["version"],
-            "0.6.14",
+            "0.6.16",
         )
         self.assertTrue(
             expected_patterns.issubset(

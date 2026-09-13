@@ -126,9 +126,15 @@
           type: "jobfinitum-batch-control",
           origin: location.origin,
           action: String(event.data.action || ""),
+          diagnostic_result: event.data.diagnostic_result || null,
         },
-        () => {
-          void chrome.runtime.lastError;
+        (response) => {
+          if (chrome.runtime.lastError || !response?.observation) return;
+          window.postMessage({
+            source: SOURCE, type: "batch-observation",
+            result: event.data.diagnostic_result,
+            observation: response.observation,
+          }, location.origin);
         }
       );
     }

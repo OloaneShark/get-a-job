@@ -11,6 +11,10 @@ const tabUpdates = [];
 const tabRemovals = [];
 const tabUrls = new Map();
 const fetchCalls = [];
+let fetchResult = {
+  continue_in_chrome_agent: true,
+  resolved_url: "https://jobs.ashbyhq.com/example/application",
+};
 let runtimeMessageListener = null;
 
 const sandbox = {
@@ -28,10 +32,7 @@ const sandbox = {
     return {
       ok: true,
       async json() {
-        return {
-          continue_in_chrome_agent: true,
-          resolved_url: "https://jobs.ashbyhq.com/example/application",
-        };
+        return {...fetchResult};
       },
     };
   },
@@ -250,6 +251,33 @@ assert.equal(chained.origin, "https://jobs.ashbyhq.com");
 assert.equal(chainedParams.get("jobfinitum_agent"), "candidate-token");
 assert.equal(chainedParams.get("jobfinitum_origin"), "http://127.0.0.1:5000");
 assert.equal(chainedParams.get("jobfinitum_batch"), "1");
+
+fetchResult = {
+  status: "Waiting for Verification",
+  attempt_id: 91,
+  diagnostics: {run_id: "verification-run", batch: true},
+};
+const verificationSession = {
+  token: "verification-candidate-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: 43,
+  resolver: "remote_first_jobs_browser_agent",
+};
+tabUrls.set(43, "https://remotefirstjobs.com/jobs/example");
+await hooks.resolveHimalayasTargetOnce(
+  43,
+  "https://jobs.ashbyhq.com/example/application",
+  verificationSession
+);
+assert.equal(
+  tabUrls.get(43),
+  "http://127.0.0.1:5000/browser-agent?batch_wait=1"
+);
+fetchResult = {
+  continue_in_chrome_agent: true,
+  resolved_url: "https://jobs.ashbyhq.com/example/application",
+};
 
 const joobleLaunchUrl = (
   "https://jooble.org/away/123"
@@ -570,7 +598,7 @@ await hooks.cleanupOwnedAgentTabs(
   handoffSession.origin,
   {
     mode: "handoff",
-    reason: "waiting_verification",
+    reason: "waiting_sign_in",
   }
 );
 assert.equal(tabRemovals.includes(110), true);
@@ -818,7 +846,7 @@ await dispatchBackgroundMessage(
 );
 
 console.log(JSON.stringify({
-  passed: 44,
+  passed: 45,
   failed: 0,
   checks: [
     "Himalayas resolver identity",
@@ -841,6 +869,7 @@ console.log(JSON.stringify({
     "child-session resolver preservation",
     "backend resolver attribution",
     "chained ATS launch state",
+    "resolver verification recycles the batch tab",
     "Jooble launch parsing",
     "employer-site launch parsing",
     "Jooble pre-navigation registration",

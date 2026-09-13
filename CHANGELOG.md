@@ -21,7 +21,7 @@ development, so unreleased work may continue to evolve before a tagged release.
 - Added resolvers for Himalayas, Remote First Jobs, Japan Dev, We Work Remotely,
   Jooble, Remote OK, Jobicy, TokyoDev, Adzuna, and The Muse.
 - Added Applicant Profile answers, remembered questions, resume selection,
-  queue limits, missing-answer handoff, CAPTCHA pauses, submission confirmation,
+  queue limits, missing-answer handoff, CAPTCHA follow-up, submission confirmation,
   watchdog recovery, and managed tab cleanup.
 - Added evidence-gated handling for employer sites that wrap Greenhouse, Lever,
   or Ashby forms.
@@ -29,6 +29,10 @@ development, so unreleased work may continue to evolve before a tagged release.
   from being clicked without ATS evidence.
 - Added closed-posting detection for 404 pages, removed jobs, and redirects to a
   generic careers index.
+- Added persisted runner diagnostics for exact stop reasons, phases, failed
+  fields, retries, elapsed time, tab cleanup, and batch outcomes.
+- Changed batch verification handling to record the blocked application, recycle
+  its tab, and continue with the next queued job.
 
 ### Applications and intelligence
 

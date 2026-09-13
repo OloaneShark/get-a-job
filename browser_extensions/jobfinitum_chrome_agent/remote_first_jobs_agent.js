@@ -29,6 +29,13 @@
   }
 
   function statusBox(message, kind = "working") {
+    const diagnosticLaunch = parseLaunch();
+    if (diagnosticLaunch) {
+      chrome.runtime.sendMessage({
+        type: "jobfinitum-progress", origin: diagnosticLaunch.origin,
+        token: diagnosticLaunch.token, message,
+      }, () => { void chrome.runtime.lastError; });
+    }
     let box = document.getElementById("jobfinitum-agent-status");
     if (!box) {
       box = document.createElement("div");

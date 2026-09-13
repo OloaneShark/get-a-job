@@ -46,6 +46,7 @@ from services.auto_apply_submission.host_classification_service import (
 from services.job_lifecycle_service import (
     record_job_health_result,
 )
+from services.auto_apply_submission.runner_diagnostics import normalize_diagnostics
 
 
 
@@ -993,6 +994,10 @@ def _record_resolver_manual_handoff(
     if resolved_host:
         normalized_detail["resolved_host"] = resolved_host
 
+    normalized_detail["diagnostics"] = normalize_diagnostics(
+        "unsupported", normalized_detail, adapter=adapter_name, message=message,
+    )
+
     attempt = ApplicationSubmissionAttempt(
         user_id=user.id,
         auto_apply_candidate_id=candidate.id,
@@ -1018,7 +1023,10 @@ def _record_resolver_manual_handoff(
     package.status = "Unsupported"
     package.failure_reason = message
 
+    db.session.flush()
     return {
+        "attempt_id": attempt.id,
+        "diagnostics": normalized_detail["diagnostics"],
         "status": "Unsupported",
         "message": message,
         "resolved_url": resolved_url,
@@ -1116,6 +1124,10 @@ def _record_resolver_pause(
             detail_flag: True,
         }
     )
+    normalized_detail["diagnostics"] = normalize_diagnostics(
+        "waiting_sign_in" if detail_flag == "sign_in_required" else "waiting_verification",
+        normalized_detail, adapter=adapter_name, message=message,
+    )
     attempt = ApplicationSubmissionAttempt(
         user_id=user.id,
         auto_apply_candidate_id=candidate.id,
@@ -1139,7 +1151,10 @@ def _record_resolver_pause(
     package.status = status
     package.failure_reason = message
 
+    db.session.flush()
     return {
+        "attempt_id": attempt.id,
+        "diagnostics": normalized_detail["diagnostics"],
         "status": status,
         "message": message,
         "continue_in_chrome_agent": False,
@@ -1189,6 +1204,7 @@ def _record_closed_posting(
     *,
     final_url="",
     reason="",
+    detail=None,
 ):
     posting_url = str(
         candidate.discovered_job.posting_url
@@ -1201,6 +1217,10 @@ def _record_closed_posting(
     message = (
         f"{platform_name} confirmed that this job is no longer "
         "available."
+    )
+    diagnostic = normalize_diagnostics(
+        "posting_closed", detail, adapter=chrome_agent_adapter(candidate.discovered_job),
+        url=final_url or posting_url,
     )
     cleanup_stats = record_job_health_result(
         {
@@ -1221,14 +1241,18 @@ def _record_closed_posting(
         "status": "Closed",
         "message": message,
         "posting_removed": True,
+        "diagnostics": diagnostic,
         "cleanup": cleanup_stats,
     }
 
 
 def apply_chrome_agent_result(candidate, user, payload):
+    if not isinstance(payload, dict):
+        raise ValueError("Chrome Agent result must be an object.")
     if candidate.status == "Rejected":
         return {
             "status": "Rejected",
+            "diagnostics": normalize_diagnostics("rejected", payload.get("detail")),
             "message": (
                 "The application stayed rejected; a late Chrome "
                 "Agent result was ignored."
@@ -1248,6 +1272,14 @@ def apply_chrome_agent_result(candidate, user, payload):
     )
     job = candidate.discovered_job
     resolver_target_url = chrome_agent_target(job)
+
+    payload = dict(payload)
+    detail = dict(payload.get("detail")) if isinstance(payload.get("detail"), dict) else {}
+    detail["diagnostics"] = normalize_diagnostics(
+        payload.get("status"), detail, adapter=adapter_name,
+        url=resolver_target_url, message=payload.get("message", ""),
+    )
+    payload["detail"] = detail
 
     resolver_config = RESOLVER_ADAPTERS.get(
         adapter_name
@@ -1283,6 +1315,7 @@ def apply_chrome_agent_result(candidate, user, payload):
             return _record_closed_posting(
                 candidate,
                 platform_name,
+                detail=detail,
                 final_url=final_url,
                 reason=(
                     str(
@@ -1484,7 +1517,7 @@ def apply_chrome_agent_result(candidate, user, payload):
                 resolved_host=resolved_host,
             )
 
-        return {
+        result = {
             "status": "Resolved Application Target",
             "message": (
                 f"{platform_name} employer application "
@@ -1498,6 +1531,10 @@ def apply_chrome_agent_result(candidate, user, payload):
                 continue_in_chrome_agent
             ),
         }
+        return _record_runner_transition(
+            candidate, user, application, package, result,
+            {**detail, "resolved_url": resolved_url}, adapter_name,
+        )
 
     platform_name = (
         "Lever"
@@ -1522,6 +1559,7 @@ def apply_chrome_agent_result(candidate, user, payload):
         return _record_closed_posting(
             candidate,
             platform_name,
+            detail=detail,
             final_url=(
                 payload.get("final_url")
                 or detail.get("final_url")
@@ -1738,7 +1776,7 @@ def apply_chrome_agent_result(candidate, user, payload):
                 package.failure_reason = None
                 db.session.flush()
 
-                return {
+                result = {
                     "status": "Retrying With Saved Answers",
                     "message": (
                         "Jobfinitum filled every new question from saved "
@@ -1746,6 +1784,7 @@ def apply_chrome_agent_result(candidate, user, payload):
                     ),
                     "retry_with_saved_answers": True,
                 }
+                return _record_runner_transition(candidate, user, application, package, result, detail, adapter_name)
 
             status = "Needs Application Answer"
 
@@ -1756,6 +1795,10 @@ def apply_chrome_agent_result(candidate, user, payload):
                 )
 
     now = utcnow_naive()
+    detail["diagnostics"] = normalize_diagnostics(
+        payload_status, detail, adapter=adapter_name,
+        url=resolver_target_url, message=message,
+    )
     confirmation_url = str(
         payload.get("confirmation_url") or ""
     ).strip() or None
@@ -1810,4 +1853,26 @@ def apply_chrome_agent_result(candidate, user, payload):
         package.failure_reason = message
 
     db.session.flush()
-    return {"status": status, "message": message}
+    return {
+        "status": status, "message": message,
+        "attempt_id": attempt.id, "diagnostics": detail["diagnostics"],
+    }
+
+
+def _record_runner_transition(candidate, user, application, package, result, detail, adapter):
+    detail = dict(detail)
+    detail["diagnostics"] = normalize_diagnostics(
+        result["status"], detail, adapter=adapter, message=result["message"],
+    )
+    now = utcnow_naive()
+    attempt = ApplicationSubmissionAttempt(
+        user_id=user.id,
+        auto_apply_candidate_id=candidate.id,
+        application_id=application.id,
+        application_package_id=package.id,
+        adapter_name=adapter, status=result["status"], message=result["message"],
+        detail_json=json.dumps(detail, sort_keys=True), started_at=now, finished_at=now,
+    )
+    db.session.add(attempt)
+    db.session.flush()
+    return {**result, "attempt_id": attempt.id, "diagnostics": detail["diagnostics"]}

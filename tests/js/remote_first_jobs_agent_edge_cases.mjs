@@ -287,7 +287,7 @@ await edgeCase("the full resolver follows Apply and reports the external target"
 
   assert.equal(apply.clickCount, 1);
   assert.deepEqual(
-    sentMessages.map((message) => message.type),
+    sentMessages.map((message) => message.type).filter((type) => type !== "jobfinitum-progress"),
     [
       "jobfinitum-batch-register",
       "jobfinitum-task",

@@ -820,7 +820,10 @@ await edgeCase("Ashby success container reports Submitted", async () => {
 });
 
 await edgeCase("saved-answer retry reloads without clearing the launch", async () => {
-  sandbox.sessionStorage.setItem("jobfinitum_chrome_agent_launch_v1", "saved-launch");
+  const savedLaunch = JSON.stringify({
+    origin: "http://127.0.0.1:5000", token: "token", batch: true,
+  });
+  sandbox.sessionStorage.setItem("jobfinitum_chrome_agent_launch_v1", savedLaunch);
   messageResponder = (message) => message.type === "jobfinitum-result"
     ? {ok: true, result: {retry_with_saved_answers: true}}
     : {ok: true};
@@ -832,7 +835,7 @@ await edgeCase("saved-answer retry reloads without clearing the launch", async (
     "test"
   );
   assert.equal(locationState.reloadCount, 1);
-  assert.equal(sandbox.sessionStorage.getItem("jobfinitum_chrome_agent_launch_v1"), "saved-launch");
+  assert.equal(sandbox.sessionStorage.getItem("jobfinitum_chrome_agent_launch_v1"), savedLaunch);
 });
 
 await edgeCase("manual fallback marks unsupported and returns a batch tab", async () => {

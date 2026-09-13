@@ -32,7 +32,10 @@ BACKGROUND_EDGE_CASE_PATH = (
 )
 
 
-class RemoteFirstJobsAgentTests(unittest.TestCase):
+from tests.runner_test_support import ResolverTransitionTestMixin
+
+
+class RemoteFirstJobsAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")

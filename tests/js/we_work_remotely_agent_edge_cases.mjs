@@ -328,7 +328,7 @@ await edgeCase("a direct employer target chains into the ATS agent", async () =>
   await hooks.run();
 
   assert.deepEqual(
-    sentMessages.map((message) => message.type),
+    sentMessages.map((message) => message.type).filter((type) => type !== "jobfinitum-progress"),
     [
       "jobfinitum-batch-register",
       "jobfinitum-task",

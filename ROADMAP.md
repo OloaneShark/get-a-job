@@ -40,6 +40,8 @@ still needs to be completed.
 - [x] Evidence-gated detection of branded Greenhouse, Lever, and Ashby wrappers
 - [x] Missing-answer, sign-in, CAPTCHA, verification, and manual-apply handoffs
 - [x] Confirmed-submission handling and managed browser-tab cleanup
+- [x] Structured runner diagnostics for phases, failures, retries, tab cleanup,
+  and batch outcomes
 
 ## Active Reliability Priorities
 
@@ -49,9 +51,7 @@ still needs to be completed.
    redirect, duplicate a tab, return 404, or fall back to a generic careers index.
 3. Expand controlled React field persistence tests for education, nationality,
    demographic, and other dynamic ATS controls.
-4. Improve runner diagnostics so every stop has a precise user-facing reason and
-   enough structured detail for regression testing.
-5. Keep source lifecycle checks fast and accurate as discovery volume grows.
+4. Keep source lifecycle checks fast and accurate as discovery volume grows.
 
 ## Submission Coverage
 

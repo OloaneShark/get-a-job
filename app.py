@@ -209,6 +209,9 @@ from services.auto_apply_submission.chrome_agent_service import (
 from services.auto_apply_submission.host_classification_service import (
     prime_host_classification_cache,
 )
+from services.auto_apply_submission.runner_diagnostics import (
+    attempt_diagnostics, diagnostic_run_id, normalize_diagnostics, update_receipt,
+)
 from services.job_lifecycle_service import (
     job_is_suppressed,
     job_is_globally_closed,
@@ -4384,6 +4387,10 @@ def auto_apply_queue():
         selected_status=selected_status,
         status_counts=status_counts,
         latest_attempts=latest_attempts,
+        runner_diagnostics={
+            candidate_id: attempt_diagnostics(attempt)
+            for candidate_id, attempt in latest_attempts.items()
+        },
         application_question_states=application_question_states,
         chrome_agent_candidate_ids=chrome_agent_candidate_ids,
         applicant_profile=(
@@ -4578,6 +4585,28 @@ def interrupt_auto_apply_batch_candidate(candidate_id):
         )
 
     if reason == "stopped":
+        stop_attempt = None
+        if candidate.application_id and candidate.application_package_id:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            stop_detail = normalize_diagnostics(
+                "stopped", {"diagnostics": {
+                    **(payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}),
+                    "batch": True,
+                }},
+                adapter=chrome_agent_adapter(candidate.discovered_job),
+                url=chrome_agent_target(candidate.discovered_job),
+            )
+            stop_detail["batch_outcome"] = "stopped"
+            stop_attempt = ApplicationSubmissionAttempt(
+                user_id=current_user.id, auto_apply_candidate_id=candidate.id,
+                application_id=candidate.application_id,
+                application_package_id=candidate.application_package_id,
+                adapter_name="chrome_agent_batch", status="Stopped",
+                message="Auto Apply was stopped by the user.",
+                detail_json=json.dumps({"diagnostics": stop_detail}),
+                started_at=now, finished_at=now,
+            )
+            db.session.add(stop_attempt)
         if candidate.status == "Approved":
             reset_candidate_submission(candidate)
             db.session.commit()
@@ -4590,12 +4619,15 @@ def interrupt_auto_apply_batch_candidate(candidate_id):
                 ),
             )
 
+        db.session.commit()
         return jsonify(
             {
                 "success": True,
                 "candidate_id": candidate.id,
                 "status": candidate.execution_status,
                 "changed": candidate.status == "Pending Review",
+                "attempt_id": stop_attempt.id if stop_attempt else None,
+                "diagnostics": stop_detail if stop_attempt else None,
             }
         )
 
@@ -4626,13 +4658,12 @@ def interrupt_auto_apply_batch_candidate(candidate_id):
     ).replace(tzinfo=None)
     message = (
         "The Browser Agent did not report a result for this job "
-        "within 90 seconds. Jobfinitum moved on to the next job."
+        "within 90 seconds. The queue will attempt to advance."
     )
     application = prepared["application"]
     package = prepared["package"]
 
-    db.session.add(
-        ApplicationSubmissionAttempt(
+    timeout_attempt = ApplicationSubmissionAttempt(
             user_id=current_user.id,
             auto_apply_candidate_id=candidate.id,
             application_id=application.id,
@@ -4644,13 +4675,22 @@ def interrupt_auto_apply_batch_candidate(candidate_id):
                 {
                     "reason": "batch_result_timeout",
                     "timeout_seconds": 90,
+                    "diagnostics": normalize_diagnostics(
+                        "needs_user_action",
+                        {"reason": "batch_result_timeout", "diagnostics": {
+                            **(payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}),
+                            "batch": True,
+                        }},
+                        adapter=chrome_agent_adapter(candidate.discovered_job),
+                        url=chrome_agent_target(candidate.discovered_job),
+                    ),
                 },
                 sort_keys=True,
             ),
             started_at=now,
             finished_at=now,
-        )
     )
+    db.session.add(timeout_attempt)
 
     candidate.last_submission_attempt_at = now
     candidate.execution_status = "Needs User Action"
@@ -4674,6 +4714,8 @@ def interrupt_auto_apply_batch_candidate(candidate_id):
             "candidate_id": candidate.id,
             "status": "Needs User Action",
             "changed": True,
+            "attempt_id": timeout_attempt.id,
+            "diagnostics": attempt_diagnostics(timeout_attempt),
         }
     )
 
@@ -5313,6 +5355,7 @@ def chrome_agent_task_api(token):
             ),
         )
         db.session.commit()
+        task["diagnostic_run_id"] = diagnostic_run_id(token)
         return jsonify(task)
 
     except ValueError as task_error:
@@ -5372,6 +5415,29 @@ def chrome_agent_result_api(token):
     candidate_id = candidate.id
 
     try:
+        if not isinstance(payload, dict):
+            raise ValueError("Chrome Agent result must be an object.")
+        if payload.get("event") == "runner_receipt":
+            try:
+                attempt_id = int(payload.get("attempt_id"))
+            except (TypeError, ValueError):
+                raise ValueError("Invalid runner receipt.")
+            attempt = ApplicationSubmissionAttempt.query.filter_by(
+                id=attempt_id, user_id=user.id,
+                auto_apply_candidate_id=candidate_id,
+            ).with_for_update().first_or_404()
+            if payload.get("run_id") != diagnostic_run_id(token):
+                raise ValueError("This receipt belongs to a different runner launch.")
+            diagnostic = update_receipt(attempt, payload)
+            db.session.commit()
+            return jsonify({"diagnostics": diagnostic})
+        detail = payload.get("detail")
+        detail = dict(detail) if isinstance(detail, dict) else {}
+        diagnostic = detail.get("diagnostics")
+        diagnostic = dict(diagnostic) if isinstance(diagnostic, dict) else {}
+        diagnostic["run_id"] = diagnostic_run_id(token)
+        detail["diagnostics"] = diagnostic
+        payload["detail"] = detail
         result = apply_chrome_agent_result(
             candidate,
             user,
@@ -5394,6 +5460,28 @@ def chrome_agent_result_api(token):
     except ValueError as result_error:
         db.session.rollback()
         return jsonify({"error": str(result_error)}), 400
+
+
+@app.route("/api/auto-apply/<int:candidate_id>/diagnostics", methods=["POST"])
+@login_required
+def auto_apply_diagnostic_receipt(candidate_id):
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Invalid runner receipt."}), 400
+    try:
+        attempt_id = int(payload.get("attempt_id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid runner receipt."}), 400
+    attempt = ApplicationSubmissionAttempt.query.filter_by(
+        id=attempt_id, user_id=current_user.id,
+        auto_apply_candidate_id=candidate_id,
+    ).with_for_update().first_or_404()
+    try:
+        diagnostic = update_receipt(attempt, payload)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    db.session.commit()
+    return jsonify({"diagnostics": diagnostic})
 
 
 import threading as _auto_apply_handoff_threading

@@ -372,6 +372,125 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
+function runnerPhase(message, fallback = "unknown") {
+  const text = String(message || "").toLowerCase();
+  if (/verification|captcha|challenge/.test(text)) return "verification";
+  if (/sign.in|log.in/.test(text)) return "sign_in";
+  if (/upload|attach.*resume/.test(text)) return "resume_upload";
+  if (/submitting/.test(text)) return "submitting";
+  if (/confirm|submitted/.test(text)) return "confirmation";
+  if (/answer|fill|form update|restor/.test(text)) return "filling";
+  if (/resolv|destination|employer|redirect/.test(text)) return "resolving";
+  if (/opening|connecting|locat/.test(text)) return "form_detection";
+  return fallback;
+}
+
+async function runnerDetail(tabId, payload = {}) {
+  const ownership = await getAgentTabOwnershipForTab(tabId);
+  const detail = payload?.detail && typeof payload.detail === "object"
+    ? {...payload.detail} : {};
+  return {
+    ...detail,
+    diagnostics: {
+      phase: ownership?.phase || "unknown",
+      adapter: ownership?.adapter || "",
+      run_id: ownership?.runId || "",
+      elapsed_ms: ownership?.startedAt ? Math.max(0, Date.now() - ownership.startedAt) : null,
+      retry_count: ownership?.retryCount ?? 0,
+      batch: ownership?.batch === true,
+      agent_version: chrome.runtime.getManifest().version,
+    },
+  };
+}
+
+async function observeRunnerTab(tabId, origin, token, handoff = false) {
+  if (typeof tabId !== "number") return "not_observed";
+  const current = await getAgentTabOwnershipForTab(tabId);
+  if (current && current.token !== token) return "not_observed";
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    return "closed";
+  }
+  try {
+    const url = new URL(tab.url || "about:blank");
+    if (url.origin === origin && url.pathname === "/browser-agent" && url.searchParams.get("batch_wait") === "1") {
+      return "recycled";
+    }
+  } catch (error) {
+    return "not_observed";
+  }
+  return handoff ? "retained" : "still_open";
+}
+
+async function saveRunnerReceipt(origin, token, result, observation) {
+  if (!result?.attempt_id || !result?.diagnostics?.run_id) return;
+  try {
+    const options = {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        event: "runner_receipt", attempt_id: result.attempt_id,
+        run_id: result.diagnostics.run_id, ...observation,
+      }),
+    };
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+      options.signal = AbortSignal.timeout(5000);
+    }
+    await fetchJson(
+      `${origin}/api/chrome-agent/result/${encodeURIComponent(token)}`,
+      options
+    );
+  } catch (error) {
+    console.warn("Jobfinitum could not save the runner observation:", error);
+  }
+}
+
+async function finishRunnerReport(tabId, origin, token, result, resultStatus) {
+  const retrying = result.retry_with_saved_answers === true;
+  const batchVerification = (
+    resultStatus === "waiting_verification"
+    && result.diagnostics?.batch === true
+  );
+  const handoff = HANDOFF_AGENT_TAB_STATUSES.has(resultStatus) && !batchVerification;
+  const terminal = TERMINAL_AGENT_TAB_STATUSES.has(resultStatus) || batchVerification;
+  let tabOutcome = retrying ? "continuing" : "not_observed";
+  if (retrying) {
+    await withAgentTabOwnershipLock(async () => {
+      const ownership = await getAgentTabOwnershipForTab(tabId);
+      if (!ownership || ownership.token !== token) return;
+      ownership.retryCount = (ownership.retryCount || 0) + 1;
+      await chrome.storage.session.set({[ownership.storageKey]: ownership});
+    });
+  } else if (handoff || terminal) {
+    try {
+      // A delayed report must never clean up the next job's tab.
+      const ownership = await getAgentTabOwnershipForTab(tabId);
+      if (ownership && ownership.token !== token) {
+        tabOutcome = "not_observed";
+      } else {
+        if (handoff) {
+          await cleanupOwnedAgentTabs(tabId, origin, {mode: "handoff", reason: resultStatus});
+        } else {
+          await cleanupTerminalAgentTab(tabId, origin, resultStatus);
+        }
+        tabOutcome = await observeRunnerTab(tabId, origin, token, handoff);
+      }
+    } catch (error) {
+      tabOutcome = "cleanup_failed";
+      console.warn("Jobfinitum application tab cleanup failed:", error);
+    }
+  }
+  const observation = {
+    tab_outcome: tabOutcome,
+    ...(retrying ? {batch_outcome: "retrying"} : {}),
+  };
+  if (result.diagnostics) Object.assign(result.diagnostics, observation);
+  await notifyJobfinitumTabs(result);
+  await saveRunnerReceipt(origin, token, result, observation);
+}
+
 const HIMALAYAS_RESOLVER_PREFIX =
   "jobfinitum_himalayas_resolver_";
 
@@ -901,6 +1020,8 @@ async function registerOwnedAgentTab(
           applicationTabId: null,
           tabs: {},
           history: [],
+          startedAt: Date.now(),
+          retryCount: 0,
           updatedAt: Date.now(),
         };
       }
@@ -1796,6 +1917,7 @@ async function resolveHimalayasTargetOnce(
           resolved_url:
             resolvedUrl,
           detail: {
+            ...await runnerDetail(tabId),
             resolver:
               currentSession.resolver
               || "himalayas_browser_agent",
@@ -1865,6 +1987,22 @@ async function resolveHimalayasTargetOnce(
       }
     );
   } else if (
+    currentSession.batch === true
+    && result.status === "Waiting for Verification"
+  ) {
+    await cleanupOwnedAgentTabs(
+      tabId,
+      origin,
+      {
+        mode: "terminal",
+        reason: "waiting_verification",
+      }
+    );
+    await saveRunnerReceipt(origin, currentSession.token, result, {
+      tab_outcome: await observeRunnerTab(tabId, origin, currentSession.token),
+    });
+    return true;
+  } else if (
     result.manual_application
     && result.resolved_url
   ) {
@@ -1879,6 +2017,9 @@ async function resolveHimalayasTargetOnce(
         }
       );
 
+      await saveRunnerReceipt(origin, currentSession.token, result, {
+        tab_outcome: await observeRunnerTab(tabId, origin, currentSession.token),
+      });
       return true;
     }
 
@@ -1917,6 +2058,11 @@ async function resolveHimalayasTargetOnce(
     );
   }
 
+  await saveRunnerReceipt(origin, currentSession.token, result, {
+    tab_outcome: result.continue_in_chrome_agent
+      ? "continuing"
+      : await observeRunnerTab(tabId, origin, currentSession.token, true),
+  });
   return true;
 }
 
@@ -2029,6 +2175,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const origin = normalizeOrigin(message.origin);
 
+    if (message.type === "jobfinitum-progress") {
+      let progressResult = null;
+      await withAgentTabOwnershipLock(async () => {
+        const ownership = await getAgentTabOwnershipForTab(sender?.tab?.id);
+        if (!ownership || ownership.origin !== origin || ownership.token !== message.token) return;
+        const phase = runnerPhase(message.message, ownership.phase);
+        if (phase === ownership.phase) return;
+        ownership.phase = phase;
+        await chrome.storage.session.set({[ownership.storageKey]: ownership});
+        progressResult = {
+          status: "Agent Progress", candidate_id: ownership.candidateId,
+          diagnostics: (await runnerDetail(sender.tab.id)).diagnostics,
+        };
+      });
+      if (progressResult) await notifyJobfinitumTabs(progressResult);
+      sendResponse({ok: true});
+      return;
+    }
+
     if (
       message.type
       === "jobfinitum-batch-register"
@@ -2120,6 +2285,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         );
       }
 
+      const diagnosticRunner = await getBatchRunner();
+      const diagnosticOwnership = await getAgentTabOwnershipForTab(diagnosticRunner?.tabId);
+      const matchesAttempt = !message.diagnostic_result || (
+        diagnosticOwnership?.candidateId === message.diagnostic_result.candidate_id
+        && diagnosticOwnership?.runId === message.diagnostic_result.diagnostics?.run_id
+      );
+      if (!matchesAttempt) {
+        sendResponse({ok: true, observation: {tab_outcome: "not_observed"}});
+        return;
+      }
       if (message.action === "stop") {
         await closeBatchRunner(origin);
       } else {
@@ -2137,7 +2312,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
-      sendResponse({ok: true});
+      sendResponse({
+        ok: true,
+        observation: {tab_outcome: await observeRunnerTab(
+          diagnosticRunner?.tabId, origin, diagnosticOwnership?.token,
+        )},
+      });
       return;
     }
 
@@ -2208,7 +2388,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sender?.tab?.id
       );
 
+      await withAgentTabOwnershipLock(async () => {
+        const ownership = await getAgentTabOwnershipForTab(sender?.tab?.id);
+        if (!ownership) return;
+        ownership.candidateId = task.candidate_id;
+        ownership.adapter = task.adapter;
+        ownership.runId = task.diagnostic_run_id;
+        ownership.phase = HOSTED_APPLICATION_ADAPTERS.has(task.adapter) ? "form_detection" : "resolving";
+        await chrome.storage.session.set({[ownership.storageKey]: ownership});
+      });
+
       await notifyJobfinitumTabs({
+        diagnostics: (await runnerDetail(sender?.tab?.id)).diagnostics,
         candidate_id:
           task.candidate_id,
         status:
@@ -2286,17 +2477,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message.type === "jobfinitum-result") {
       const token = encodeURIComponent(String(message.token || ""));
+      const payload = {...message.payload, detail: await runnerDetail(sender?.tab?.id, message.payload)};
       const result = await fetchJson(
         `${origin}/api/chrome-agent/result/${token}`,
         {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(message.payload || {}),
+          body: JSON.stringify(payload),
         }
-      );
-
-      await notifyJobfinitumTabs(
-        result
       );
 
       const resultStatus = String(
@@ -2305,43 +2493,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       const senderTabId = sender?.tab?.id;
 
-      if (
-        typeof senderTabId === "number"
-        && HANDOFF_AGENT_TAB_STATUSES.has(
-          resultStatus
-        )
-      ) {
-        await cleanupOwnedAgentTabs(
-          senderTabId,
-          origin,
-          {
-            mode: "handoff",
-            reason: resultStatus,
-          }
-        );
-      }
-
       sendResponse({ok: true, result});
-
-      if (
-        typeof senderTabId === "number"
-        && TERMINAL_AGENT_TAB_STATUSES.has(
-          resultStatus
-        )
-      ) {
-        setTimeout(() => {
-          cleanupTerminalAgentTab(
-            senderTabId,
-            origin,
-            resultStatus
-          ).catch((error) => {
-            console.warn(
-              "Jobfinitum could not clean up a completed application tab:",
-              error
-            );
-          });
-        }, 150);
-      }
+      setTimeout(() => {
+        finishRunnerReport(senderTabId, origin, String(message.token || ""), result, resultStatus)
+          .catch((error) => console.warn("Jobfinitum runner reporting failed:", error));
+      }, 150);
 
       return;
     }

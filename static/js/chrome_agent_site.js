@@ -2,7 +2,7 @@
   "use strict";
 
   const SOURCE = "jobfinitum-chrome-agent";
-  const REQUIRED_AGENT_VERSION = "0.6.14";
+  const REQUIRED_AGENT_VERSION = "0.6.16";
 
   const statusBox = document.getElementById(
     "jobfinitum-browser-agent-status"
@@ -248,7 +248,7 @@
     "jobfinitum-site";
 
   const REQUIRED_AGENT_VERSION =
-    "0.6.14";
+    "0.6.16";
 
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";
@@ -274,7 +274,6 @@
 
   const PAUSE_STATUSES =
     new Set([
-      "Waiting for Verification",
       "Waiting for Sign-In",
       "Needs User Action",
     ]);
@@ -449,7 +448,57 @@
     );
   }
 
-  function sendBatchControl(action) {
+  function showRunnerDetails(result) {
+    const diagnostic = result?.diagnostics;
+    if (!diagnostic) return;
+    const details = document.querySelector(`[data-runner-details="${Number(result.candidate_id)}"]`);
+    if (!details) return;
+    details.hidden = false;
+    details.querySelector("[data-runner-reason]").textContent = ": " + (diagnostic.reason_label || "In progress");
+    const fields = details.querySelector("[data-runner-fields]");
+    fields.replaceChildren();
+    const readable = (value) => String(value || "not reported").replaceAll("_", " ");
+    for (const [label, value] of [
+      ["Reason", diagnostic.reason_code || "In progress"],
+      ["System", diagnostic.adapter || "Not recorded"],
+      ["Stage", readable(diagnostic.phase)],
+      ["Fields", (diagnostic.failed_fields || []).join("; ") || "None reported"],
+      ["Elapsed", diagnostic.elapsed_ms == null ? "Not recorded" : `${(diagnostic.elapsed_ms / 1000).toFixed(1)} seconds`],
+      ["Retries", diagnostic.retry_count ?? "Not recorded"],
+      ["Application tab", readable(diagnostic.tab_outcome)],
+      ["Batch", readable(diagnostic.batch_outcome)],
+      ["Agent version", diagnostic.agent_version || "Not recorded"],
+      ["Page", diagnostic.url || "Not recorded"],
+    ]) {
+      const term = document.createElement("dt");
+      term.className = "col-sm-3";
+      term.textContent = label;
+      const description = document.createElement("dd");
+      description.className = "col-sm-9 text-break";
+      description.textContent = String(value);
+      fields.append(term, description);
+    }
+  }
+
+  async function saveBatchObservation(result, observation) {
+    if (!result?.attempt_id || !result?.diagnostics?.run_id) return;
+    Object.assign(result.diagnostics, observation);
+    showRunnerDetails(result);
+    try {
+      const response = await fetch(`/api/auto-apply/${Number(result.candidate_id)}/diagnostics`, {
+        method: "POST", credentials: "same-origin", keepalive: true,
+        headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+        body: JSON.stringify({
+          attempt_id: result.attempt_id, run_id: result.diagnostics.run_id, ...observation,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      console.warn("Jobfinitum could not save the batch observation:", error);
+    }
+  }
+
+  function sendBatchControl(action, diagnosticResult = null) {
     window.postMessage(
       {
         source:
@@ -457,6 +506,7 @@
         type:
           "jobfinitum-batch-control",
         action,
+        diagnostic_result: diagnosticResult,
       },
       location.origin
     );
@@ -506,7 +556,8 @@
 
   async function interruptCandidate(
     candidate,
-    reason
+    reason,
+    runState = loadState()
   ) {
     const url =
       interruptUrlFor(candidate);
@@ -526,7 +577,14 @@
           "Content-Type": "application/json",
           "X-CSRFToken": csrfToken,
         },
-        body: JSON.stringify({reason}),
+        body: JSON.stringify({
+          reason,
+          diagnostics: {
+            ...(runState?.current_diagnostics || {}),
+            elapsed_ms: Date.now() - Number(runState?.current_started_at || Date.now()),
+            run_id: runState?.current_diagnostics?.run_id || `queue-${Date.now()}`,
+          },
+        }),
       }
     );
 
@@ -560,12 +618,13 @@
       "The Browser Agent did not report back; moving to the next job"
     );
 
+    let timeoutResult;
     try {
-      await interruptCandidate(
+      timeoutResult = await interruptCandidate(
         state.current,
         "timeout"
       );
-      sendBatchControl("advance");
+      sendBatchControl("advance", timeoutResult);
     } catch (error) {
       await stopBatch({
         closeRunner: true,
@@ -589,6 +648,7 @@
     }
 
     latestState.completed += 1;
+    latestState.pending_receipt = timeoutResult;
     latestState.current = null;
     latestState.current_started_at = null;
     saveState(latestState);
@@ -701,6 +761,7 @@
         `Batch complete: ${completed} processed`
       );
       sendBatchControl("stop");
+      saveBatchObservation(state.pending_receipt, {batch_outcome: "complete"});
 
       window.setTimeout(
         () => location.reload(),
@@ -710,12 +771,16 @@
     }
 
     state.current = next;
+    state.current_diagnostics = null;
     state.current_started_at =
       Date.now();
     saveState(state);
     updateControls(state);
 
     submitCandidate(next);
+    saveBatchObservation(state.pending_receipt, {batch_outcome: "advanced"});
+    state.pending_receipt = null;
+    saveState(state);
     scheduleBatchWatchdog(state);
   }
 
@@ -735,24 +800,26 @@
       "Batch stopped; refreshing available jobs"
     );
 
-    if (closeRunner) {
-      sendBatchControl("stop");
-    }
-
     if (
       recoverCurrent
       && state?.current
     ) {
       try {
-        await interruptCandidate(
+        const stoppedResult = await interruptCandidate(
           state.current,
-          "stopped"
+          "stopped",
+          state
         );
+        saveBatchObservation(stoppedResult, {batch_outcome: "stopped"});
+        if (closeRunner) sendBatchControl("stop", stoppedResult);
       } catch (error) {
+        if (closeRunner) sendBatchControl("stop");
         progress.textContent = (
           "Batch stopped; reset the interrupted job before retrying"
         );
       }
+    } else if (closeRunner) {
+      sendBatchControl("stop");
     }
 
     window.setTimeout(
@@ -911,6 +978,11 @@
         return;
       }
 
+      if (event.data.type === "batch-observation" && event.data.source === EXTENSION_SOURCE) {
+        saveBatchObservation(event.data.result, event.data.observation);
+        return;
+      }
+
       if (
         event.data.source
           !== EXTENSION_SOURCE
@@ -921,6 +993,7 @@
 
       const result =
         event.data.result || {};
+      showRunnerDetails(result);
 
       const state =
         loadState();
@@ -937,6 +1010,15 @@
           state.current?.candidate_id
         )
       ) {
+        return;
+      }
+
+      if (result.diagnostics) {
+        state.current_diagnostics = result.diagnostics;
+        saveState(state);
+      }
+      if (result.status === "Agent Progress") {
+        progress.textContent = `Running ${state.completed + 1} of ${state.total}: ${String(result.diagnostics?.phase || "working").replaceAll("_", " ")}`;
         return;
       }
 
@@ -979,6 +1061,7 @@
       }
 
       state.completed += 1;
+      state.pending_receipt = result;
       state.current = null;
       state.current_started_at = null;
       clearBatchWatchdog();
@@ -990,9 +1073,10 @@
         )
       ) {
         clearState();
+        saveBatchObservation(result, {batch_outcome: "paused"});
         updateControls(null);
         progress.textContent = (
-          `Batch paused: ${result.status}`
+          `Batch paused: ${result.diagnostics?.reason_label || result.message || result.status}`
         );
         window.setTimeout(
           () => location.reload(),

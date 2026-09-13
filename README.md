@@ -53,9 +53,11 @@ reported as submitted.
 - Queue states for review, sign-in, verification, missing answers, user action,
   manual apply, failure, submission, and rejection
 - Batch execution with watchdog handling and managed tab cleanup
+- Per-job runner diagnostics for stop reason, phase, failed fields, retries,
+  elapsed time, tab cleanup, and batch outcome
 - Unknown required questions return to Jobfinitum as Needs Application Answer
-- CAPTCHA and genuine human verification pause for the user; they are never
-  bypassed
+- CAPTCHA and genuine human verification are recorded for manual follow-up;
+  batch runs close the blocked tab and continue without bypassing the challenge
 - Submission is marked complete only after the employer page confirms it
 
 Normal-Chrome submission adapters:

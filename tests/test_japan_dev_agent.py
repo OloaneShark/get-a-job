@@ -122,7 +122,10 @@ class JapanDevSourceTests(unittest.TestCase):
         )
 
 
-class JapanDevAgentTests(unittest.TestCase):
+from tests.runner_test_support import ResolverTransitionTestMixin
+
+
+class JapanDevAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.source = AGENT_PATH.read_text(encoding="utf-8")

@@ -402,7 +402,7 @@ await edgeCase("the full resolver uses Continue as guest", async () => {
   await hooks.run();
 
   assert.deepEqual(
-    sentMessages.map((message) => message.type),
+    sentMessages.map((message) => message.type).filter((type) => type !== "jobfinitum-progress"),
     [
       "jobfinitum-batch-register",
       "jobfinitum-job-board-watch",

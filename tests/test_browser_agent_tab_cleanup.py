@@ -73,7 +73,7 @@ class BrowserAgentTabCleanupTests(unittest.TestCase):
 
     def test_watchdog_cleans_the_current_tab_before_advancing(self):
         self.assertIn(
-            'sendBatchControl("advance")',
+            'sendBatchControl("advance", timeoutResult)',
             self.site_script,
         )
         self.assertIn(
@@ -85,7 +85,7 @@ class BrowserAgentTabCleanupTests(unittest.TestCase):
             self.background,
         )
 
-    def test_human_handoffs_pause_and_keep_one_application_tab(self):
+    def test_batch_verification_advances_while_other_handoffs_pause(self):
         self.assertIn(
             "HANDOFF_AGENT_TAB_STATUSES",
             self.background,
@@ -103,6 +103,10 @@ class BrowserAgentTabCleanupTests(unittest.TestCase):
         )
         pause_block = self.site_script[pause_start:pause_end]
         self.assertIn('"Needs User Action"', pause_block)
+        self.assertIn('"Waiting for Sign-In"', pause_block)
+        self.assertNotIn('"Waiting for Verification"', pause_block)
+        self.assertIn('resultStatus === "waiting_verification"', self.background)
+        self.assertIn('result.status === "Waiting for Verification"', self.background)
 
 
 if __name__ == "__main__":
