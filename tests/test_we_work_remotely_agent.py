@@ -62,7 +62,7 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
             "https://weworkremotely.com/*",
             "https://www.weworkremotely.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))
@@ -78,7 +78,10 @@ class WeWorkRemotelyAgentTests(unittest.TestCase):
                 r"<strong>Browser Agent resolver</strong>"
             ),
         )
-        self.assertEqual(self.queue.count('"weworkremotely.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn(
             'or "weworkremotely.com/" in current_apply_url',
             self.scheduler,

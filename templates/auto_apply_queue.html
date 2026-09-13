@@ -187,6 +187,7 @@
             {% for candidate in candidates %}
                 {% set execution = candidate.execution_status or "Not Started" %}
                 {% set latest_attempt = latest_attempts.get(candidate.id) %}
+                {% set chrome_agent_supported = candidate.id in chrome_agent_candidate_ids %}
 
                 <div
                     class="card"
@@ -307,42 +308,11 @@
                             {% set saved_answers = question_state.get("answers", {}) %}
 
                             {% if questions %}
-                                {% set answer_application_target = candidate.discovered_job.apply_url or candidate.discovered_job.posting_url %}
-                                {% set answer_uses_chrome_agent = answer_application_target and (
-                                    "jobs.lever.co/" in answer_application_target
-                                    or "jobs.eu.lever.co/" in answer_application_target
-                                    or "boards.greenhouse.io/" in answer_application_target
-                                    or "boards.eu.greenhouse.io/" in answer_application_target
-                                    or "job-boards.greenhouse.io/" in answer_application_target
-                                    or "job-boards.eu.greenhouse.io/" in answer_application_target
-                                    or "himalayas.app/" in answer_application_target
-                                    or "www.himalayas.app/" in answer_application_target
-                                    or "remotefirstjobs.com/" in answer_application_target
-                                    or "www.remotefirstjobs.com/" in answer_application_target
-                                    or "japan-dev.com/" in answer_application_target
-                                    or "www.japan-dev.com/" in answer_application_target
-                                    or "weworkremotely.com/" in answer_application_target
-                                    or "www.weworkremotely.com/" in answer_application_target
-                                    or "jooble.org/" in answer_application_target
-                                    or "www.jooble.org/" in answer_application_target
-                                    or "remoteok.com/" in answer_application_target
-                                    or "www.remoteok.com/" in answer_application_target
-                                    or "jobicy.com/" in answer_application_target
-                                    or "www.jobicy.com/" in answer_application_target
-                                    or "tokyodev.com/" in answer_application_target
-                                    or "www.tokyodev.com/" in answer_application_target
-                                    or "adzuna." in answer_application_target
-                                    or "themuse.com/" in answer_application_target
-                                    or "www.themuse.com/" in answer_application_target
-                                    or "jobs.ashbyhq.com/" in answer_application_target
-                                    or "gh_jid=" in answer_application_target
-                                ) %}
-
                                 <form
                                     method="POST"
                                     action="{{ url_for('save_auto_apply_candidate_answers', candidate_id=candidate.id) }}"
                                     class="application-question-form mt-3"
-                                    {% if answer_uses_chrome_agent %}target="jobfinitum-auto-apply-runner"{% endif %}
+                                    {% if chrome_agent_supported %}target="jobfinitum-auto-apply-runner"{% endif %}
                                 >
                                     <input
                                         type="hidden"
@@ -531,36 +501,6 @@
                         </div>
 
                         {% set application_target = candidate.discovered_job.apply_url or candidate.discovered_job.posting_url %}
-                        {% set chrome_agent_supported = application_target and (
-                            "jobs.lever.co/" in application_target
-                            or "jobs.eu.lever.co/" in application_target
-                            or "boards.greenhouse.io/" in application_target
-                            or "boards.eu.greenhouse.io/" in application_target
-                            or "job-boards.greenhouse.io/" in application_target
-                            or "job-boards.eu.greenhouse.io/" in application_target
-                            or "himalayas.app/" in application_target
-                            or "www.himalayas.app/" in application_target
-                            or "remotefirstjobs.com/" in application_target
-                            or "www.remotefirstjobs.com/" in application_target
-                            or "japan-dev.com/" in application_target
-                            or "www.japan-dev.com/" in application_target
-                            or "weworkremotely.com/" in application_target
-                            or "www.weworkremotely.com/" in application_target
-                            or "jooble.org/" in application_target
-                            or "www.jooble.org/" in application_target
-                            or "remoteok.com/" in application_target
-                            or "www.remoteok.com/" in application_target
-                            or "jobicy.com/" in application_target
-                            or "www.jobicy.com/" in application_target
-                            or "tokyodev.com/" in application_target
-                            or "www.tokyodev.com/" in application_target
-                            or "adzuna." in application_target
-                            or "themuse.com/" in application_target
-                            or "www.themuse.com/" in application_target
-                            or "jobs.ashbyhq.com/" in application_target
-                            or "gh_jid=" in application_target
-                        ) %}
-
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             <a
                                 href="{{ application_target }}"

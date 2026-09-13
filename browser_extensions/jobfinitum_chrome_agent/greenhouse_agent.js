@@ -62,11 +62,13 @@
       return;
     }
 
-    await send({
+    return send({
       type:
         "jobfinitum-batch-register",
       origin:
         launch.origin,
+      token:
+        launch.token,
     });
   }
 
@@ -1740,6 +1742,198 @@
     );
   }
 
+  function currentGreenhouseControl(
+    question,
+    fallback
+  ) {
+    if (!question) return fallback || null;
+
+    if (
+      question?.structured_section === "education"
+      || lower(question?.field_name).startsWith(
+        "greenhouse_education_"
+      )
+    ) {
+      const definition = GREENHOUSE_EDUCATION_FIELDS.find(
+        (item) => item.field_name === question.field_name
+      );
+      if (definition) {
+        const educationControl =
+          greenhouseEducationControl(definition);
+        if (educationControl) return educationControl;
+      }
+    }
+
+    return findSchemaControl(question) || fallback || null;
+  }
+
+  function greenhouseAnswerCommitted(
+    question,
+    fallback,
+    value
+  ) {
+    const element = currentGreenhouseControl(
+      question,
+      fallback
+    );
+    if (!element) return false;
+
+    const resolvedValue = resolveEmployerChoiceAnswer(
+      question,
+      value
+    );
+    const tokens = answerTokens(
+      question,
+      resolvedValue
+    );
+    if (!tokens.length) return false;
+
+    if (isCombobox(element)) {
+      const searchInput = element.tagName === "INPUT"
+        ? element
+        : element.querySelector?.("input");
+      const backing = fieldCandidates(
+        question?.field_name
+      )
+        .filter((candidate) => (
+          candidate !== element
+          && candidate !== searchInput
+          && (
+            lower(candidate.type) === "hidden"
+            || !isVisible(candidate)
+          )
+        ))
+        .map((candidate) => normalize(
+          candidate.value
+          ?? candidate.getAttribute?.("value")
+          ?? ""
+        ))
+        .filter(Boolean);
+      const expanded = lower(
+        (searchInput || element).getAttribute?.("aria-expanded")
+      );
+      const popupOpen = expanded === "true"
+        || visibleOptionNodes().length > 0;
+      const observed = [
+        ...backing,
+        popupOpen ? "" : visibleControlValue(element),
+        structuredSelectionText(element),
+      ].filter(Boolean);
+
+      if (question?.type === "multiselect") {
+        const requested = normalizeChoiceAnswers(
+          resolvedValue
+        );
+        return requested.length > 0
+          && requested.every((item) => {
+            const itemTokens = answerTokens(question, item);
+            return observed.some((actual) => tokenMatches(
+              actual,
+              itemTokens,
+              {allowContains: true}
+            ));
+          });
+      }
+
+      return observed.some((actual) => tokenMatches(
+        actual,
+        tokens,
+        {allowContains: true}
+      ));
+    }
+
+    if (element.tagName === "SELECT") {
+      const selected = [
+        ...element.selectedOptions,
+      ];
+      if (element.multiple) {
+        const requested = normalizeChoiceAnswers(
+          resolvedValue
+        );
+        return requested.length > 0
+          && requested.every((item) => {
+            const itemTokens = answerTokens(question, item);
+            return selected.some((option) => (
+              tokenMatches(option.value, itemTokens)
+              || tokenMatches(option.textContent, itemTokens)
+            ));
+          });
+      }
+
+      const option = selected[0]
+        || element.options[element.selectedIndex];
+      return Boolean(
+        option
+        && (
+          tokenMatches(option.value, tokens)
+          || tokenMatches(option.textContent, tokens)
+        )
+      );
+    }
+
+    const type = lower(element.type);
+    if (type === "radio") {
+      return groupControls(element).some((control) => (
+        control.checked
+        && (
+          tokenMatches(control.value, tokens)
+          || tokenMatches(choiceLabel(control), tokens)
+        )
+      ));
+    }
+
+    if (type === "checkbox") {
+      const selected = groupControls(element).filter(
+        (control) => control.checked
+      );
+      const requested = normalizeChoiceAnswers(
+        resolvedValue
+      );
+      return requested.length > 0
+        && requested.every((item) => {
+          const itemTokens = answerTokens(question, item);
+          return selected.some((control) => (
+            tokenMatches(control.value, itemTokens)
+            || tokenMatches(choiceLabel(control), itemTokens)
+          ));
+        });
+    }
+
+    return tokenMatches(
+      element.value,
+      tokens,
+      {allowContains: false}
+    );
+  }
+
+  async function waitForGreenhouseValue(
+    question,
+    fallback,
+    value,
+    timeoutMs = 1600
+  ) {
+    const started = Date.now();
+    let stableChecks = 0;
+
+    while (Date.now() - started < timeoutMs) {
+      await sleep(180);
+      if (
+        greenhouseAnswerCommitted(
+          question,
+          fallback,
+          value
+        )
+      ) {
+        stableChecks += 1;
+        if (stableChecks >= 2) return true;
+      } else {
+        stableChecks = 0;
+      }
+    }
+
+    return false;
+  }
+
   function choiceIndexForAnswer(
     question,
     value
@@ -1761,28 +1955,6 @@
           token
         )
       )
-    );
-  }
-
-  function binaryYesNoQuestion(
-    question
-  ) {
-    const labels = new Set(
-      (question?.choices || [])
-        .map(
-          (choice) => lower(
-            choice?.label
-            ?? choice?.value
-            ?? choice
-          )
-        )
-        .filter(Boolean)
-    );
-
-    return (
-      labels.size === 2
-      && labels.has("yes")
-      && labels.has("no")
     );
   }
 
@@ -1911,9 +2083,6 @@
       return false;
     }
 
-    let clickedMatchedOption =
-      false;
-
     if (
       structuredEducationSelectQuestion(
         question
@@ -1975,40 +2144,12 @@
           500
         );
 
-        let currentElement = (
-          findSchemaControl(question)
-          || element
+        return waitForGreenhouseValue(
+          question,
+          element,
+          value,
+          2200
         );
-
-        if (
-          (
-            question
-            && backingValueMatches(
-              question,
-              value
-            )
-          )
-          || tokenMatches(
-            visibleControlValue(
-              currentElement
-            ),
-            tokens,
-            {
-              allowContains: true,
-            }
-          )
-          || structuredSelectionMatches(
-            currentElement,
-            tokens
-          )
-        ) {
-          return true;
-        }
-
-        // React-select clears its search input after accepting an
-        // exact option. Greenhouse's validation below remains the
-        // final authority for the required field.
-        return true;
       }
 
       return false;
@@ -2024,9 +2165,6 @@
       await activateOption(
         selected
       );
-
-      clickedMatchedOption =
-        true;
     } else if (
       opened.input
     ) {
@@ -2055,9 +2193,6 @@
         await activateOption(
           filtered
         );
-
-        clickedMatchedOption =
-          true;
       }
     }
 
@@ -2066,58 +2201,12 @@
     );
 
     if (
-      (
-        question
-        && backingValueMatches(
-          question,
-          value
-        )
-      )
-      || tokenMatches(
-        visibleControlValue(
-          element
-        ),
-        tokens,
-        {
-          allowContains: true,
-        }
-      )
-      || structuredSelectionMatches(
+      await waitForGreenhouseValue(
+        question,
         element,
-        tokens
+        value,
+        1400
       )
-    ) {
-      return true;
-    }
-
-    if (
-      clickedMatchedOption
-      && structuredEducationSelectQuestion(
-        question
-      )
-    ) {
-      return true;
-    }
-
-    // A second keyboard pass can invert a binary answer when
-    // React-select already accepted the exact visible option.
-    // Trust that exact click for Yes/No and never advance to
-    // the neighboring option afterward.
-    if (
-      clickedMatchedOption
-      && binaryYesNoQuestion(
-        question
-      )
-    ) {
-      return true;
-    }
-
-    if (
-      clickedMatchedOption
-      && (
-        question?.choices
-        || []
-      ).length
     ) {
       return true;
     }
@@ -2158,48 +2247,15 @@
         await activateOption(
           searched
         );
-
-        clickedMatchedOption =
-          true;
       }
     }
 
     if (
-      (
-        question
-        && backingValueMatches(
-          question,
-          value
-        )
-      )
-      || tokenMatches(
-        visibleControlValue(element),
-        tokens,
-        {
-          allowContains: true,
-        }
-      )
-      || structuredSelectionMatches(
+      await waitForGreenhouseValue(
+        question,
         element,
-        tokens
-      )
-    ) {
-      return true;
-    }
-
-    if (
-      clickedMatchedOption
-      && structuredEducationSelectQuestion(
-        question
-      )
-    ) {
-      return true;
-    }
-
-    if (
-      clickedMatchedOption
-      && binaryYesNoQuestion(
-        question
+        value,
+        1400
       )
     ) {
       return true;
@@ -2218,25 +2274,11 @@
       300
     );
 
-    const verified = (
-      (
-        question
-        && backingValueMatches(
-          question,
-          value
-        )
-      )
-      || tokenMatches(
-        visibleControlValue(element),
-        tokens,
-        {
-          allowContains: true,
-        }
-      )
-      || structuredSelectionMatches(
-        element,
-        tokens
-      )
+    const verified = await waitForGreenhouseValue(
+      question,
+      element,
+      value,
+      1800
     );
 
     if (!verified) {
@@ -2428,12 +2470,10 @@
         );
       }
 
-      await sleep(
-        700
-      );
-
-      return Boolean(
-        radio.checked
+      return waitForGreenhouseValue(
+        question,
+        radio,
+        value
       );
     }
 
@@ -2529,18 +2569,10 @@
         }
       }
 
-      // Let Greenhouse React finish its controlled rerender
-      // before deciding that the answer actually stuck.
-      await sleep(
-        1000
-      );
-
-      return requestedControls.every(
-        (box) => (
-          Boolean(
-            box.checked
-          )
-        )
+      return waitForGreenhouseValue(
+        question,
+        element,
+        value
       );
     }
 
@@ -2702,14 +2734,31 @@
             wantedValues
           )
         ) {
-          element.value =
-            option.value;
+          const setter =
+            Object.getOwnPropertyDescriptor(
+              HTMLSelectElement.prototype,
+              "value"
+            )?.set;
+
+          if (setter) {
+            setter.call(
+              element,
+              option.value
+            );
+          } else {
+            element.value =
+              option.value;
+          }
 
           dispatchEvents(
             element
           );
 
-          return true;
+          return waitForGreenhouseValue(
+            question,
+            element,
+            resolvedValue
+          );
         }
       }
 
@@ -2743,7 +2792,14 @@
       return false;
     }
 
-    return setText(
+    const applied = setText(
+      element,
+      resolvedValue
+    );
+    if (!applied) return false;
+
+    return waitForGreenhouseValue(
+      question,
       element,
       resolvedValue
     );
@@ -7091,6 +7147,7 @@
     const unanswered = [];
     const controlMissing = [];
     const uncommitted = [];
+    const expectedRequiredAnswers = [];
 
     // GREENHOUSE STRUCTURED EDUCATION:
     // Standard Education fields are not always included in the
@@ -7193,6 +7250,13 @@
         hasAnswer
         && element
       ) {
+        if (question.required) {
+          expectedRequiredAnswers.push({
+            question,
+            answer,
+          });
+        }
+
         try {
           const applied = await applyValue(
             element,
@@ -7286,6 +7350,13 @@
         hasAnswer
         && element
       ) {
+        if (question.required) {
+          expectedRequiredAnswers.push({
+            question,
+            answer,
+          });
+        }
+
         try {
           const applied = await applyValue(
             element,
@@ -7501,6 +7572,97 @@
     await sleep(
       900
     );
+
+    let finalUncommitted = expectedRequiredAnswers.filter(
+      ({question, answer}) => !greenhouseAnswerCommitted(
+        question,
+        null,
+        answer
+      )
+    );
+
+    if (finalUncommitted.length) {
+      statusBox(
+        "restoring Greenhouse answers after a form update..."
+      );
+
+      for (const item of finalUncommitted) {
+        const control = currentGreenhouseControl(
+          item.question,
+          null
+        );
+        if (control) {
+          await applyValue(
+            control,
+            item.answer,
+            item.question
+          );
+        }
+      }
+
+      await sleep(700);
+      await fillGreenhousePhone(identity);
+      await sleep(900);
+
+      finalUncommitted = expectedRequiredAnswers.filter(
+        ({question, answer}) => !greenhouseAnswerCommitted(
+          question,
+          null,
+          answer
+        )
+      );
+    }
+
+    if (finalUncommitted.length) {
+      const questions = [];
+      const seen = new Set();
+
+      for (const {question} of finalUncommitted) {
+        const key = question.field_name || question.key || question.text;
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        questions.push(question);
+      }
+
+      statusBox(
+        "Greenhouse cleared required answers before submission.",
+        "warning"
+      );
+
+      await report(
+        launch,
+        {
+          status:
+            "needs_application_answer",
+          message:
+            (
+              "Greenhouse cleared these required fields before submission: "
+              + questions
+                  .map((item) => item.text)
+                  .join("; ")
+            ),
+          questions,
+          detail: {
+            url:
+              location.href,
+            required_fields:
+              questions.map((item) => item.text),
+            uncommitted_fields:
+              questions.map((item) => item.text),
+            validation_source:
+              "greenhouse_react_persistence",
+            executor:
+              "chrome_agent",
+            adapter:
+              "greenhouse_hosted",
+          },
+        }
+      );
+
+      clearLaunch();
+      await closeCompletedAgentTab(launch);
+      return;
+    }
 
     const submit =
       findSubmit();
@@ -7763,9 +7925,14 @@
     }
 
     try {
-      await registerBatchRunner(
+      const batchRegistration =
+        await registerBatchRunner(
         launch
       );
+
+      if (batchRegistration?.duplicate) {
+        return;
+      }
 
       statusBox(
         "connecting to Jobfinitum…"
@@ -7780,6 +7947,10 @@
           token:
             launch.token,
         });
+
+      if (response.duplicate) {
+        return;
+      }
 
       const task =
         response.task;

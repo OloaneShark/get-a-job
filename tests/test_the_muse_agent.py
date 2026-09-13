@@ -130,7 +130,7 @@ class TheMuseAgentTests(unittest.TestCase):
         }
         self.assertEqual(
             self.manifest["version"],
-            "0.6.12",
+            "0.6.14",
         )
         self.assertTrue(
             expected_patterns.issubset(
@@ -158,22 +158,10 @@ class TheMuseAgentTests(unittest.TestCase):
                 r"<strong>Browser Agent resolver</strong>"
             ),
         )
-        for prefix in (
-            "application_target",
-            "answer_application_target",
-        ):
-            self.assertEqual(
-                self.queue.count(
-                    f'or "themuse.com/" in {prefix}'
-                ),
-                1,
-            )
-            self.assertEqual(
-                self.queue.count(
-                    f'or "www.themuse.com/" in {prefix}'
-                ),
-                1,
-            )
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn(
             'or "themuse.com/" in current_apply_url',
             self.scheduler,

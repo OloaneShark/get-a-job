@@ -121,7 +121,7 @@ class AdzunaAgentTests(unittest.TestCase):
         }
         self.assertEqual(
             self.manifest["version"],
-            "0.6.12",
+            "0.6.14",
         )
         self.assertTrue(
             expected_patterns.issubset(
@@ -149,17 +149,9 @@ class AdzunaAgentTests(unittest.TestCase):
                 r"<strong>Browser Agent resolver</strong>"
             ),
         )
-        self.assertEqual(
-            self.queue.count(
-                'or "adzuna." in application_target'
-            ),
-            1,
-        )
-        self.assertEqual(
-            self.queue.count(
-                'or "adzuna." in answer_application_target'
-            ),
-            1,
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
         )
         self.assertIn(
             'or "adzuna." in current_apply_url',

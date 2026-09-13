@@ -80,7 +80,7 @@ class JobicyAgentTests(unittest.TestCase):
             "https://jobicy.com/*",
             "https://www.jobicy.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))
@@ -97,7 +97,10 @@ class JobicyAgentTests(unittest.TestCase):
             self.settings,
             r"<span>Jobicy</span>\s*<strong>Browser Agent resolver</strong>",
         )
-        self.assertEqual(self.queue.count('"jobicy.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn('or "jobicy.com/" in current_apply_url', self.scheduler)
         self.assertIn(
             "Jobicy guest-application redirect resolver",

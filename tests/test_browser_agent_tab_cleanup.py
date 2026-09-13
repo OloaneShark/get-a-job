@@ -53,6 +53,57 @@ class BrowserAgentTabCleanupTests(unittest.TestCase):
             self.background,
         )
 
+    def test_tabs_are_owned_by_launch_token_and_duplicates_are_rejected(self):
+        self.assertIn(
+            "AGENT_TAB_OWNERSHIP_PREFIX",
+            self.background,
+        )
+        self.assertIn(
+            '"duplicate_application_tab"',
+            self.background,
+        )
+        self.assertIn(
+            "claimApplication: true",
+            self.background,
+        )
+        self.assertIn(
+            "cleanupOwnedAgentTabs(",
+            self.background,
+        )
+
+    def test_watchdog_cleans_the_current_tab_before_advancing(self):
+        self.assertIn(
+            'sendBatchControl("advance")',
+            self.site_script,
+        )
+        self.assertIn(
+            '["stop", "advance"].includes(',
+            self.background,
+        )
+        self.assertIn(
+            '"batch_watchdog_timeout"',
+            self.background,
+        )
+
+    def test_human_handoffs_pause_and_keep_one_application_tab(self):
+        self.assertIn(
+            "HANDOFF_AGENT_TAB_STATUSES",
+            self.background,
+        )
+        self.assertIn(
+            'mode: "handoff"',
+            self.background,
+        )
+        pause_start = self.site_script.index(
+            "const PAUSE_STATUSES"
+        )
+        pause_end = self.site_script.index(
+            "const RESOLVED_APPLICATION_STATUS",
+            pause_start,
+        )
+        pause_block = self.site_script[pause_start:pause_end]
+        self.assertIn('"Needs User Action"', pause_block)
+
 
 if __name__ == "__main__":
     unittest.main()

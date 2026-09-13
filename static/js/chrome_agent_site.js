@@ -2,7 +2,7 @@
   "use strict";
 
   const SOURCE = "jobfinitum-chrome-agent";
-  const REQUIRED_AGENT_VERSION = "0.6.12";
+  const REQUIRED_AGENT_VERSION = "0.6.14";
 
   const statusBox = document.getElementById(
     "jobfinitum-browser-agent-status"
@@ -248,7 +248,7 @@
     "jobfinitum-site";
 
   const REQUIRED_AGENT_VERSION =
-    "0.6.12";
+    "0.6.14";
 
   const STORAGE_KEY =
     "jobfinitum_auto_apply_batch_v1";
@@ -276,6 +276,7 @@
     new Set([
       "Waiting for Verification",
       "Waiting for Sign-In",
+      "Needs User Action",
     ]);
 
   const RESOLVED_APPLICATION_STATUS =
@@ -564,6 +565,7 @@
         state.current,
         "timeout"
       );
+      sendBatchControl("advance");
     } catch (error) {
       await stopBatch({
         closeRunner: true,

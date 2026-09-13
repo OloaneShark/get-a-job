@@ -226,6 +226,10 @@ class EmployerSiteAgentTests(unittest.TestCase):
                 return_value=None,
             ),
             patch.object(
+                chrome_agent_service,
+                "remember_host_classification",
+            ) as remember,
+            patch.object(
                 chrome_agent_service.db.session,
                 "flush",
             ),
@@ -250,6 +254,10 @@ class EmployerSiteAgentTests(unittest.TestCase):
         self.assertIn(
             "apply.unknown.example",
             manual_handoff.call_args.kwargs["message"],
+        )
+        self.assertEqual(
+            remember.call_args.args[1],
+            "unsupported_destination",
         )
 
     def test_prior_manual_records_get_one_wrapper_rescan(self):
@@ -280,7 +288,7 @@ class EmployerSiteAgentTests(unittest.TestCase):
         )
 
     def test_manifest_registers_the_limited_all_site_scanner(self):
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertIn(
             "https://*/*",
             self.manifest["host_permissions"],
@@ -310,10 +318,108 @@ class EmployerSiteAgentTests(unittest.TestCase):
             '.startswith("https://")',
             self.queue,
         )
-        self.assertEqual(
-            self.queue.count('"gh_jid=" in'),
-            2,
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
         )
+        self.assertNotIn("answer_uses_chrome_agent", self.queue)
+        self.assertNotIn('"gh_jid=" in', self.queue)
+
+    def test_resolved_hosted_ats_is_remembered_as_positive_evidence(self):
+        original_url = (
+            "https://careers.acme.example/platform-engineer"
+            "?gh_jid=123456"
+        )
+        _, candidate = self.candidate_for(original_url)
+
+        with (
+            patch.object(
+                chrome_agent_service,
+                "prepare_chrome_agent_candidate",
+                return_value=self.prepared(),
+            ),
+            patch.object(
+                chrome_agent_service,
+                "_discover_resolver_source",
+                return_value=None,
+            ),
+            patch.object(
+                chrome_agent_service,
+                "remember_host_classification",
+            ) as remember,
+            patch.object(
+                chrome_agent_service.db.session,
+                "flush",
+            ),
+        ):
+            apply_chrome_agent_result(
+                candidate,
+                SimpleNamespace(),
+                {
+                    "status": "resolved_application_target",
+                    "resolved_url": (
+                        "https://jobs.lever.co/acme/role/apply"
+                    ),
+                },
+            )
+
+        self.assertEqual(remember.call_args.args[0], original_url)
+        self.assertEqual(
+            remember.call_args.args[1],
+            "supported_wrapper",
+        )
+        self.assertEqual(
+            remember.call_args.kwargs["adapter_name"],
+            "lever_hosted",
+        )
+
+    def test_no_target_is_cached_but_transient_resolver_error_is_not(self):
+        target = "https://careers.acme.example/platform-engineer"
+        job = self.job(
+            target,
+            posting_url=(
+                "https://himalayas.app/companies/acme/"
+                "jobs/platform-engineer"
+            ),
+        )
+        candidate = SimpleNamespace(
+            status="Approved",
+            execution_status="Unsupported",
+            discovered_job=job,
+        )
+        manual_result = {
+            "status": "Unsupported",
+            "manual_application": True,
+        }
+
+        for detail, expected_calls in (({}, 1), ({"error": "timeout"}, 0)):
+            with self.subTest(detail=detail):
+                with (
+                    patch.object(
+                        chrome_agent_service,
+                        "prepare_chrome_agent_candidate",
+                        return_value=self.prepared(),
+                    ),
+                    patch.object(
+                        chrome_agent_service,
+                        "remember_host_classification",
+                    ) as remember,
+                    patch.object(
+                        chrome_agent_service,
+                        "_record_resolver_manual_handoff",
+                        return_value=manual_result,
+                    ),
+                ):
+                    apply_chrome_agent_result(
+                        candidate,
+                        SimpleNamespace(),
+                        {
+                            "status": "needs_manual_destination",
+                            "detail": detail,
+                        },
+                    )
+
+                self.assertEqual(remember.call_count, expected_calls)
 
 
 class EmployerSiteAgentScriptTests(unittest.TestCase):

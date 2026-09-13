@@ -126,7 +126,7 @@ class TokyoDevAgentTests(unittest.TestCase):
             "https://tokyodev.com/*",
             "https://www.tokyodev.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertTrue(
             expected_hosts.issubset(
                 self.manifest["host_permissions"]
@@ -151,7 +151,10 @@ class TokyoDevAgentTests(unittest.TestCase):
                 r"<strong>Browser Agent resolver</strong>"
             ),
         )
-        self.assertEqual(self.queue.count('"tokyodev.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn(
             'or "tokyodev.com/" in current_apply_url',
             self.scheduler,

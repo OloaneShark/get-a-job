@@ -206,8 +206,10 @@ class RemoteFirstJobsAgentTests(unittest.TestCase):
         )
 
     def test_queue_keeps_ashby_and_remote_first_jobs_in_the_managed_runner(self):
-        self.assertEqual(self.queue.count('"jobs.ashbyhq.com/"'), 2)
-        self.assertEqual(self.queue.count('"remotefirstjobs.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
 
     def test_feed_refresh_recognizes_an_unresolved_remote_first_jobs_url(self):
         self.assertIn('or "remotefirstjobs.com/" in current_apply_url', self.scheduler)

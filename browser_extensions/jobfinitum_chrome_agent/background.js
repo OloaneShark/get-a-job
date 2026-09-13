@@ -457,6 +457,24 @@ const HOSTED_APPLICATION_HOSTS =
     "jobs.ashbyhq.com",
   ]);
 
+const HOSTED_APPLICATION_ADAPTERS =
+  new Set([
+    "lever_hosted",
+    "greenhouse_hosted",
+    "ashby_hosted",
+  ]);
+
+function isHostedApplicationUrl(value) {
+  try {
+    return HOSTED_APPLICATION_HOSTS.has(
+      new URL(String(value || ""))
+        .hostname.toLowerCase()
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
 const JOBFINITUM_HOSTS =
   new Set([
     "127.0.0.1",
@@ -618,6 +636,15 @@ async function registerResolverLaunchFromUrl(
     session
   );
 
+  await registerOwnedAgentTab(
+    tabId,
+    session,
+    {
+      role: "resolver",
+      reason: "launch_url_registered",
+    }
+  );
+
   if (session.batch === true) {
     await saveBatchRunner(
       tabId,
@@ -635,13 +662,583 @@ const TERMINAL_AGENT_TAB_STATUSES =
   new Set([
     "submitted",
     "needs_application_answer",
-    "needs_user_action",
     "unsupported",
     "failed",
     "rejected",
     "posting_closed",
     "needs_manual_destination",
   ]);
+
+const HANDOFF_AGENT_TAB_STATUSES =
+  new Set([
+    "waiting_verification",
+    "waiting_sign_in",
+    "needs_user_action",
+  ]);
+
+const AGENT_TAB_OWNERSHIP_PREFIX =
+  "jobfinitum_agent_tab_ownership_v1_";
+
+const AGENT_TAB_INDEX_PREFIX =
+  "jobfinitum_agent_tab_index_v1_";
+
+const AGENT_TAB_OWNERSHIP_MAX_AGE_MS =
+  20 * 60 * 1000;
+
+let AGENT_TAB_OWNERSHIP_OPERATION =
+  Promise.resolve();
+
+function agentTabIndexKey(tabId) {
+  return (
+    AGENT_TAB_INDEX_PREFIX
+    + String(tabId)
+  );
+}
+
+function agentTabOwnershipKey(session) {
+  const token = String(
+    session?.token || ""
+  );
+  const origin = normalizeOrigin(
+    session?.origin
+  );
+
+  if (!token || !origin) {
+    return "";
+  }
+
+  return (
+    AGENT_TAB_OWNERSHIP_PREFIX
+    + encodeURIComponent(origin)
+    + "_"
+    + encodeURIComponent(token)
+  );
+}
+
+function withAgentTabOwnershipLock(callback) {
+  const operation =
+    AGENT_TAB_OWNERSHIP_OPERATION.then(
+      callback,
+      callback
+    );
+
+  AGENT_TAB_OWNERSHIP_OPERATION =
+    operation.catch(() => undefined);
+
+  return operation;
+}
+
+function appendAgentTabEvent(
+  ownership,
+  tabId,
+  action,
+  reason
+) {
+  const history = Array.isArray(
+    ownership.history
+  )
+    ? ownership.history
+    : [];
+
+  history.push({
+    tabId,
+    action: String(action || ""),
+    reason: String(reason || ""),
+    at: Date.now(),
+  });
+
+  ownership.history = history.slice(-40);
+  ownership.updatedAt = Date.now();
+}
+
+async function clearAgentTabOwnershipRecord(
+  ownership
+) {
+  if (!ownership?.storageKey) {
+    return;
+  }
+
+  const tabIds = Object.keys(
+    ownership.tabs || {}
+  );
+
+  await chrome.storage.session.remove([
+    ownership.storageKey,
+    ...tabIds.map(
+      (tabId) => agentTabIndexKey(tabId)
+    ),
+  ]);
+}
+
+async function loadAgentTabOwnershipByKey(
+  storageKey
+) {
+  if (!storageKey) {
+    return null;
+  }
+
+  const values =
+    await chrome.storage.session.get(
+      storageKey
+    );
+
+  const ownership = values[storageKey] || null;
+  const age = Date.now() - Number(
+    ownership?.updatedAt || 0
+  );
+
+  if (
+    !ownership?.token
+    || !ownership?.origin
+    || age < 0
+    || age > AGENT_TAB_OWNERSHIP_MAX_AGE_MS
+  ) {
+    if (ownership) {
+      await clearAgentTabOwnershipRecord(
+        ownership
+      );
+    }
+    return null;
+  }
+
+  return ownership;
+}
+
+async function getAgentTabOwnershipForTab(
+  tabId
+) {
+  if (typeof tabId !== "number") {
+    return null;
+  }
+
+  const indexKey = agentTabIndexKey(tabId);
+  const values =
+    await chrome.storage.session.get(indexKey);
+  const storageKey = String(
+    values[indexKey] || ""
+  );
+
+  if (!storageKey) {
+    return null;
+  }
+
+  const ownership =
+    await loadAgentTabOwnershipByKey(
+      storageKey
+    );
+
+  if (
+    !ownership
+    || !ownership.tabs?.[String(tabId)]
+  ) {
+    await chrome.storage.session.remove(
+      indexKey
+    );
+    return null;
+  }
+
+  return ownership;
+}
+
+async function tabExists(tabId) {
+  try {
+    await chrome.tabs.get(tabId);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function registerOwnedAgentTab(
+  tabId,
+  session,
+  {
+    role = "resolver",
+    reason = "registered",
+    claimApplication = false,
+  } = {}
+) {
+  if (typeof tabId !== "number") {
+    return {
+      accepted: false,
+      ownership: null,
+    };
+  }
+
+  const storageKey =
+    agentTabOwnershipKey(session);
+
+  if (!storageKey) {
+    return {
+      accepted: false,
+      ownership: null,
+    };
+  }
+
+  const outcome = await withAgentTabOwnershipLock(
+    async () => {
+      let ownership =
+        await loadAgentTabOwnershipByKey(
+          storageKey
+        );
+
+      if (!ownership) {
+        ownership = {
+          storageKey,
+          token: String(session.token),
+          origin: normalizeOrigin(
+            session.origin
+          ),
+          batch: session.batch === true,
+          resolver: String(
+            session.resolver || ""
+          ),
+          resolverTabId: Number.isInteger(
+            session.resolverTabId
+          )
+            ? session.resolverTabId
+            : null,
+          applicationTabId: null,
+          tabs: {},
+          history: [],
+          updatedAt: Date.now(),
+        };
+      }
+
+      const existingApplicationTabId =
+        Number.isInteger(
+          ownership.applicationTabId
+        )
+          ? ownership.applicationTabId
+          : null;
+
+      if (
+        claimApplication
+        && Number.isInteger(
+          existingApplicationTabId
+        )
+        && existingApplicationTabId !== tabId
+        && !(await tabExists(
+          existingApplicationTabId
+        ))
+      ) {
+        delete ownership.tabs[
+          String(existingApplicationTabId)
+        ];
+        await chrome.storage.session.remove(
+          agentTabIndexKey(
+            existingApplicationTabId
+          )
+        );
+        ownership.applicationTabId = null;
+      }
+
+      const activeApplicationTabId =
+        Number.isInteger(
+          ownership.applicationTabId
+        )
+          ? ownership.applicationTabId
+          : null;
+
+      if (
+        claimApplication
+        && Number.isInteger(
+          activeApplicationTabId
+        )
+        && activeApplicationTabId !== tabId
+      ) {
+        appendAgentTabEvent(
+          ownership,
+          tabId,
+          "closed",
+          "duplicate_application_tab"
+        );
+        await chrome.storage.session.set({
+          [storageKey]: ownership,
+        });
+
+        return {
+          accepted: false,
+          ownership,
+        };
+      }
+
+      const currentRole = String(
+        ownership.tabs?.[String(tabId)]
+          ?.role || ""
+      );
+
+      ownership.tabs[String(tabId)] = {
+        role: (
+          currentRole === "application"
+            ? currentRole
+            : role
+        ),
+        reason: String(reason || ""),
+        observedAt: Date.now(),
+      };
+
+      if (claimApplication) {
+        ownership.applicationTabId = tabId;
+        ownership.tabs[String(tabId)].role =
+          "application";
+      }
+
+      if (
+        !Number.isInteger(
+          ownership.resolverTabId
+        )
+        && role.startsWith("resolver")
+      ) {
+        ownership.resolverTabId = tabId;
+      }
+
+      ownership.batch = (
+        ownership.batch === true
+        || session.batch === true
+      );
+
+      appendAgentTabEvent(
+        ownership,
+        tabId,
+        claimApplication ? "retained" : "owned",
+        reason
+      );
+
+      await chrome.storage.session.set({
+        [storageKey]: ownership,
+        [agentTabIndexKey(tabId)]:
+          storageKey,
+      });
+
+      return {
+        accepted: true,
+        ownership,
+      };
+    }
+  );
+
+  if (
+    outcome.accepted
+    && claimApplication
+    && outcome.ownership?.batch === true
+  ) {
+    await saveBatchRunner(
+      tabId,
+      outcome.ownership.origin
+    );
+  } else if (
+    !outcome.accepted
+    && outcome.ownership?.batch === true
+    && Number.isInteger(
+      outcome.ownership.applicationTabId
+    )
+  ) {
+    await saveBatchRunner(
+      outcome.ownership.applicationTabId,
+      outcome.ownership.origin
+    );
+  }
+
+  return outcome;
+}
+
+async function removeOwnedAgentTab(
+  tabId,
+  reason
+) {
+  return withAgentTabOwnershipLock(
+    async () => {
+      const ownership =
+        await getAgentTabOwnershipForTab(
+          tabId
+        );
+
+      if (!ownership) {
+        return null;
+      }
+
+      delete ownership.tabs[String(tabId)];
+
+      if (
+        ownership.applicationTabId
+        === tabId
+      ) {
+        ownership.applicationTabId = null;
+      }
+
+      appendAgentTabEvent(
+        ownership,
+        tabId,
+        "closed",
+        reason
+      );
+
+      await chrome.storage.session.remove(
+        agentTabIndexKey(tabId)
+      );
+
+      if (!Object.keys(ownership.tabs).length) {
+        await chrome.storage.session.remove(
+          ownership.storageKey
+        );
+      } else {
+        await chrome.storage.session.set({
+          [ownership.storageKey]: ownership,
+        });
+      }
+
+      return ownership;
+    }
+  );
+}
+
+async function closeOwnedAgentTab(
+  tabId,
+  reason
+) {
+  await removeOwnedAgentTab(tabId, reason);
+  await clearChainedAgentLaunch(tabId);
+  await deleteHimalayasResolverSession(tabId);
+
+  console.info(
+    "Jobfinitum closed an owned browser tab:",
+    {tabId, reason}
+  );
+
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch (error) {
+    // The owned tab may already have closed itself.
+  }
+}
+
+async function cleanupOwnedAgentTabsUnlocked(
+  tabId,
+  origin,
+  {
+    mode = "terminal",
+    reason = "terminal_result",
+  } = {}
+) {
+  const ownership =
+    await getAgentTabOwnershipForTab(tabId);
+
+  if (
+    !ownership
+    || ownership.origin !== origin
+  ) {
+    return false;
+  }
+
+  const ownedTabIds = Object.keys(
+    ownership.tabs || {}
+  )
+    .map(Number)
+    .filter(Number.isInteger);
+
+  const runner = await getBatchRunner();
+  const shouldRecycle = (
+    mode === "terminal"
+    && ownership.batch === true
+    && runner?.origin === origin
+    && ownedTabIds.includes(
+      Number(runner.tabId)
+    )
+  );
+  const retainTabId = (
+    mode === "handoff" || shouldRecycle
+  )
+    ? tabId
+    : null;
+
+  appendAgentTabEvent(
+    ownership,
+    tabId,
+    mode === "handoff" ? "retained" : "closed",
+    reason
+  );
+
+  await clearAgentTabOwnershipRecord(
+    ownership
+  );
+
+  for (const ownedTabId of ownedTabIds) {
+    await clearChainedAgentLaunch(
+      ownedTabId
+    );
+    await deleteHimalayasResolverSession(
+      ownedTabId
+    );
+
+    if (ownedTabId === retainTabId) {
+      continue;
+    }
+
+    console.info(
+      "Jobfinitum closed an owned browser tab:",
+      {tabId: ownedTabId, reason}
+    );
+
+    try {
+      await chrome.tabs.remove(
+        ownedTabId
+      );
+    } catch (error) {
+      // The owned tab may already have closed itself.
+    }
+  }
+
+  if (mode === "handoff") {
+    if (
+      runner?.origin === origin
+      && ownedTabIds.includes(
+        Number(runner.tabId)
+      )
+    ) {
+      await clearBatchRunner();
+    }
+
+    console.info(
+      "Jobfinitum retained the application tab for user action:",
+      {tabId, reason}
+    );
+    return true;
+  }
+
+  if (shouldRecycle) {
+    const waitingUrl = new URL(
+      "/browser-agent",
+      origin
+    );
+    waitingUrl.searchParams.set(
+      "batch_wait",
+      "1"
+    );
+
+    await saveBatchRunner(tabId, origin);
+    await chrome.tabs.update(
+      tabId,
+      {url: waitingUrl.href}
+    );
+  }
+
+  return true;
+}
+
+async function cleanupOwnedAgentTabs(
+  tabId,
+  origin,
+  options = {}
+) {
+  return withAgentTabOwnershipLock(
+    () => cleanupOwnedAgentTabsUnlocked(
+      tabId,
+      origin,
+      options
+    )
+  );
+}
 
 const CHAINED_AGENT_LAUNCH_PREFIX =
   "jobfinitum_chained_agent_launch_v1_";
@@ -839,17 +1436,30 @@ async function closeBatchRunner(origin) {
     return false;
   }
 
-  await clearBatchRunner();
-  await clearChainedAgentLaunch(
-    runner.tabId
-  );
+  const cleanedOwnedTabs =
+    await cleanupOwnedAgentTabs(
+      runner.tabId,
+      origin,
+      {
+        mode: "close",
+        reason: "batch_stopped",
+      }
+    );
 
-  try {
-    await chrome.tabs.remove(
+  await clearBatchRunner();
+
+  if (!cleanedOwnedTabs) {
+    await clearChainedAgentLaunch(
       runner.tabId
     );
-  } catch (error) {
-    // It may already have been closed by the queue page.
+
+    try {
+      await chrome.tabs.remove(
+        runner.tabId
+      );
+    } catch (error) {
+      // It may already have been closed by the queue page.
+    }
   }
 
   return true;
@@ -857,7 +1467,8 @@ async function closeBatchRunner(origin) {
 
 async function cleanupTerminalAgentTab(
   tabId,
-  origin
+  origin,
+  reason = "terminal_result"
 ) {
   if (typeof tabId !== "number") {
     return false;
@@ -881,6 +1492,19 @@ async function cleanupTerminalAgentTab(
     }
   } catch (error) {
     // Blank and transitional tabs still need cleanup.
+  }
+
+  if (
+    await cleanupOwnedAgentTabs(
+      tabId,
+      origin,
+      {
+        mode: "terminal",
+        reason,
+      }
+    )
+  ) {
+    return true;
   }
 
   const resolverSession =
@@ -1137,6 +1761,26 @@ async function resolveHimalayasTargetOnce(
       )
     );
 
+  const applicationClaim =
+    await registerOwnedAgentTab(
+      tabId,
+      currentSession,
+      {
+        role: "application",
+        reason:
+          "resolved_external_application",
+        claimApplication: true,
+      }
+    );
+
+  if (!applicationClaim.accepted) {
+    await closeOwnedAgentTab(
+      tabId,
+      "duplicate_application_tab"
+    );
+    return true;
+  }
+
   const result =
     await fetchJson(
       `${origin}/api/chrome-agent/result/${token}`,
@@ -1225,31 +1869,15 @@ async function resolveHimalayasTargetOnce(
     && result.resolved_url
   ) {
     if (currentSession.batch === true) {
-      const resolverTabId = Number(
-        currentSession.resolverTabId
+      await cleanupOwnedAgentTabs(
+        tabId,
+        origin,
+        {
+          mode: "terminal",
+          reason:
+            "unsupported_application_destination",
+        }
       );
-
-      const tabsToClose = [tabId];
-
-      if (Number.isInteger(resolverTabId)) {
-        await deleteHimalayasResolverSession(
-          resolverTabId
-        );
-
-        if (resolverTabId !== tabId) {
-          tabsToClose.push(resolverTabId);
-        }
-      }
-
-      for (const closingTabId of tabsToClose) {
-        try {
-          await chrome.tabs.remove(
-            closingTabId
-          );
-        } catch (error) {
-          // A completed resolver tab may already be closed.
-        }
-      }
 
       return true;
     }
@@ -1413,10 +2041,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         );
       }
 
-      await saveBatchRunner(
-        tabId,
-        origin
+      const token = String(
+        message.token || ""
       );
+
+      if (
+        token
+        && isHostedApplicationUrl(
+          sender?.tab?.url
+        )
+      ) {
+        const claim =
+          await registerOwnedAgentTab(
+            tabId,
+            {
+              token,
+              origin,
+              batch: true,
+              resolver: "",
+              resolverTabId: null,
+            },
+            {
+              role: "application",
+              reason:
+                "hosted_agent_registered",
+              claimApplication: true,
+            }
+          );
+
+        if (!claim.accepted) {
+          sendResponse({
+            ok: true,
+            duplicate: true,
+          });
+
+          setTimeout(() => {
+            closeOwnedAgentTab(
+              tabId,
+              "duplicate_application_tab"
+            );
+          }, 0);
+          return;
+        }
+      } else {
+        await saveBatchRunner(
+          tabId,
+          origin
+        );
+      }
 
       try {
         await positionBatchRunnerNextToJobfinitum(
@@ -1438,13 +2110,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.type
       === "jobfinitum-batch-control"
     ) {
-      if (message.action !== "stop") {
+      if (
+        !["stop", "advance"].includes(
+          message.action
+        )
+      ) {
         throw new Error(
           "Unknown Auto Apply batch action."
         );
       }
 
-      await closeBatchRunner(origin);
+      if (message.action === "stop") {
+        await closeBatchRunner(origin);
+      } else {
+        const runner = await getBatchRunner();
+
+        if (
+          runner?.origin === origin
+          && typeof runner.tabId === "number"
+        ) {
+          await cleanupTerminalAgentTab(
+            runner.tabId,
+            origin,
+            "batch_watchdog_timeout"
+          );
+        }
+      }
+
       sendResponse({ok: true});
       return;
     }
@@ -1454,6 +2146,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const task = await fetchJson(
         `${origin}/api/chrome-agent/task/${token}`
       );
+
+      const senderTabId = sender?.tab?.id;
+
+      if (typeof senderTabId === "number") {
+        const trackedSession =
+          await getHimalayasResolverSession(
+            senderTabId
+          );
+        const runner = await getBatchRunner();
+        const taskSession = trackedSession || {
+          token: String(message.token || ""),
+          origin,
+          batch: (
+            runner?.tabId === senderTabId
+            && runner.origin === origin
+          ),
+          resolver: "",
+          resolverTabId: null,
+        };
+        const hostedApplication =
+          HOSTED_APPLICATION_ADAPTERS.has(
+            String(task.adapter || "")
+          );
+        const registration =
+          await registerOwnedAgentTab(
+            senderTabId,
+            taskSession,
+            {
+              role: hostedApplication
+                ? "application"
+                : "resolver",
+              reason: hostedApplication
+                ? "hosted_task_started"
+                : "resolver_task_started",
+              claimApplication:
+                hostedApplication,
+            }
+          );
+
+        if (
+          hostedApplication
+          && !registration.accepted
+        ) {
+          sendResponse({
+            ok: true,
+            duplicate: true,
+          });
+
+          setTimeout(() => {
+            closeOwnedAgentTab(
+              senderTabId,
+              "duplicate_application_tab"
+            );
+          }, 0);
+          return;
+        }
+      }
 
       await clearChainedAgentLaunch(
         sender?.tab?.id
@@ -1558,41 +2307,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       if (
         typeof senderTabId === "number"
-        && [
-          "needs_manual_destination",
-          "posting_closed",
-          "waiting_sign_in",
-        ].includes(resultStatus)
+        && HANDOFF_AGENT_TAB_STATUSES.has(
+          resultStatus
+        )
       ) {
-        const resolverSession =
-          await getHimalayasResolverSession(
-            senderTabId
-          );
-
-        await deleteHimalayasResolverSession(
-          senderTabId
-        );
-
-        const resolverTabId = Number(
-          resolverSession?.resolverTabId
-        );
-
-        if (
-          Number.isInteger(resolverTabId)
-          && resolverTabId !== senderTabId
-        ) {
-          await deleteHimalayasResolverSession(
-            resolverTabId
-          );
-
-          try {
-            await chrome.tabs.remove(
-              resolverTabId
-            );
-          } catch (error) {
-            // The listing tab may already be closed.
+        await cleanupOwnedAgentTabs(
+          senderTabId,
+          origin,
+          {
+            mode: "handoff",
+            reason: resultStatus,
           }
-        }
+        );
       }
 
       sendResponse({ok: true, result});
@@ -1606,7 +2332,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         setTimeout(() => {
           cleanupTerminalAgentTab(
             senderTabId,
-            origin
+            origin,
+            resultStatus
           ).catch((error) => {
             console.warn(
               "Jobfinitum could not clean up a completed application tab:",
@@ -1733,50 +2460,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         );
       }
 
-      const runner =
-        await getBatchRunner();
-
-      if (
-        runner?.tabId === tabId
-        && runner.origin === origin
-      ) {
-        sendResponse({ok: true});
-
-        setTimeout(() => {
-          const waitingUrl = new URL(
-            "/browser-agent",
-            origin
-          );
-          waitingUrl.searchParams.set(
-            "batch_wait",
-            "1"
-          );
-
-          chrome.tabs.update(
-            tabId,
-            {url: waitingUrl.href}
-          ).catch((error) => {
-            console.warn(
-              "Jobfinitum could not return the Agent tab to its waiting page:",
-              error
-            );
-          });
-        }, 150);
-
-        return;
-      }
-
       sendResponse({ok: true});
 
       setTimeout(() => {
-        chrome.tabs.remove(tabId).catch(
-          (error) => {
+        cleanupTerminalAgentTab(
+          tabId,
+          origin,
+          "agent_requested_close"
+        ).catch((error) => {
             console.warn(
               "Jobfinitum could not close the completed Agent tab:",
               error
             );
-          }
-        );
+        });
       }, 150);
 
       return;
@@ -1812,20 +2508,33 @@ chrome.tabs.onCreated.addListener(
         );
 
       if (!openerSession) {
-        let openerOrigin = "";
-
-        try {
-          const openerTab =
-            await chrome.tabs.get(
-              tab.openerTabId
-            );
-
-          openerOrigin = normalizeOrigin(
-            openerTab.url
+        const openerOwnership =
+          await getAgentTabOwnershipForTab(
+            tab.openerTabId
           );
-        } catch (error) {
+
+        if (!openerOwnership) {
           return;
         }
+
+        await registerOwnedAgentTab(
+          tab.id,
+          {
+            token: openerOwnership.token,
+            origin: openerOwnership.origin,
+            batch:
+              openerOwnership.batch === true,
+            resolver:
+              openerOwnership.resolver || "",
+            resolverTabId:
+              openerOwnership.resolverTabId,
+          },
+          {
+            role: "application_child",
+            reason:
+              "opened_by_owned_application",
+          }
+        );
 
         setTimeout(
           async () => {
@@ -1843,18 +2552,9 @@ chrome.tabs.onCreated.addListener(
                 !currentUrl
                 || currentUrl === "about:blank"
               ) {
-                const runner =
-                  await getBatchRunner();
-
-                if (
-                  runner?.tabId === tab.id
-                  && runner.origin === openerOrigin
-                ) {
-                  await clearBatchRunner();
-                }
-
-                await chrome.tabs.remove(
-                  tab.id
+                await closeOwnedAgentTab(
+                  tab.id,
+                  "blank_child_timeout"
                 );
               }
             } catch (error) {
@@ -1866,6 +2566,15 @@ chrome.tabs.onCreated.addListener(
 
         return;
       }
+
+      await registerOwnedAgentTab(
+        tab.id,
+        openerSession,
+        {
+          role: "resolver_child",
+          reason: "opened_by_resolver",
+        }
+      );
 
       await saveHimalayasResolverSession(
         tab.id,
@@ -1902,12 +2611,9 @@ chrome.tabs.onCreated.addListener(
                 || currentUrl === "about:blank"
               )
             ) {
-              await deleteHimalayasResolverSession(
-                tab.id
-              );
-
-              await chrome.tabs.remove(
-                tab.id
+              await closeOwnedAgentTab(
+                tab.id,
+                "blank_resolver_child_timeout"
               );
             }
           } catch (error) {

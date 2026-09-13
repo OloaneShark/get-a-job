@@ -2,7 +2,11 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, inspect, text
-from models import ApplicantProfile, ApplicationSubmissionAttempt
+from models import (
+    ApplicantProfile,
+    ApplicationHostClassification,
+    ApplicationSubmissionAttempt,
+)
 
 load_dotenv()
 database_url = os.getenv("DATABASE_URL")
@@ -21,6 +25,10 @@ def add_column_if_missing(connection, table_name, columns, name, definition):
 
 
 ApplicantProfile.__table__.create(bind=engine, checkfirst=True)
+ApplicationHostClassification.__table__.create(
+    bind=engine,
+    checkfirst=True,
+)
 ApplicationSubmissionAttempt.__table__.create(bind=engine, checkfirst=True)
 
 with engine.begin() as connection:

@@ -554,6 +554,48 @@ class JobPostingHealth(db.Model):
     )
 
 
+class ApplicationHostClassification(db.Model):
+    __tablename__ = "application_host_classification"
+
+    id = db.Column(db.Integer, primary_key=True)
+    hostname = db.Column(
+        db.String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    classification = db.Column(
+        db.String(40),
+        nullable=False,
+        index=True,
+    )
+    adapter_name = db.Column(db.String(80), nullable=True)
+    evidence_kind = db.Column(db.String(80), nullable=True)
+    evidence_url = db.Column(db.String(1000), nullable=True)
+    reason = db.Column(db.Text, nullable=True)
+    observed_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+    expires_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        index=True,
+    )
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
+    updated_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+
 class JobLifecycleScanState(db.Model):
     __tablename__ = "job_lifecycle_scan_state"
 

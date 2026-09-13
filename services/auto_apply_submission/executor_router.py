@@ -176,6 +176,19 @@ def _supported_wrapper_url_hint(parsed):
     )
 
 
+def supported_wrapper_url_hint(job):
+    try:
+        parsed = urlsplit(application_target(job))
+    except ValueError:
+        return False
+
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.hostname)
+        and _supported_wrapper_url_hint(parsed)
+    )
+
+
 def _came_from_supported_resolver(job, target_host):
     posting_url = str(
         getattr(job, "posting_url", "") or ""

@@ -24,7 +24,6 @@
   const cleanQuestionText = (value) => normalize(value).replace(/\s*(?:\*+|\u2731+)\s*$/, "");
   const questionMatchKey = (value) => lower(cleanQuestionText(value)).replace(/[^a-z0-9]+/g, " ").trim();
   const customControls = new WeakSet();
-  const confirmedCustomSelections = new WeakMap();
 
   function isCustomControl(element) {
     return customControls.has(element)
@@ -119,7 +118,11 @@
 
   async function registerBatchRunner(launch) {
     if (!isBatchRunner()) return;
-    await send({type: "jobfinitum-batch-register", origin: launch.origin});
+    return send({
+      type: "jobfinitum-batch-register",
+      origin: launch.origin,
+      token: launch.token,
+    });
   }
 
   function clearLaunch() {
@@ -457,9 +460,90 @@
       ].includes(text);
   }
 
+  function customSelectionValues(element) {
+    if (!element) return [];
+    const root = element.closest?.(
+      ".ashby-application-form-field-entry"
+    ) || element;
+    const input = element.tagName === "INPUT"
+      ? element
+      : element.querySelector?.(
+          'input[role="combobox"], input[aria-autocomplete], input'
+        );
+    const result = [];
+
+    for (const candidate of [element, input]) {
+      if (!candidate) continue;
+      for (const attribute of ["aria-valuetext", "data-value"]) {
+        const value = normalize(candidate.getAttribute?.(attribute));
+        if (value && !placeholderChoice(value)) result.push(value);
+      }
+    }
+
+    const selectedSelector = [
+      '[aria-selected="true"]',
+      '[data-selected="true"]',
+      '[data-state="checked"]',
+      '[class*="selected-value" i]',
+      '[class*="single-value" i]',
+      '[class*="multi-value" i]',
+    ].join(",");
+
+    for (const node of root.querySelectorAll?.(selectedSelector) || []) {
+      if (lower(node.getAttribute?.("role")) === "option") continue;
+      const value = normalize(
+        node.getAttribute?.("data-value")
+        || node.getAttribute?.("value")
+        || node.innerText
+        || node.textContent
+      );
+      if (value && !placeholderChoice(value)) result.push(value);
+    }
+
+    for (
+      const hidden
+      of root.querySelectorAll?.('input[type="hidden"]') || []
+    ) {
+      const value = normalize(hidden.value);
+      if (value && !placeholderChoice(value)) result.push(value);
+    }
+
+    const inputValue = normalize(input?.value);
+    const expanded = lower(input?.getAttribute?.("aria-expanded"));
+    if (
+      inputValue
+      && !placeholderChoice(inputValue)
+      && (
+        expanded === "false"
+        || (expanded !== "true" && !visibleOptionNodes().length)
+      )
+    ) {
+      result.push(inputValue);
+    }
+
+    return [...new Set(result)];
+  }
+
+  function customControlMatchesValue(element, value) {
+    const groups = answerGroups(value);
+    const observed = customSelectionValues(element).map(lower);
+    if (!groups.length || !observed.length) return false;
+
+    return groups.every((group) => (
+      group.some((candidate) => (
+        observed.some((actual) => (
+          actual === lower(candidate)
+          || fuzzyChoiceMatch(actual, candidate)
+        ))
+      ))
+    ));
+  }
+
   function controlHasAnyValue(element) {
     const type = lower(element.type);
-    if (type === "radio" || type === "checkbox") return groupControls(element).some((item) => item.checked);
+    if (type === "radio" || type === "checkbox") {
+      return groupControls(element).some((item) => item.checked);
+    }
     if (element.tagName === "SELECT") {
       if (element.multiple) {
         return [...element.selectedOptions].some((option) => {
@@ -475,26 +559,100 @@
       return Boolean(value || (text && !placeholderChoice(text)));
     }
     if (isCustomControl(element)) {
-      if (confirmedCustomSelections.has(element)) return true;
-      const nestedInput = element.tagName === "INPUT"
-        ? null
-        : element.querySelector?.('input[role="combobox"], input[aria-autocomplete], input');
-      const selectedNode = element.querySelector?.(
-        '[aria-selected="true"], [data-selected="true"], [data-state="checked"], '
-        + '[class*="selected-value" i], [class*="multi-value" i]'
-      );
-      const text = normalize(
-        element.tagName === "INPUT" || element.tagName === "TEXTAREA"
-          ? element.value
-          : element.getAttribute?.("aria-valuetext")
-            || element.getAttribute?.("data-value")
-            || nestedInput?.value
-            || selectedNode?.innerText
-            || (element.tagName === "BUTTON" ? element.textContent : "")
-      );
-      return Boolean(text && !placeholderChoice(text));
+      return customSelectionValues(element).length > 0;
     }
     return Boolean(normalize(element.value));
+  }
+
+  function controlHasValue(element, value) {
+    const groups = answerGroups(value).map(
+      (group) => new Set(group.map(lower))
+    );
+    if (!element || !groups.length) return false;
+
+    if (isCustomControl(element)) {
+      return customControlMatchesValue(element, value);
+    }
+
+    if (element.tagName === "SELECT") {
+      const selected = [...element.selectedOptions].map((option) => [
+        lower(option.value),
+        lower(option.textContent),
+      ]);
+      return groups.every((wanted) => (
+        selected.some((actual) => (
+          actual.some((item) => wanted.has(item))
+        ))
+      ));
+    }
+
+    const type = lower(element.type);
+    if (type === "radio") {
+      const selected = groupControls(element).find((item) => item.checked);
+      if (!selected) return false;
+      return groups[0].has(lower(selected.value))
+        || groups[0].has(lower(choiceLabel(selected)));
+    }
+
+    if (type === "checkbox") {
+      const selected = groupControls(element)
+        .filter((item) => item.checked)
+        .map((item) => [lower(item.value), lower(choiceLabel(item))]);
+      return groups.every((wanted) => (
+        selected.some((actual) => actual.some((item) => wanted.has(item)))
+      ));
+    }
+
+    const actual = lower(element.value);
+    return groups.some((wanted) => wanted.has(actual));
+  }
+
+  function currentAshbyControl(element) {
+    if (!element) return null;
+    const type = lower(element.type);
+    if (["radio", "checkbox"].includes(type)) {
+      return groupControls(element)[0] || element;
+    }
+
+    const name = fieldName(element);
+    if (name) {
+      const exact = allQuestionControls().find(
+        (candidate) => fieldName(candidate) === name
+      );
+      if (exact) return exact;
+    }
+
+    const labelKey = questionMatchKey(labelText(element));
+    if (labelKey) {
+      const matching = allQuestionControls().find(
+        (candidate) => questionMatchKey(labelText(candidate)) === labelKey
+      );
+      if (matching) return matching;
+    }
+
+    return element;
+  }
+
+  async function waitForAshbyValue(
+    element,
+    value,
+    timeoutMs = 1400
+  ) {
+    const started = Date.now();
+    let stableChecks = 0;
+
+    while (Date.now() - started < timeoutMs) {
+      await sleep(160);
+      const current = currentAshbyControl(element);
+      if (controlHasValue(current, value)) {
+        stableChecks += 1;
+        if (stableChecks >= 2) return true;
+      } else {
+        stableChecks = 0;
+      }
+    }
+
+    return false;
   }
 
   function placeholderChoice(value) {
@@ -528,25 +686,49 @@
   async function chooseCustomOption(element, value) {
     const groups = answerGroups(value);
     if (!groups.length) return false;
-    const requestedGroups = controlType(element) === "multiselect" ? groups : [groups[0]];
-    const confirmedValues = new Set(
-      answerGroups(confirmedCustomSelections.get(element)).flat().map(lower)
-    );
-    const pendingGroups = requestedGroups.filter(
-      (group) => !group.some((candidate) => confirmedValues.has(lower(candidate)))
-    );
-    if (!pendingGroups.length) return true;
+    const requestedGroups = controlType(element) === "multiselect"
+      ? groups
+      : [groups[0]];
     const originalValue = normalize(element.value);
-    let matchedCount = 0;
+    let committedCount = 0;
 
-    for (const group of pendingGroups) {
+    const groupCommitted = (control, group) => {
+      const observed = customSelectionValues(control).map(lower);
+      return group.some((candidate) => (
+        observed.some((actual) => (
+          actual === lower(candidate)
+          || fuzzyChoiceMatch(actual, candidate)
+        ))
+      ));
+    };
+
+    if (
+      requestedGroups.every(
+        (group) => groupCommitted(element, group)
+      )
+    ) {
+      return true;
+    }
+
+    for (const group of requestedGroups) {
+      let current = currentAshbyControl(element);
+      if (groupCommitted(current, group)) {
+        committedCount += 1;
+        continue;
+      }
+
       const wanted = new Set(group.map(lower));
-      if (element.tagName === "INPUT") {
-        element.focus();
-        setText(element, group[0], {blur: false});
-        element.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+      if (current.tagName === "INPUT") {
+        current.focus();
+        setText(current, group[0], {blur: false});
+        current.dispatchEvent(
+          new KeyboardEvent(
+            "keydown",
+            {key: "ArrowDown", bubbles: true}
+          )
+        );
       } else {
-        element.click();
+        current.click();
       }
 
       const started = Date.now();
@@ -570,24 +752,37 @@
       }
 
       if (!selected) {
-        if (!matchedCount && element.tagName === "INPUT") {
-          setText(element, originalValue, {blur: false});
-          element.dispatchEvent(new Event("blur", {bubbles: true}));
+        if (!committedCount && current.tagName === "INPUT") {
+          setText(current, originalValue, {blur: false});
+          current.dispatchEvent(new Event("blur", {bubbles: true}));
         }
-        if (!confirmedValues.size) confirmedCustomSelections.delete(element);
         return false;
       }
 
-      selected.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true, view: window}));
+      selected.dispatchEvent(
+        new MouseEvent(
+          "mousedown",
+          {bubbles: true, cancelable: true, view: window}
+        )
+      );
       selected.click();
-      matchedCount += 1;
-      confirmedValues.add(lower(group[0]));
-      confirmedCustomSelections.set(element, [...confirmedValues]);
-      await sleep(150);
+      dispatchEvents(current);
+      await sleep(200);
+
+      current = currentAshbyControl(current);
+      const expected = {
+        platform_value: group[0],
+        value: group[1],
+        label: group[2],
+      };
+      if (!await waitForAshbyValue(current, expected, 1800)) {
+        return false;
+      }
+      committedCount += 1;
     }
 
-    dispatchEvents(element);
-    return matchedCount === pendingGroups.length;
+    return committedCount === requestedGroups.length
+      && await waitForAshbyValue(element, value, 1800);
   }
 
   async function applyValue(element, value) {
@@ -596,52 +791,61 @@
       return chooseCustomOption(element, value);
     }
 
+    let applied = false;
+
     if (element.tagName === "SELECT") {
       const wanted = new Set(answerGroups(value).flat().map(lower));
-      let matched = false;
       for (const option of element.options) {
-        const isMatch = wanted.has(lower(option.value)) || wanted.has(lower(option.textContent));
+        const isMatch = wanted.has(lower(option.value))
+          || wanted.has(lower(option.textContent));
         if (element.multiple) {
           option.selected = isMatch;
-          matched = matched || isMatch;
+          applied = applied || isMatch;
         } else if (isMatch) {
-          const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLSelectElement.prototype,
+            "value"
+          )?.set;
           if (setter) setter.call(element, option.value);
           else element.value = option.value;
-          dispatchEvents(element);
-          return true;
+          applied = true;
+          break;
         }
       }
-      if (matched) dispatchEvents(element);
-      return matched;
-    }
-
-    const type = lower(element.type);
-    if (type === "radio") {
-      const wanted = new Set(answerGroups(value).flat().map(lower));
-      for (const radio of groupControls(element)) {
-        if ([lower(radio.value), lower(choiceLabel(radio))].some((item) => wanted.has(item))) {
-          if (!radio.checked) radio.click();
-          else dispatchEvents(radio);
-          return radio.checked;
+      if (applied) dispatchEvents(element);
+    } else {
+      const type = lower(element.type);
+      if (type === "radio") {
+        const wanted = new Set(answerGroups(value).flat().map(lower));
+        for (const radio of groupControls(element)) {
+          if (
+            [lower(radio.value), lower(choiceLabel(radio))]
+              .some((item) => wanted.has(item))
+          ) {
+            if (!radio.checked) radio.click();
+            else dispatchEvents(radio);
+            applied = Boolean(radio.checked);
+            break;
+          }
         }
+      } else if (type === "checkbox") {
+        const wanted = new Set(answerGroups(value).flat().map(lower));
+        for (const box of groupControls(element)) {
+          const shouldCheck = [
+            lower(box.value),
+            lower(choiceLabel(box)),
+          ].some((item) => wanted.has(item));
+          if (box.checked !== shouldCheck) box.click();
+          else dispatchEvents(box);
+          applied = applied || shouldCheck;
+        }
+      } else {
+        applied = setText(element, answerText(value));
       }
-      return false;
     }
 
-    if (type === "checkbox") {
-      const wanted = new Set(answerGroups(value).flat().map(lower));
-      let matched = false;
-      for (const box of groupControls(element)) {
-        const shouldCheck = [lower(box.value), lower(choiceLabel(box))].some((item) => wanted.has(item));
-        if (box.checked !== shouldCheck) box.click();
-        else dispatchEvents(box);
-        matched = matched || shouldCheck;
-      }
-      return matched;
-    }
-
-    return setText(element, answerText(value));
+    if (!applied) return false;
+    return waitForAshbyValue(element, value);
   }
 
   async function questionChoices(element) {
@@ -776,20 +980,73 @@
     return fuzzy;
   }
 
+  function savedAnswerForControl(task, element) {
+    const field = fieldName(element);
+    const textKey = questionMatchKey(labelText(element));
+    let textMatch = null;
+
+    for (const question of task.application_questions || []) {
+      const answer = question?.answer;
+      if (answer === null || answer === undefined || answer === "") continue;
+
+      if (
+        field
+        && question.field_name
+        && field === normalize(question.field_name)
+      ) {
+        return answer;
+      }
+
+      if (
+        textKey
+        && questionMatchKey(question.text) === textKey
+      ) {
+        textMatch = answer;
+      }
+    }
+
+    return textMatch;
+  }
+
+  function configuredAshbyAnswer(task, element) {
+    const saved = savedAnswerForControl(task, element);
+    if (saved !== null) return saved;
+
+    const remembered = rememberedAnswer(task, labelText(element));
+    if (remembered !== null) return remembered;
+
+    return reusableAnswer(task, labelText(element));
+  }
+
   async function applySavedAshbyAnswers(task) {
     for (const question of task.application_questions || []) {
-      if (question.answer === null || question.answer === undefined || question.answer === "") continue;
+      if (
+        question.answer === null
+        || question.answer === undefined
+        || question.answer === ""
+      ) {
+        continue;
+      }
       const element = findSavedControl(question);
-      if (element) await applyValue(element, question.answer);
+      if (
+        element
+        && !controlHasValue(element, question.answer)
+      ) {
+        await applyValue(element, question.answer);
+      }
     }
   }
 
   async function applyReusableAshbyAnswers(task) {
     for (const element of allQuestionControls()) {
-      if (coreQuestion(element) || controlHasAnyValue(element)) continue;
-      const remembered = rememberedAnswer(task, labelText(element));
-      const answer = remembered !== null ? remembered : reusableAnswer(task, labelText(element));
-      if (answer !== null) await applyValue(element, answer);
+      if (coreQuestion(element)) continue;
+      const answer = configuredAshbyAnswer(task, element);
+      if (
+        answer !== null
+        && !controlHasValue(element, answer)
+      ) {
+        await applyValue(element, answer);
+      }
     }
   }
 
@@ -948,7 +1205,13 @@
     return questions;
   }
 
-  async function reportRequiredAnswers(launch, questions, message, validationSource) {
+  async function reportRequiredAnswers(
+    launch,
+    questions,
+    message,
+    validationSource,
+    detail = {}
+  ) {
     statusBox("more Ashby application answers are required in Jobfinitum.", "warning");
     const reportResponse = await report(launch, {
       status: "needs_application_answer",
@@ -960,6 +1223,7 @@
         validation_source: validationSource,
         executor: "chrome_agent",
         adapter: "ashby_hosted",
+        ...detail,
       },
     });
     if (reportResponse?.result?.retry_with_saved_answers) {
@@ -1137,8 +1401,24 @@
     await applyReusableAshbyAnswers(task);
     await sleep(500);
 
-    const unresolvedControls = requiredControls().filter(
-      (element) => applicationAnswerQuestion(element) && !controlHasAnyValue(element)
+    const currentRequired = requiredControls();
+    const uncommittedControls = currentRequired.filter((element) => {
+      if (!applicationAnswerQuestion(element)) return false;
+      const answer = configuredAshbyAnswer(task, element);
+      return answer !== null
+        && answer !== undefined
+        && answer !== ""
+        && !controlHasValue(element, answer);
+    });
+    const uncommittedSet = new Set(uncommittedControls);
+    const unresolvedControls = currentRequired.filter(
+      (element) => (
+        applicationAnswerQuestion(element)
+        && (
+          !controlHasAnyValue(element)
+          || uncommittedSet.has(element)
+        )
+      )
     );
     const unresolved = await describeControls(unresolvedControls);
 
@@ -1147,7 +1427,12 @@
         launch,
         unresolved,
         "Ashby requires additional application answers before submission.",
-        "ashby_required_fields"
+        "ashby_required_fields",
+        {
+          uncommitted_fields: uncommittedControls.map(
+            (element) => labelText(element)
+          ),
+        }
       );
       return;
     }
@@ -1287,13 +1572,19 @@
       if (!launch) return;
 
       statusBox("connecting to Jobfinitum...");
-      await registerBatchRunner(launch);
+      const batchRegistration =
+        await registerBatchRunner(launch);
+
+      if (batchRegistration?.duplicate) return;
 
       const response = await send({
         type: "jobfinitum-task",
         origin: launch.origin,
         token: launch.token,
       });
+
+      if (response.duplicate) return;
+
       const task = response.task;
 
       if (task.adapter !== "ashby_hosted") {

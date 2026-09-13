@@ -14,6 +14,31 @@ AGENT_PATH = (
 )
 
 
+EDGE_CASE_PATH = (
+    ROOT
+    / "tests"
+    / "js"
+    / "greenhouse_agent_edge_cases.mjs"
+)
+
+
+def node_executable():
+    installed = shutil.which("node")
+    if installed:
+        return installed
+
+    bundled = (
+        ROOT
+        / "venv"
+        / "Lib"
+        / "site-packages"
+        / "playwright"
+        / "driver"
+        / "node.exe"
+    )
+    return str(bundled) if bundled.exists() else None
+
+
 class GreenhouseAgentSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -51,9 +76,10 @@ class GreenhouseAgentSourceTests(unittest.TestCase):
 class GreenhouseAgentScriptTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        node = shutil.which("node")
+        node = node_executable()
         if not node:
             raise unittest.SkipTest("Node.js is required for Chrome Agent tests.")
+        cls.node = node
 
         harness = r"""
 const fs = require("fs");
@@ -233,6 +259,14 @@ process.stdout.write(JSON.stringify({
         self.assertFalse(verification["offscreen"])
         self.assertFalse(verification["hiddenAncestor"])
         self.assertTrue(verification["onscreen"])
+
+    def test_react_field_persistence_edge_cases(self):
+        subprocess.run(
+            [self.node, str(EDGE_CASE_PATH)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 if __name__ == "__main__":

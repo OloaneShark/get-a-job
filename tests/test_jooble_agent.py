@@ -80,7 +80,7 @@ class JoobleAgentTests(unittest.TestCase):
             "https://jooble.org/*",
             "https://www.jooble.org/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))
@@ -97,7 +97,10 @@ class JoobleAgentTests(unittest.TestCase):
             self.settings,
             r"<span>Jooble</span>\s*<strong>Browser Agent resolver</strong>",
         )
-        self.assertEqual(self.queue.count('"jooble.org/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn('or "jooble.org/" in current_apply_url', self.scheduler)
         self.assertIn("Jooble employer-site redirect resolver", self.readme)
 

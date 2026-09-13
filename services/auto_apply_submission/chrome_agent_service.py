@@ -33,6 +33,15 @@ from services.auto_apply_submission.engine import (
 from services.auto_apply_submission.executor_router import (
     application_target,
     browser_resolvable_application,
+    supported_wrapper_url_hint,
+)
+from services.auto_apply_submission.host_classification_service import (
+    NO_SUPPORTED_ATS,
+    SUPPORTED_WRAPPER,
+    UNSUPPORTED_DESTINATION,
+    active_blocking_host_classification,
+    host_scan_decision,
+    remember_host_classification,
 )
 from services.job_lifecycle_service import (
     record_job_health_result,
@@ -270,10 +279,19 @@ def chrome_agent_supports_job(job):
         or ""
     ).lower()
 
-    return (
-        host in SUPPORTED_HOSTS
-        or browser_resolvable_application(job)
+    if host in SUPPORTED_HOSTS:
+        return True
+
+    if supported_wrapper_url_hint(job):
+        return True
+
+    cached_decision = host_scan_decision(
+        chrome_agent_target(job)
     )
+    if cached_decision is not None:
+        return cached_decision
+
+    return browser_resolvable_application(job)
 
 
 def chrome_agent_adapter(job):
@@ -323,7 +341,21 @@ def chrome_agent_adapter(job):
     if host in ASHBY_HOSTS:
         return "ashby_hosted"
 
-    if browser_resolvable_application(job):
+    if supported_wrapper_url_hint(job):
+        return "employer_site_resolver"
+
+    cached_decision = host_scan_decision(
+        chrome_agent_target(job)
+    )
+    if cached_decision is False:
+        raise ValueError(
+            "A recent employer-site inspection found no supported ATS."
+        )
+
+    if (
+        cached_decision is True
+        or browser_resolvable_application(job)
+    ):
         return "employer_site_resolver"
 
     raise ValueError(
@@ -356,6 +388,7 @@ def unsupported_candidate_became_retryable(
 
     if previous_adapter in {
         "",
+        "employer_site_cache",
         "unsupported",
         "legacy_submission",
     }:
@@ -995,6 +1028,73 @@ def _record_resolver_manual_handoff(
     }
 
 
+def apply_cached_host_manual_handoff(candidate, user):
+    if (
+        candidate.status == "Rejected"
+        or supported_wrapper_url_hint(candidate.discovered_job)
+    ):
+        return None
+
+    target_url = chrome_agent_target(candidate.discovered_job)
+    target_host = (
+        urlsplit(target_url).hostname
+        or ""
+    ).lower()
+
+    if target_host in SUPPORTED_HOSTS:
+        return None
+
+    classification = active_blocking_host_classification(
+        target_url
+    )
+    if classification is None:
+        return None
+
+    application = get_or_create_application(candidate)
+    package = get_or_create_package(candidate, application)
+    candidate.status = "Approved"
+    candidate.reviewed_at = utcnow_naive()
+
+    if classification.classification == UNSUPPORTED_DESTINATION:
+        reason = (
+            "this employer host recently resolved to an application "
+            "system Jobfinitum does not support"
+        )
+    else:
+        reason = (
+            "a recent inspection found no trustworthy Greenhouse, "
+            "Lever, or Ashby destination"
+        )
+
+    expires_at = classification.expires_at.strftime(
+        "%Y-%m-%d %H:%M UTC"
+    )
+    message = (
+        f"Jobfinitum skipped another inspection of {classification.hostname} "
+        f"because {reason}. Continue with Manual Apply. The host will be "
+        f"eligible for a fresh check after {expires_at}."
+    )
+
+    return _record_resolver_manual_handoff(
+        candidate=candidate,
+        user=user,
+        application=application,
+        package=package,
+        message=message,
+        detail={
+            "cache_hit": True,
+            "host_classification": classification.classification,
+            "host_classification_expires_at": (
+                classification.expires_at.isoformat()
+            ),
+        },
+        adapter_name="employer_site_cache",
+        resolver_config=RESOLVER_ADAPTERS["employer_site_resolver"],
+        resolved_url=None,
+        resolved_host=classification.hostname,
+    )
+
+
 def _record_resolver_pause(
     *,
     candidate,
@@ -1146,6 +1246,8 @@ def apply_chrome_agent_result(candidate, user, payload):
     adapter_name = chrome_agent_adapter(
         candidate.discovered_job
     )
+    job = candidate.discovered_job
+    resolver_target_url = chrome_agent_target(job)
 
     resolver_config = RESOLVER_ADAPTERS.get(
         adapter_name
@@ -1204,6 +1306,19 @@ def apply_chrome_agent_result(candidate, user, payload):
                     "application destination automatically."
                 )
             ).strip()
+
+            if (
+                adapter_name == "employer_site_resolver"
+                and not detail.get("error")
+                and not supported_wrapper_url_hint(job)
+            ):
+                remember_host_classification(
+                    resolver_target_url,
+                    NO_SUPPORTED_ATS,
+                    evidence_kind="resolver_no_target",
+                    evidence_url=final_url or resolver_target_url,
+                    reason=message,
+                )
 
             return _record_resolver_manual_handoff(
                 candidate=candidate,
@@ -1286,7 +1401,6 @@ def apply_chrome_agent_result(candidate, user, payload):
                 "invalid external application target."
             )
 
-        job = candidate.discovered_job
         job.apply_url = resolved_url
         source_discovery = (
             _discover_resolver_source(
@@ -1312,6 +1426,30 @@ def apply_chrome_agent_result(candidate, user, payload):
                 )
             )
         )
+
+        if adapter_name == "employer_site_resolver":
+            if resolved_adapter in HOSTED_ADAPTERS:
+                remember_host_classification(
+                    resolver_target_url,
+                    SUPPORTED_WRAPPER,
+                    adapter_name=resolved_adapter,
+                    evidence_kind="resolved_hosted_ats",
+                    evidence_url=resolved_url,
+                    reason=(
+                        "Employer wrapper resolved to a supported hosted ATS."
+                    ),
+                )
+            elif not continue_in_chrome_agent:
+                remember_host_classification(
+                    resolver_target_url,
+                    UNSUPPORTED_DESTINATION,
+                    evidence_kind="resolved_unsupported_destination",
+                    evidence_url=resolved_url,
+                    reason=(
+                        "Employer wrapper resolved to an unsupported "
+                        "application destination."
+                    ),
+                )
 
         if not continue_in_chrome_agent:
             manual_detail = (

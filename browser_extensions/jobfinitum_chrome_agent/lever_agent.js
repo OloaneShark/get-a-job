@@ -115,9 +115,10 @@
   async function registerBatchRunner(launch) {
     if (!isBatchRunner()) return;
 
-    await send({
+    return send({
       type: "jobfinitum-batch-register",
       origin: launch.origin,
+      token: launch.token,
     });
   }
 
@@ -526,9 +527,12 @@
             actual.some((item) => wanted.has(item))
           ))
         ) {
-          radio.checked = true;
-          dispatchEvents(radio);
-          return true;
+          if (!radio.checked) {
+            radio.click();
+          } else {
+            dispatchEvents(radio);
+          }
+          return Boolean(radio.checked);
         }
       }
       return false;
@@ -547,8 +551,11 @@
             (item) => wanted.has(item)
           )
         );
-        box.checked = shouldCheck;
-        dispatchEvents(box);
+        if (box.checked !== shouldCheck) {
+          box.click();
+        } else {
+          dispatchEvents(box);
+        }
         matched = matched || shouldCheck;
       }
       return matched;
@@ -557,8 +564,10 @@
     return false;
   }
 
-  function applyValue(element, value) {
+  async function applyValue(element, value) {
     if (value === null || value === undefined || value === "") return false;
+
+    let applied = false;
 
     if (element.tagName === "SELECT") {
       const wanted = new Set(
@@ -571,22 +580,33 @@
           wanted.has(lower(option.value))
           || wanted.has(lower(option.textContent))
         ) {
-          element.value = option.value;
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLSelectElement.prototype,
+            "value"
+          )?.set;
+          if (setter) {
+            setter.call(element, option.value);
+          } else {
+            element.value = option.value;
+          }
           dispatchEvents(element);
-          return true;
+          applied = true;
+          break;
         }
       }
-      return false;
+    } else {
+      const type = lower(element.type);
+      if (type === "radio" || type === "checkbox") {
+        applied = setChoice(element, value);
+      } else if (
+        !["hidden", "file", "submit", "button"].includes(type)
+      ) {
+        applied = setText(element, answerText(value));
+      }
     }
 
-    const type = lower(element.type);
-    if (type === "radio" || type === "checkbox") {
-      return setChoice(element, value);
-    }
-    if (["hidden", "file", "submit", "button"].includes(type)) {
-      return false;
-    }
-    return setText(element, answerText(value));
+    if (!applied) return false;
+    return waitForLeverValue(element, value);
   }
 
   function controlHasValue(element, value) {
@@ -642,6 +662,57 @@
 
     const actual = lower(element.value);
     return groups.some((wanted) => wanted.has(actual));
+  }
+
+  function currentLeverControl(element) {
+    if (!element) return null;
+
+    const type = lower(element.type);
+    if (["radio", "checkbox"].includes(type)) {
+      return groupControls(element)[0] || element;
+    }
+
+    const name = fieldName(element);
+    if (name) {
+      const exact = [...document.querySelectorAll("input, textarea, select")]
+        .find((candidate) => fieldName(candidate) === name);
+      if (exact) return exact;
+    }
+
+    const labelKey = questionMatchKey(labelText(element));
+    if (labelKey) {
+      const matching = [...document.querySelectorAll("input, textarea, select")]
+        .find(
+          (candidate) =>
+            questionMatchKey(labelText(candidate)) === labelKey
+        );
+      if (matching) return matching;
+    }
+
+    return element;
+  }
+
+  async function waitForLeverValue(
+    element,
+    value,
+    timeoutMs = 1400
+  ) {
+    const started = Date.now();
+    let stableChecks = 0;
+
+    while (Date.now() - started < timeoutMs) {
+      await sleep(160);
+      const current = currentLeverControl(element);
+
+      if (controlHasValue(current, value)) {
+        stableChecks += 1;
+        if (stableChecks >= 2) return true;
+      } else {
+        stableChecks = 0;
+      }
+    }
+
+    return false;
   }
 
   function reusableAnswer(task, questionText) {
@@ -732,7 +803,53 @@
     return null;
   }
 
-  function applySavedLeverAnswers(task) {
+  function savedAnswerForControl(task, element) {
+    const field = fieldName(element);
+    const textKey = questionMatchKey(labelText(element));
+    let textMatch = null;
+
+    for (const question of task.application_questions || []) {
+      const answer = question?.answer;
+      if (answer === null || answer === undefined || answer === "") {
+        continue;
+      }
+
+      if (
+        field
+        && question.field_name
+        && field === normalize(question.field_name)
+      ) {
+        return answer;
+      }
+
+      if (
+        textKey
+        && questionMatchKey(question.text) === textKey
+      ) {
+        textMatch = answer;
+      }
+    }
+
+    return textMatch;
+  }
+
+  function configuredLeverAnswer(task, element) {
+    const saved = savedAnswerForControl(task, element);
+    if (saved !== null) return saved;
+
+    const remembered = rememberedAnswer(
+      task,
+      labelText(element)
+    );
+    if (remembered !== null) return remembered;
+
+    return reusableAnswer(
+      task,
+      labelText(element)
+    );
+  }
+
+  async function applySavedLeverAnswers(task) {
     for (const question of task.application_questions || []) {
       if (
         question.answer === null
@@ -750,31 +867,53 @@
           question.answer
         )
       ) {
-        applyValue(element, question.answer);
+        await applyValue(element, question.answer);
       }
     }
   }
 
-  function applyReusableLeverAnswers(task) {
+  async function applyReusableLeverAnswers(task) {
     for (const element of requiredControls()) {
-      const remembered = rememberedAnswer(
+      const answer = configuredLeverAnswer(
         task,
-        labelText(element)
+        element
       );
-      const answer = remembered !== null
-        ? remembered
-        : reusableAnswer(
-            task,
-            labelText(element)
-          );
 
       if (
         answer !== null
         && !controlHasValue(element, answer)
       ) {
-        applyValue(element, answer);
+        await applyValue(element, answer);
       }
     }
+  }
+
+  function unpersistedLeverAnswers(task) {
+    const result = [];
+    const seen = new Set();
+
+    for (const element of requiredControls()) {
+      const answer = configuredLeverAnswer(
+        task,
+        element
+      );
+      if (
+        answer === null
+        || answer === undefined
+        || answer === ""
+        || controlHasValue(element, answer)
+      ) {
+        continue;
+      }
+
+      const item = descriptor(element);
+      const key = item.field_name || questionMatchKey(item.text);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(item);
+    }
+
+    return result;
   }
 
   function rememberedAnswer(task, questionText) {
@@ -1439,8 +1578,8 @@
       fillByLabel(/github/i, identity.github_url);
       fillByLabel(/website|portfolio/i, identity.website_url);
 
-      applySavedLeverAnswers(task);
-      applyReusableLeverAnswers(task);
+      await applySavedLeverAnswers(task);
+      await applyReusableLeverAnswers(task);
 
       if (pass < 2) {
         await sleep(700);
@@ -1449,14 +1588,26 @@
 
     await sleep(500);
 
-    const unresolved = [];
+    const unpersisted = unpersistedLeverAnswers(task);
+    const unresolved = [...unpersisted];
+    const unresolvedKeys = new Set(
+      unresolved.map(
+        (item) => item.field_name || questionMatchKey(item.text)
+      )
+    );
 
     for (const element of requiredControls()) {
       if (!customQuestion(element, task)) continue;
 
       const item = descriptor(element);
+      const key = item.field_name || questionMatchKey(item.text);
 
-      if (!element.checkValidity()) {
+      if (
+        !element.checkValidity()
+        && key
+        && !unresolvedKeys.has(key)
+      ) {
+        unresolvedKeys.add(key);
         unresolved.push(item);
       }
     }
@@ -1470,6 +1621,7 @@
         detail: {
           url: location.href,
           required_fields: unresolved.map((item) => item.text),
+          uncommitted_fields: unpersisted.map((item) => item.text),
           executor: "chrome_agent",
           adapter: "lever_hosted",
         },
@@ -1641,13 +1793,23 @@
       if (!launch) return;
 
       statusBox("connecting to Jobfinitum...");
-      await registerBatchRunner(launch);
+      const batchRegistration =
+        await registerBatchRunner(launch);
+
+      if (batchRegistration?.duplicate) {
+        return;
+      }
 
       const response = await send({
         type: "jobfinitum-task",
         origin: launch.origin,
         token: launch.token,
       });
+
+      if (response.duplicate) {
+        return;
+      }
+
       const task = response.task;
 
       if (new URL(task.target_url).hostname !== location.hostname) {

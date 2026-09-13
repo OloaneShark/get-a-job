@@ -160,7 +160,10 @@ class JapanDevAgentTests(unittest.TestCase):
             for script in self.manifest["content_scripts"]
         ))
         self.assertIn("<span>Japan Dev</span>", self.settings)
-        self.assertEqual(self.queue.count('"japan-dev.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn('or "japan-dev.com/" in current_apply_url', self.scheduler)
         self.assertIn(
             "python migrate_application_answer_profile.py",

@@ -18,6 +18,8 @@ const exposedFunctions = [
   "ashbyControlInvalid",
   "chooseCustomOption",
   "controlHasAnyValue",
+  "controlHasValue",
+  "customSelectionValues",
   "controlType",
   "fieldName",
   "finishConfirmedAshbySubmission",
@@ -369,12 +371,47 @@ function option(value, text, {disabled = false, selected = false} = {}) {
   return {value, textContent: text, disabled, selected};
 }
 
-function visibleOption(text, value = text) {
+function visibleOption(text, value = text, onClick = null) {
   return new MockElement({
     text,
-    attributes: {"data-value": value},
+    attributes: {"data-value": value, role: "option"},
     classes: ["ashby-application-form-input-autocomplete-popup-result"],
+    onClick,
   });
+}
+
+const customSelectedSelector = [
+  '[aria-selected="true"]',
+  '[data-selected="true"]',
+  '[data-state="checked"]',
+  '[class*="selected-value" i]',
+  '[class*="single-value" i]',
+  '[class*="multi-value" i]',
+].join(",");
+
+function committedCustomFixture(label, value = label) {
+  const entry = makeFieldEntry("School *");
+  const selectedValue = new MockElement({
+    text: label,
+    classes: ["ashby-application-form-input-autocomplete-selected-value"],
+  });
+  const input = new MockInput({
+    attributes: {role: "combobox", "aria-expanded": "true"},
+  });
+  input.closestResults.set(
+    ".ashby-application-form-field-entry",
+    entry
+  );
+  const result = visibleOption(label, value, () => {
+    input.value = "";
+    input.setAttribute("aria-expanded", "false");
+    entry.selectorResults.set(
+      customSelectedSelector,
+      [selectedValue]
+    );
+  });
+
+  return {entry, input, result, selectedValue};
 }
 
 function makeFieldEntry(titleText) {
@@ -548,16 +585,26 @@ await edgeCase("education controls keep distinct labels and keys", async () => {
   assert.equal(new Set([hooks.fieldName(school), hooks.fieldName(degree), hooks.fieldName(major)]).size, 3);
 });
 
-await edgeCase("custom combobox chooses an exact result", async () => {
-  const input = new MockInput({
-    attributes: {role: "combobox"},
-    classes: ["ashby-application-form-input-autocomplete"],
-  });
-  const result = visibleOption("Georgia State University", "gsu");
-  documentState.queryAll = (selector) => selector.includes('[role="option"]') ? [result] : [];
+await edgeCase("custom combobox chooses and confirms an exact result", async () => {
+  const {input, result} = committedCustomFixture(
+    "Georgia State University",
+    "gsu"
+  );
+  documentState.queryAll = (selector) =>
+    selector.includes('[role="option"]') ? [result] : [];
 
-  assert.equal(await hooks.chooseCustomOption(input, "Georgia State University"), true);
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    true
+  );
   assert.equal(result.clickCount, 1);
+  assert.equal(
+    hooks.controlHasValue(input, "Georgia State University"),
+    true
+  );
 });
 
 await edgeCase("short answers never fuzzy-match a different option", async () => {
@@ -578,26 +625,96 @@ await edgeCase("Male never fuzzy-matches Female", async () => {
   assert.equal(wrongResult.clickCount, 0);
 });
 
-await edgeCase("custom selections remain valid when React clears the search text", async () => {
-  const input = new MockInput({attributes: {role: "combobox"}});
-  const result = visibleOption("Georgia State University", "gsu");
-  documentState.queryAll = (selector) => selector.includes('[role="option"]') ? [result] : [];
+await edgeCase("a cleared search input remains valid with a selected value node", async () => {
+  const {input, result} = committedCustomFixture(
+    "Georgia State University",
+    "gsu"
+  );
+  documentState.queryAll = (selector) =>
+    selector.includes('[role="option"]') ? [result] : [];
 
-  assert.equal(await hooks.chooseCustomOption(input, "Georgia State University"), true);
-  input.value = "";
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    true
+  );
+  assert.equal(input.value, "");
   assert.equal(hooks.controlHasAnyValue(input), true);
 });
 
-await edgeCase("repeated saved-answer passes preserve a confirmed custom selection", async () => {
-  const input = new MockInput({attributes: {role: "combobox"}});
-  const result = visibleOption("Georgia State University", "gsu");
-  documentState.queryAll = (selector) => selector.includes('[role="option"]') ? [result] : [];
+await edgeCase("repeated saved-answer passes preserve a DOM-confirmed selection", async () => {
+  const {input, result} = committedCustomFixture(
+    "Georgia State University",
+    "gsu"
+  );
+  documentState.queryAll = (selector) =>
+    selector.includes('[role="option"]') ? [result] : [];
 
-  assert.equal(await hooks.chooseCustomOption(input, "Georgia State University"), true);
-  input.value = "";
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    true
+  );
   documentState.queryAll = () => [];
-  assert.equal(await hooks.chooseCustomOption(input, "Georgia State University"), true);
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    true
+  );
   assert.equal(result.clickCount, 1);
+});
+
+await edgeCase("an option click without committed DOM evidence is rejected", async () => {
+  const input = new MockInput({
+    attributes: {role: "combobox", "aria-expanded": "true"},
+  });
+  const result = visibleOption(
+    "Georgia State University",
+    "gsu"
+  );
+  documentState.queryAll = (selector) =>
+    selector.includes('[role="option"]') ? [result] : [];
+
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    false
+  );
+  assert.equal(result.clickCount, 1);
+  assert.equal(hooks.controlHasAnyValue(input), false);
+});
+
+await edgeCase("a React rerender that removes the selected value is detected", async () => {
+  const {entry, input, result} = committedCustomFixture(
+    "Georgia State University",
+    "gsu"
+  );
+  documentState.queryAll = (selector) =>
+    selector.includes('[role="option"]') ? [result] : [];
+
+  assert.equal(
+    await hooks.chooseCustomOption(
+      input,
+      "Georgia State University"
+    ),
+    true
+  );
+
+  entry.selectorResults.set(customSelectedSelector, []);
+  input.value = "";
+  assert.equal(hooks.controlHasAnyValue(input), false);
+  assert.equal(
+    hooks.controlHasValue(input, "Georgia State University"),
+    false
+  );
 });
 
 await edgeCase("an unselected custom wrapper is not mistaken for an answer", async () => {

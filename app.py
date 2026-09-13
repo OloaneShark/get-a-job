@@ -194,6 +194,7 @@ from services.auto_apply_submission.engine import (
     reset_candidate_submission,
 )
 from services.auto_apply_submission.chrome_agent_service import (
+    apply_cached_host_manual_handoff,
     apply_chrome_agent_result,
     build_chrome_agent_launch_url,
     build_chrome_agent_task,
@@ -205,9 +206,8 @@ from services.auto_apply_submission.chrome_agent_service import (
     prepare_chrome_agent_candidate,
     unsupported_candidate_became_retryable,
 )
-from services.auto_apply_submission.executor_router import (
-    EXECUTOR_CHROME_AGENT,
-    get_submission_executor,
+from services.auto_apply_submission.host_classification_service import (
+    prime_host_classification_cache,
 )
 from services.job_lifecycle_service import (
     job_is_suppressed,
@@ -4128,6 +4128,11 @@ def _recover_newly_supported_manual_candidates(user_id):
     if not candidates:
         return 0
 
+    prime_host_classification_cache(
+        chrome_agent_target(candidate.discovered_job)
+        for candidate in candidates
+    )
+
     candidate_ids = [
         candidate.id
         for candidate in candidates
@@ -4240,6 +4245,16 @@ def auto_apply_queue():
             error_out=False,
         )
     )
+
+    prime_host_classification_cache(
+        chrome_agent_target(candidate.discovered_job)
+        for candidate in pagination.items
+    )
+    chrome_agent_candidate_ids = {
+        candidate.id
+        for candidate in pagination.items
+        if chrome_agent_supports_job(candidate.discovered_job)
+    }
 
     status_counts = {
         "Pending Review": (
@@ -4370,6 +4385,7 @@ def auto_apply_queue():
         status_counts=status_counts,
         latest_attempts=latest_attempts,
         application_question_states=application_question_states,
+        chrome_agent_candidate_ids=chrome_agent_candidate_ids,
         applicant_profile=(
             ApplicantProfile.query
             .filter_by(user_id=current_user.id)
@@ -4452,19 +4468,33 @@ def auto_apply_batch_candidates_api():
         .all()
     )
 
+    prime_host_classification_cache(
+        chrome_agent_target(candidate.discovered_job)
+        for candidate in candidates
+    )
+
     batch = []
+    cached_manual = 0
     skipped_out_of_spec = 0
 
     for candidate in candidates:
-        if not chrome_agent_supports_job(
-            candidate.discovered_job
-        ):
-            continue
-
         if not _batch_candidate_profile_eligible(
             candidate
         ):
             skipped_out_of_spec += 1
+            continue
+
+        cached_result = apply_cached_host_manual_handoff(
+            candidate,
+            current_user,
+        )
+        if cached_result is not None:
+            cached_manual += 1
+            continue
+
+        if not chrome_agent_supports_job(
+            candidate.discovered_job
+        ):
             continue
 
         batch.append(
@@ -4485,11 +4515,22 @@ def auto_apply_batch_candidates_api():
         if len(batch) >= 50:
             break
 
+    if cached_manual:
+        db.session.commit()
+        log_action(
+            current_user.id,
+            (
+                "Applied cached employer-host classifications to "
+                f"{cached_manual} Auto Apply candidate(s)"
+            ),
+        )
+
     return jsonify(
         {
             "candidates": batch,
             "count": len(batch),
             "skipped_out_of_spec": skipped_out_of_spec,
+            "cached_manual": cached_manual,
             "recovered_interrupted": len(
                 interrupted_candidates
             ),
@@ -5155,6 +5196,20 @@ def launch_auto_apply_chrome_agent(candidate_id):
         .first_or_404()
     )
 
+    cached_result = apply_cached_host_manual_handoff(
+        candidate,
+        current_user,
+    )
+    if cached_result is not None:
+        db.session.commit()
+        flash(cached_result["message"], "info")
+        return redirect(
+            url_for(
+                "auto_apply_queue",
+                status="Unsupported",
+            )
+        )
+
     if not chrome_agent_supports_job(candidate.discovered_job):
         flash(
             "The Chrome Agent does not support this application host yet.",
@@ -5510,20 +5565,31 @@ def update_auto_apply_candidate(candidate_id, action):
         .first_or_404()
     )
 
-    # Route submission through Jobfinitum's central
-    # executor registry. Lever is formally assigned to the
-    # normal-Chrome Agent and therefore never enters the
-    # legacy Playwright path from Approve/Resume.
-    submission_executor = (
-        get_submission_executor(
-            candidate.discovered_job
+    if action in {"approve", "resume"}:
+        cached_result = apply_cached_host_manual_handoff(
+            candidate,
+            current_user,
         )
-    )
+        if cached_result is not None:
+            db.session.commit()
+            log_action(
+                current_user.id,
+                (
+                    "Used cached employer-host classification for "
+                    f"Auto Apply candidate {candidate.id}"
+                ),
+            )
+            flash(cached_result["message"], "info")
+            return redirect(
+                url_for(
+                    "auto_apply_queue",
+                    status="Unsupported",
+                )
+            )
 
     if (
         action in {"approve", "resume"}
-        and submission_executor
-        == EXECUTOR_CHROME_AGENT
+        and chrome_agent_supports_job(candidate.discovered_job)
     ):
         return launch_auto_apply_chrome_agent(
             candidate.id

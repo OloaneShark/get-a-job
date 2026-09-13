@@ -11,6 +11,7 @@ const tabUpdates = [];
 const tabRemovals = [];
 const tabUrls = new Map();
 const fetchCalls = [];
+let runtimeMessageListener = null;
 
 const sandbox = {
   URL,
@@ -40,7 +41,11 @@ const sandbox = {
     },
     runtime: {
       getManifest: () => ({version: "test"}),
-      onMessage: {addListener() {}},
+      onMessage: {
+        addListener(listener) {
+          runtimeMessageListener = listener;
+        },
+      },
     },
     storage: {
       session: {
@@ -87,10 +92,15 @@ sandbox.globalThis = sandbox;
 const exposed = `
 globalThis.__jobBoardResolverHooks = {
   chainedAgentUrl,
+  cleanupOwnedAgentTabs,
   cleanupTerminalAgentTab,
+  closeOwnedAgentTab,
   externalHimalayasTarget,
+  getAgentTabOwnershipForTab,
+  getBatchRunner,
   getHimalayasResolverSession,
   registerResolverLaunchFromUrl,
+  registerOwnedAgentTab,
   resolverLaunchFromUrl,
   resolverNameForUrl,
   resolveHimalayasTargetOnce,
@@ -102,6 +112,24 @@ globalThis.__jobBoardResolverHooks = {
 vm.createContext(sandbox);
 new vm.Script(`${source}\n${exposed}`, {filename: "background.js"}).runInContext(sandbox);
 const hooks = sandbox.__jobBoardResolverHooks;
+
+function dispatchBackgroundMessage(
+  message,
+  sender
+) {
+  return new Promise((resolve) => {
+    const keepsChannelOpen =
+      runtimeMessageListener(
+        message,
+        sender,
+        resolve
+      );
+
+    if (!keepsChannelOpen) {
+      resolve(null);
+    }
+  });
+}
 
 assert.equal(
   hooks.resolverNameForUrl("https://himalayas.app/jobs/example"),
@@ -408,8 +436,389 @@ assert.equal(
 );
 assert.equal(tabRemovals.includes(79), false);
 
+const ownedSession = {
+  token: "owned-candidate-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: 100,
+  resolver: "remote_first_jobs_browser_agent",
+};
+tabUrls.set(
+  100,
+  "https://remotefirstjobs.com/jobs/example"
+);
+tabUrls.set(
+  101,
+  "https://job-boards.greenhouse.io/example/jobs/456"
+);
+tabUrls.set(
+  102,
+  "https://job-boards.greenhouse.io/example/jobs/456"
+);
+await hooks.registerOwnedAgentTab(
+  100,
+  ownedSession,
+  {
+    role: "resolver",
+    reason: "test_resolver",
+  }
+);
+await hooks.registerOwnedAgentTab(
+  101,
+  ownedSession,
+  {
+    role: "resolver_child",
+    reason: "test_child",
+  }
+);
+await hooks.registerOwnedAgentTab(
+  102,
+  ownedSession,
+  {
+    role: "resolver_child",
+    reason: "test_duplicate_child",
+  }
+);
+const primaryClaim =
+  await hooks.registerOwnedAgentTab(
+    101,
+    ownedSession,
+    {
+      role: "application",
+      reason: "test_primary_application",
+      claimApplication: true,
+    }
+  );
+const duplicateClaim =
+  await hooks.registerOwnedAgentTab(
+    102,
+    ownedSession,
+    {
+      role: "application",
+      reason: "test_duplicate_application",
+      claimApplication: true,
+    }
+  );
+assert.equal(primaryClaim.accepted, true);
+assert.equal(duplicateClaim.accepted, false);
+assert.equal(
+  (await hooks.getAgentTabOwnershipForTab(100))
+    .applicationTabId,
+  101
+);
+await hooks.closeOwnedAgentTab(
+  102,
+  "duplicate_application_tab"
+);
+assert.equal(tabRemovals.at(-1), 102);
+await hooks.cleanupOwnedAgentTabs(
+  101,
+  ownedSession.origin,
+  {
+    mode: "terminal",
+    reason: "submitted",
+  }
+);
+assert.equal(tabRemovals.includes(100), true);
+assert.equal(
+  tabUpdates.at(-1).tabId,
+  101
+);
+assert.equal(
+  tabUpdates.at(-1).update.url,
+  "http://127.0.0.1:5000/browser-agent?batch_wait=1"
+);
+assert.equal(
+  await hooks.getAgentTabOwnershipForTab(101),
+  null
+);
+
+const handoffSession = {
+  token: "handoff-candidate-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: 110,
+  resolver: "employer_site_browser_agent",
+};
+tabUrls.set(
+  110,
+  "https://careers.example.com/jobs/security"
+);
+tabUrls.set(
+  111,
+  "https://jobs.lever.co/example/security/apply"
+);
+await hooks.registerOwnedAgentTab(
+  110,
+  handoffSession,
+  {
+    role: "resolver",
+    reason: "test_handoff_resolver",
+  }
+);
+await hooks.registerOwnedAgentTab(
+  111,
+  handoffSession,
+  {
+    role: "application",
+    reason: "test_handoff_application",
+    claimApplication: true,
+  }
+);
+await hooks.cleanupOwnedAgentTabs(
+  111,
+  handoffSession.origin,
+  {
+    mode: "handoff",
+    reason: "waiting_verification",
+  }
+);
+assert.equal(tabRemovals.includes(110), true);
+assert.equal(tabRemovals.includes(111), false);
+assert.equal(tabUrls.get(111), "https://jobs.lever.co/example/security/apply");
+assert.equal(await hooks.getBatchRunner(), null);
+
+tabUrls.set(
+  120,
+  "https://jobs.ashbyhq.com/example/application"
+);
+tabUrls.set(
+  121,
+  "https://jobs.ashbyhq.com/example/application"
+);
+const firstHostedRegistration =
+  await dispatchBackgroundMessage(
+    {
+      type: "jobfinitum-batch-register",
+      origin: "http://127.0.0.1:5000",
+      token: "hosted-duplicate-token",
+    },
+    {
+      tab: {
+        id: 120,
+        url: tabUrls.get(120),
+      },
+    }
+  );
+const duplicateHostedRegistration =
+  await dispatchBackgroundMessage(
+    {
+      type: "jobfinitum-batch-register",
+      origin: "http://127.0.0.1:5000",
+      token: "hosted-duplicate-token",
+    },
+    {
+      tab: {
+        id: 121,
+        url: tabUrls.get(121),
+      },
+    }
+  );
+await new Promise(
+  (resolve) => setTimeout(resolve, 5)
+);
+assert.equal(firstHostedRegistration.ok, true);
+assert.equal(
+  duplicateHostedRegistration.duplicate,
+  true
+);
+assert.equal(tabRemovals.includes(121), true);
+await dispatchBackgroundMessage(
+  {
+    type: "jobfinitum-batch-control",
+    origin: "http://127.0.0.1:5000",
+    action: "stop",
+  },
+  {
+    tab: {
+      id: 79,
+      url: tabUrls.get(79),
+    },
+  }
+);
+assert.equal(tabRemovals.includes(120), true);
+
+const watchdogSession = {
+  token: "watchdog-candidate-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: null,
+  resolver: "",
+};
+tabUrls.set(
+  130,
+  "https://jobs.lever.co/example/watchdog/apply"
+);
+await hooks.registerOwnedAgentTab(
+  130,
+  watchdogSession,
+  {
+    role: "application",
+    reason: "test_watchdog_application",
+    claimApplication: true,
+  }
+);
+const watchdogAdvance =
+  await dispatchBackgroundMessage(
+    {
+      type: "jobfinitum-batch-control",
+      origin: "http://127.0.0.1:5000",
+      action: "advance",
+    },
+    {
+      tab: {
+        id: 79,
+        url: tabUrls.get(79),
+      },
+    }
+  );
+assert.equal(watchdogAdvance.ok, true);
+assert.equal(
+  tabUrls.get(130),
+  "http://127.0.0.1:5000/browser-agent?batch_wait=1"
+);
+assert.equal(
+  await hooks.getAgentTabOwnershipForTab(130),
+  null
+);
+
+const lateSession = {
+  token: "late-result-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: null,
+  resolver: "",
+};
+const currentSession = {
+  token: "current-result-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: null,
+  resolver: "",
+};
+tabUrls.set(
+  140,
+  "https://jobs.ashbyhq.com/example/late"
+);
+tabUrls.set(
+  141,
+  "https://jobs.ashbyhq.com/example/current"
+);
+await hooks.registerOwnedAgentTab(
+  140,
+  lateSession,
+  {
+    role: "application",
+    reason: "test_late_application",
+    claimApplication: true,
+  }
+);
+await hooks.registerOwnedAgentTab(
+  141,
+  currentSession,
+  {
+    role: "application",
+    reason: "test_current_application",
+    claimApplication: true,
+  }
+);
+await hooks.cleanupOwnedAgentTabs(
+  140,
+  lateSession.origin,
+  {
+    mode: "terminal",
+    reason: "late_submitted_result",
+  }
+);
+assert.equal(tabRemovals.includes(140), true);
+assert.equal((await hooks.getBatchRunner()).tabId, 141);
+await dispatchBackgroundMessage(
+  {
+    type: "jobfinitum-batch-control",
+    origin: "http://127.0.0.1:5000",
+    action: "stop",
+  },
+  {
+    tab: {
+      id: 79,
+      url: tabUrls.get(79),
+    },
+  }
+);
+
+const concurrentSession = {
+  token: "concurrent-claim-token",
+  origin: "http://127.0.0.1:5000",
+  batch: true,
+  resolverTabId: 150,
+  resolver: "remote_ok_browser_agent",
+};
+tabUrls.set(
+  150,
+  "https://jobs.lever.co/example/first/apply"
+);
+tabUrls.set(
+  151,
+  "https://jobs.lever.co/example/second/apply"
+);
+await hooks.registerOwnedAgentTab(
+  150,
+  concurrentSession,
+  {
+    role: "resolver_child",
+    reason: "test_concurrent_first",
+  }
+);
+await hooks.registerOwnedAgentTab(
+  151,
+  concurrentSession,
+  {
+    role: "resolver_child",
+    reason: "test_concurrent_second",
+  }
+);
+const concurrentClaims = await Promise.all([
+  hooks.registerOwnedAgentTab(
+    150,
+    concurrentSession,
+    {
+      role: "application",
+      reason: "test_concurrent_claim",
+      claimApplication: true,
+    }
+  ),
+  hooks.registerOwnedAgentTab(
+    151,
+    concurrentSession,
+    {
+      role: "application",
+      reason: "test_concurrent_claim",
+      claimApplication: true,
+    }
+  ),
+]);
+assert.equal(
+  concurrentClaims.filter(
+    (claim) => claim.accepted
+  ).length,
+  1
+);
+await dispatchBackgroundMessage(
+  {
+    type: "jobfinitum-batch-control",
+    origin: "http://127.0.0.1:5000",
+    action: "stop",
+  },
+  {
+    tab: {
+      id: 79,
+      url: tabUrls.get(79),
+    },
+  }
+);
+
 console.log(JSON.stringify({
-  passed: 31,
+  passed: 44,
   failed: 0,
   checks: [
     "Himalayas resolver identity",
@@ -443,5 +852,18 @@ console.log(JSON.stringify({
     "terminal batch-tab recycling",
     "stray application-tab removal",
     "Jobfinitum waiting-tab preservation",
+    "single application-tab ownership",
+    "duplicate application rejection",
+    "duplicate application cleanup",
+    "owned resolver cleanup",
+    "owned batch-tab recycling",
+    "human-handoff resolver cleanup",
+    "human-handoff application retention",
+    "hosted duplicate message rejection",
+    "hosted duplicate message cleanup",
+    "batch stop ownership cleanup",
+    "watchdog advance tab recycling",
+    "late result cannot replace current runner",
+    "concurrent child tabs produce one owner",
   ],
 }, null, 2));

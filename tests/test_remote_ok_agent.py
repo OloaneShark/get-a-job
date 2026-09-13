@@ -80,7 +80,7 @@ class RemoteOKAgentTests(unittest.TestCase):
             "https://remoteok.com/*",
             "https://www.remoteok.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.12")
+        self.assertEqual(self.manifest["version"], "0.6.14")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))
@@ -97,7 +97,10 @@ class RemoteOKAgentTests(unittest.TestCase):
             self.settings,
             r"<span>Remote OK</span>\s*<strong>Browser Agent resolver</strong>",
         )
-        self.assertEqual(self.queue.count('"remoteok.com/"'), 2)
+        self.assertIn(
+            "candidate.id in chrome_agent_candidate_ids",
+            self.queue,
+        )
         self.assertIn('or "remoteok.com/" in current_apply_url', self.scheduler)
         self.assertIn("Remote OK employer-site redirect resolver", self.readme)
 
