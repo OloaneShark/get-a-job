@@ -1771,7 +1771,12 @@
       }
     }
 
-    return findSchemaControl(question) || fallback || null;
+    const current = findSchemaControl(question);
+    if (current) return current;
+
+    return fallback?.isConnected === false
+      ? null
+      : fallback || null;
   }
 
   function greenhouseAnswerCommitted(
@@ -1941,6 +1946,77 @@
     return false;
   }
 
+  function uncommittedGreenhouseAnswers(expectedAnswers) {
+    return expectedAnswers.filter(
+      ({question, answer}) => !greenhouseAnswerCommitted(
+        question,
+        null,
+        answer
+      )
+    );
+  }
+
+  async function stabilizeGreenhouseAnswers(
+    expectedAnswers,
+    {
+      initialDelayMs = 700,
+      confirmDelayMs = 500,
+      retryDelayMs = 900,
+      afterRetry = null,
+    } = {}
+  ) {
+    if (initialDelayMs > 0) {
+      await sleep(initialDelayMs);
+    }
+
+    let uncommitted = uncommittedGreenhouseAnswers(
+      expectedAnswers
+    );
+
+    if (!uncommitted.length && confirmDelayMs > 0) {
+      await sleep(confirmDelayMs);
+      uncommitted = uncommittedGreenhouseAnswers(
+        expectedAnswers
+      );
+    }
+
+    if (!uncommitted.length) return [];
+
+    for (const item of uncommitted) {
+      const control = currentGreenhouseControl(
+        item.question,
+        null
+      );
+      if (!control) continue;
+
+      await applyValue(
+        control,
+        item.answer,
+        item.question
+      );
+    }
+
+    if (typeof afterRetry === "function") {
+      await afterRetry();
+    }
+
+    if (retryDelayMs > 0) {
+      await sleep(retryDelayMs);
+    }
+
+    uncommitted = uncommittedGreenhouseAnswers(
+      expectedAnswers
+    );
+    if (!uncommitted.length && confirmDelayMs > 0) {
+      await sleep(confirmDelayMs);
+      uncommitted = uncommittedGreenhouseAnswers(
+        expectedAnswers
+      );
+    }
+
+    return uncommitted;
+  }
+
   function choiceIndexForAnswer(
     question,
     value
@@ -2032,6 +2108,12 @@
     value,
     question = null
   ) {
+    element = currentGreenhouseControl(
+      question,
+      element
+    );
+    if (!element) return false;
+
     if (
       question?.type
         === "multiselect"
@@ -2046,12 +2128,24 @@
       }
 
       for (const item of values) {
-        const currentElement = (
-          findSchemaControl(
-            question
-          )
-          || element
+        const currentElement = currentGreenhouseControl(
+          question,
+          element
         );
+        if (!currentElement) return false;
+
+        if (
+          greenhouseAnswerCommitted(
+            {
+              ...question,
+              type: "select",
+            },
+            currentElement,
+            item
+          )
+        ) {
+          continue;
+        }
 
         const applied =
           await selectCombobox(
@@ -2068,7 +2162,11 @@
         }
       }
 
-      return true;
+      return waitForGreenhouseValue(
+        question,
+        element,
+        value
+      );
     }
 
     const tokens =
@@ -2721,6 +2819,39 @@
     }
 
     if (element.tagName === "SELECT") {
+      if (
+        element.multiple
+        || question?.type === "multiselect"
+      ) {
+        const requested = normalizeChoiceAnswers(
+          resolvedValue
+        );
+        let matched = 0;
+
+        for (const option of element.options) {
+          const selected = requested.some((item) => {
+            const itemTokens = answerTokens(
+              question,
+              item
+            );
+            return tokenMatches(option.value, itemTokens)
+              || tokenMatches(option.textContent, itemTokens);
+          });
+
+          option.selected = selected;
+          if (selected) matched += 1;
+        }
+
+        if (matched < requested.length) return false;
+
+        dispatchEvents(element);
+        return waitForGreenhouseValue(
+          question,
+          element,
+          resolvedValue
+        );
+      }
+
       const wantedValues =
         answerTokens(
           question,
@@ -7408,6 +7539,16 @@
       }
     }
 
+    const stabilizedAnswers = await stabilizeGreenhouseAnswers(
+      expectedRequiredAnswers
+    );
+    uncommitted.length = 0;
+    uncommitted.push(
+      ...stabilizedAnswers.map(
+        ({question}) => question
+      )
+    );
+
     const pendingQuestions = [];
     const pendingQuestionKeys = new Set();
 
@@ -7580,45 +7721,18 @@
       900
     );
 
-    let finalUncommitted = expectedRequiredAnswers.filter(
-      ({question, answer}) => !greenhouseAnswerCommitted(
-        question,
-        null,
-        answer
-      )
-    );
-
-    if (finalUncommitted.length) {
-      statusBox(
-        "restoring Greenhouse answers after a form update..."
-      );
-
-      for (const item of finalUncommitted) {
-        const control = currentGreenhouseControl(
-          item.question,
-          null
-        );
-        if (control) {
-          await applyValue(
-            control,
-            item.answer,
-            item.question
+    const finalUncommitted = await stabilizeGreenhouseAnswers(
+      expectedRequiredAnswers,
+      {
+        initialDelayMs: 0,
+        afterRetry: async () => {
+          statusBox(
+            "restoring Greenhouse answers after a form update..."
           );
-        }
+          await fillGreenhousePhone(identity);
+        },
       }
-
-      await sleep(700);
-      await fillGreenhousePhone(identity);
-      await sleep(900);
-
-      finalUncommitted = expectedRequiredAnswers.filter(
-        ({question, answer}) => !greenhouseAnswerCommitted(
-          question,
-          null,
-          answer
-        )
-      );
-    }
+    );
 
     if (finalUncommitted.length) {
       const questions = [];

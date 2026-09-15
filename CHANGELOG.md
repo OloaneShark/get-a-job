@@ -33,6 +33,9 @@ development, so unreleased work may continue to evolve before a tagged release.
   fields, retries, elapsed time, tab cleanup, and batch outcomes.
 - Changed batch verification handling to record the blocked application, recycle
   its tab, and continue with the next queued job.
+- Hardened Greenhouse, Lever, and Ashby React field persistence with settled
+  verification, one recovery attempt, detached-control rejection, exact failed
+  field reporting, and non-destructive multiselect retries.
 
 ### Applications and intelligence
 

@@ -618,7 +618,11 @@
     if (!element) return null;
     const type = lower(element.type);
     if (["radio", "checkbox"].includes(type)) {
-      return groupControls(element)[0] || element;
+      const current = groupControls(element)[0];
+      if (current) return current;
+      return element.isConnected === false
+        ? null
+        : element;
     }
 
     const name = fieldName(element);
@@ -637,7 +641,9 @@
       if (matching) return matching;
     }
 
-    return element;
+    return element.isConnected === false
+      ? null
+      : element;
   }
 
   async function waitForAshbyValue(
@@ -691,6 +697,9 @@
   }
 
   async function chooseCustomOption(element, value) {
+    element = currentAshbyControl(element);
+    if (!element) return false;
+
     const groups = answerGroups(value);
     if (!groups.length) return false;
     const requestedGroups = controlType(element) === "multiselect"
@@ -719,6 +728,7 @@
 
     for (const group of requestedGroups) {
       let current = currentAshbyControl(element);
+      if (!current) return false;
       if (groupCommitted(current, group)) {
         committedCount += 1;
         continue;
@@ -1055,6 +1065,53 @@
         await applyValue(element, answer);
       }
     }
+  }
+
+  function unpersistedAshbyAnswerControls(task) {
+    return requiredControls().filter((element) => {
+      if (!applicationAnswerQuestion(element)) return false;
+      const answer = configuredAshbyAnswer(task, element);
+      return answer !== null
+        && answer !== undefined
+        && answer !== ""
+        && !controlHasValue(element, answer);
+    });
+  }
+
+  async function stabilizeAshbyAnswers(task) {
+    await sleep(700);
+
+    let unpersisted = unpersistedAshbyAnswerControls(task);
+    if (!unpersisted.length) {
+      await sleep(500);
+      unpersisted = unpersistedAshbyAnswerControls(task);
+    }
+
+    if (!unpersisted.length) return [];
+
+    for (const element of unpersisted) {
+      const current = currentAshbyControl(element);
+      if (!current) continue;
+
+      const answer = configuredAshbyAnswer(task, current);
+      if (
+        answer !== null
+        && answer !== undefined
+        && answer !== ""
+        && !controlHasValue(current, answer)
+      ) {
+        await applyValue(current, answer);
+      }
+    }
+
+    await sleep(900);
+    unpersisted = unpersistedAshbyAnswerControls(task);
+    if (!unpersisted.length) {
+      await sleep(500);
+      unpersisted = unpersistedAshbyAnswerControls(task);
+    }
+
+    return unpersisted;
   }
 
   async function fillByLabel(pattern, value) {
@@ -1406,17 +1463,8 @@
     await fillIdentity(identity);
     await applySavedAshbyAnswers(task);
     await applyReusableAshbyAnswers(task);
-    await sleep(500);
-
+    const uncommittedControls = await stabilizeAshbyAnswers(task);
     const currentRequired = requiredControls();
-    const uncommittedControls = currentRequired.filter((element) => {
-      if (!applicationAnswerQuestion(element)) return false;
-      const answer = configuredAshbyAnswer(task, element);
-      return answer !== null
-        && answer !== undefined
-        && answer !== ""
-        && !controlHasValue(element, answer);
-    });
     const uncommittedSet = new Set(uncommittedControls);
     const unresolvedControls = currentRequired.filter(
       (element) => (

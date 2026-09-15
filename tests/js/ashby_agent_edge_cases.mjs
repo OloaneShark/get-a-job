@@ -19,6 +19,7 @@ const exposedFunctions = [
   "chooseCustomOption",
   "controlHasAnyValue",
   "controlHasValue",
+  "currentAshbyControl",
   "customSelectionValues",
   "controlType",
   "fieldName",
@@ -33,6 +34,7 @@ const exposedFunctions = [
   "resumeFileAttached",
   "run",
   "setResumeFile",
+  "stabilizeAshbyAnswers",
   "visibleVerificationChallenge",
   "visibleVerificationError",
 ];
@@ -241,6 +243,7 @@ class MockFile {
 }
 
 let mockNow = 0;
+let timerHook = null;
 class MockDate extends Date {
   static now() {
     mockNow += 250;
@@ -281,6 +284,7 @@ const sandbox = {
   Date: MockDate,
   console,
   setTimeout: (callback) => {
+    if (timerHook) timerHook();
     callback();
     return 1;
   },
@@ -354,6 +358,7 @@ function resetState() {
   sandbox.name = "";
   sandbox.sessionStorage.values.clear();
   mockNow = 0;
+  timerHook = null;
 }
 
 const results = [];
@@ -723,6 +728,125 @@ await edgeCase("an unselected custom wrapper is not mistaken for an answer", asy
     classes: ["ashby-application-form-input-autocomplete"],
   });
   assert.equal(hooks.controlHasAnyValue(wrapper), false);
+});
+
+await edgeCase("settled recovery reapplies an Ashby degree cleared by React", async () => {
+  const original = new MockSelect({
+    name: "degree",
+    required: true,
+    options: [
+      option("", "Select..."),
+      option("bachelors", "Bachelor's Degree"),
+    ],
+    selectedIndex: 1,
+  });
+  original.labels = [new MockElement({tagName: "LABEL", text: "Degree *"})];
+  let controls = [original];
+  documentState.queryAll = () => controls;
+
+  let replacement = null;
+  timerHook = () => {
+    if (replacement) return;
+    original.isConnected = false;
+    replacement = new MockSelect({
+      name: "degree",
+      required: true,
+      options: [
+        option("", "Select..."),
+        option("bachelors", "Bachelor's Degree"),
+      ],
+      selectedIndex: 0,
+    });
+    replacement.labels = [
+      new MockElement({tagName: "LABEL", text: "Degree *"}),
+    ];
+    controls = [replacement];
+  };
+
+  const missing = await hooks.stabilizeAshbyAnswers({
+    application_questions: [],
+    answer_memories: [],
+    reusable_answers: {
+      education_degree: "Bachelor's Degree",
+    },
+  });
+
+  assert.equal(missing.length, 0);
+  assert.equal(replacement.value, "bachelors");
+});
+
+await edgeCase("settled recovery returns the exact Ashby field that stays empty", async () => {
+  const school = new MockInput({
+    name: "school",
+    required: true,
+  });
+  school.labels = [
+    new MockElement({tagName: "LABEL", text: "School *"}),
+  ];
+  documentState.queryAll = () => [school];
+  timerHook = () => {
+    school.value = "";
+  };
+
+  const missing = await hooks.stabilizeAshbyAnswers({
+    application_questions: [],
+    answer_memories: [],
+    reusable_answers: {
+      education_school: "Georgia State University",
+    },
+  });
+
+  assert.equal(missing.length, 1);
+  assert.equal(hooks.labelText(missing[0]), "School");
+});
+
+await edgeCase("Ashby checkbox recovery does not toggle a committed choice", async () => {
+  const nationality = new MockInput({
+    name: "nationality",
+    type: "checkbox",
+    value: "American",
+    required: true,
+  });
+  nationality.checked = true;
+  nationality.closestResults.set(
+    "label",
+    new MockElement({tagName: "LABEL", text: "American"})
+  );
+  documentState.queryAll = () => [nationality];
+
+  const missing = await hooks.stabilizeAshbyAnswers({
+    application_questions: [{
+      field_name: "nationality",
+      text: "Please indicate your nationality",
+      answer: "American",
+    }],
+    answer_memories: [],
+    reusable_answers: {},
+  });
+
+  assert.equal(missing.length, 0);
+  assert.equal(nationality.checked, true);
+  assert.equal(nationality.clickCount, 0);
+});
+
+await edgeCase("detached Ashby controls are never accepted as current state", async () => {
+  const detached = new MockInput({
+    name: "major",
+    value: "Computer Science",
+    required: true,
+    attributes: {role: "combobox"},
+  });
+  detached.labels = [
+    new MockElement({tagName: "LABEL", text: "Field of Study *"}),
+  ];
+  detached.isConnected = false;
+  documentState.queryAll = () => [];
+
+  assert.equal(hooks.currentAshbyControl(detached), null);
+  assert.equal(
+    await hooks.chooseCustomOption(detached, "Computer Science"),
+    false
+  );
 });
 
 await edgeCase("resume upload chooses the resume input instead of a cover letter", async () => {

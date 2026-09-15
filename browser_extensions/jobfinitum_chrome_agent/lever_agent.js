@@ -676,7 +676,11 @@
 
     const type = lower(element.type);
     if (["radio", "checkbox"].includes(type)) {
-      return groupControls(element)[0] || element;
+      const current = groupControls(element)[0];
+      if (current) return current;
+      return element.isConnected === false
+        ? null
+        : element;
     }
 
     const name = fieldName(element);
@@ -696,7 +700,9 @@
       if (matching) return matching;
     }
 
-    return element;
+    return element.isConnected === false
+      ? null
+      : element;
   }
 
   async function waitForLeverValue(
@@ -921,6 +927,42 @@
     }
 
     return result;
+  }
+
+  async function stabilizeLeverAnswers(task) {
+    await sleep(700);
+
+    let unpersisted = unpersistedLeverAnswers(task);
+    if (!unpersisted.length) {
+      await sleep(500);
+      unpersisted = unpersistedLeverAnswers(task);
+    }
+
+    if (!unpersisted.length) return [];
+
+    for (const question of unpersisted) {
+      const element = findSavedControl(question);
+      if (!element) continue;
+
+      const answer = configuredLeverAnswer(task, element);
+      if (
+        answer !== null
+        && answer !== undefined
+        && answer !== ""
+        && !controlHasValue(element, answer)
+      ) {
+        await applyValue(element, answer);
+      }
+    }
+
+    await sleep(900);
+    unpersisted = unpersistedLeverAnswers(task);
+    if (!unpersisted.length) {
+      await sleep(500);
+      unpersisted = unpersistedLeverAnswers(task);
+    }
+
+    return unpersisted;
   }
 
   function rememberedAnswer(task, questionText) {
@@ -1593,9 +1635,7 @@
       }
     }
 
-    await sleep(500);
-
-    const unpersisted = unpersistedLeverAnswers(task);
+    const unpersisted = await stabilizeLeverAnswers(task);
     const unresolved = [...unpersisted];
     const unresolvedKeys = new Set(
       unresolved.map(

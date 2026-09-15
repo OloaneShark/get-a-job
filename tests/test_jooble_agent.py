@@ -83,7 +83,7 @@ class JoobleAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
             "https://jooble.org/*",
             "https://www.jooble.org/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.16")
+        self.assertEqual(self.manifest["version"], "0.6.17")
         self.assertTrue(expected_hosts.issubset(
             self.manifest["host_permissions"]
         ))

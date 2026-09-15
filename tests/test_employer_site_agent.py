@@ -291,7 +291,7 @@ class EmployerSiteAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
         )
 
     def test_manifest_registers_the_limited_all_site_scanner(self):
-        self.assertEqual(self.manifest["version"], "0.6.16")
+        self.assertEqual(self.manifest["version"], "0.6.17")
         self.assertIn(
             "https://*/*",
             self.manifest["host_permissions"],

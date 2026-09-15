@@ -42,6 +42,8 @@ still needs to be completed.
 - [x] Confirmed-submission handling and managed browser-tab cleanup
 - [x] Structured runner diagnostics for phases, failures, retries, tab cleanup,
   and batch outcomes
+- [x] Settled React field verification and recovery for education, nationality,
+  demographic, and other dynamic ATS controls
 
 ## Active Reliability Priorities
 
@@ -49,9 +51,7 @@ still needs to be completed.
    bypass redundant browser inspection without hiding new job-specific evidence.
 2. Continue hardening batch continuity and tab ownership when employer pages
    redirect, duplicate a tab, return 404, or fall back to a generic careers index.
-3. Expand controlled React field persistence tests for education, nationality,
-   demographic, and other dynamic ATS controls.
-4. Keep source lifecycle checks fast and accurate as discovery volume grows.
+3. Keep source lifecycle checks fast and accurate as discovery volume grows.
 
 ## Submission Coverage
 

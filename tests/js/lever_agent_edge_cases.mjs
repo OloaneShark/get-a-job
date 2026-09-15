@@ -29,6 +29,7 @@ const exposedFunctions = [
   "controlHasValue",
   "currentLeverControl",
   "setChoice",
+  "stabilizeLeverAnswers",
   "unpersistedLeverAnswers",
   "waitForLeverValue",
 ];
@@ -561,6 +562,93 @@ await edgeCase(
 
     assert.equal(missing.length, 1);
     assert.equal(missing[0].text, "Degree");
+  }
+);
+
+await edgeCase(
+  "settled recovery reapplies a degree cleared by React",
+  async () => {
+    const original = new MockSelect({
+      name: "degree",
+      required: true,
+      options: [
+        option("", "Select..."),
+        option("bachelors", "Bachelor's Degree"),
+      ],
+      selectedIndex: 1,
+    });
+    original.labels = [label("Degree *")];
+    state.controls = [original];
+
+    let replacement = null;
+    state.timerHook = () => {
+      if (replacement) return;
+      original.isConnected = false;
+      replacement = new MockSelect({
+        name: "degree",
+        required: true,
+        options: [
+          option("", "Select..."),
+          option("bachelors", "Bachelor's Degree"),
+        ],
+        selectedIndex: 0,
+      });
+      replacement.labels = [label("Degree *")];
+      state.controls = [replacement];
+    };
+
+    const missing = await hooks.stabilizeLeverAnswers({
+      application_questions: [],
+      answer_memories: [],
+      reusable_answers: {
+        education_degree: "Bachelor's Degree",
+      },
+    });
+
+    assert.equal(missing.length, 0);
+    assert.equal(replacement.value, "bachelors");
+  }
+);
+
+await edgeCase(
+  "settled recovery returns the exact field that React keeps clearing",
+  async () => {
+    const school = new MockInput({
+      name: "school",
+      required: true,
+    });
+    school.labels = [label("School *")];
+    state.controls = [school];
+    state.timerHook = () => {
+      school.value = "";
+    };
+
+    const missing = await hooks.stabilizeLeverAnswers({
+      application_questions: [],
+      answer_memories: [],
+      reusable_answers: {
+        education_school: "Georgia State University",
+      },
+    });
+
+    assert.equal(missing.length, 1);
+    assert.equal(missing[0].text, "School");
+  }
+);
+
+await edgeCase(
+  "detached controls are never accepted as current React state",
+  async () => {
+    const detached = new MockInput({
+      name: "major",
+      value: "Computer Science",
+      required: true,
+    });
+    detached.labels = [label("Field of Study *")];
+    detached.isConnected = false;
+    state.controls = [];
+
+    assert.equal(hooks.currentLeverControl(detached), null);
   }
 );
 

@@ -12,7 +12,9 @@ source = source.replace(
   `
   self.__greenhouseTestHooks = {
     applyValue,
+    currentGreenhouseControl,
     greenhouseAnswerCommitted,
+    stabilizeGreenhouseAnswers,
     waitForGreenhouseValue,
   };
 })();`
@@ -621,6 +623,209 @@ await edgeCase(
         ["Woman", "Veteran"]
       ),
       true
+    );
+  }
+);
+
+await edgeCase(
+  "settled recovery reapplies an education value cleared by React",
+  async () => {
+    const original = new MockSelect({
+      id: "degree",
+      name: "question_1",
+      options: [
+        option("", "Select..."),
+        option("bachelors", "Bachelor's Degree"),
+      ],
+      selectedIndex: 1,
+    });
+    state.controls = [original];
+
+    let replacement = null;
+    state.timerHook = () => {
+      if (replacement) return;
+      original.isConnected = false;
+      replacement = new MockSelect({
+        id: "degree",
+        name: "question_1",
+        options: [
+          option("", "Select..."),
+          option("bachelors", "Bachelor's Degree"),
+        ],
+        selectedIndex: 0,
+      });
+      state.controls = [replacement];
+    };
+
+    const expected = [{
+      question: question(),
+      answer: "Bachelor's Degree",
+    }];
+    const missing = await hooks.stabilizeGreenhouseAnswers(expected);
+
+    assert.equal(missing.length, 0);
+    assert.equal(replacement.value, "bachelors");
+  }
+);
+
+await edgeCase(
+  "settled recovery returns the exact Greenhouse field that stays empty",
+  async () => {
+    const school = new MockInput({
+      id: "school",
+      name: "question_5",
+    });
+    state.controls = [school];
+    state.timerHook = () => {
+      school.value = "";
+    };
+    const schoolQuestion = question({
+      control_id: "school",
+      field_name: "question_5",
+      text: "School",
+      type: "text",
+      choices: [],
+    });
+
+    const missing = await hooks.stabilizeGreenhouseAnswers([{
+      question: schoolQuestion,
+      answer: "Georgia State University",
+    }]);
+
+    assert.equal(missing.length, 1);
+    assert.equal(missing[0].question.text, "School");
+  }
+);
+
+await edgeCase(
+  "native Greenhouse multiselects commit every configured answer",
+  async () => {
+    const select = new MockSelect({
+      id: "ethnicity",
+      name: "question_6",
+      options: [
+        option("", "Select..."),
+        option("asian", "Asian"),
+        option("white", "White"),
+        option("decline", "Decline to self-identify"),
+      ],
+    });
+    select.multiple = true;
+    state.controls = [select];
+    const ethnicity = question({
+      control_id: "ethnicity",
+      field_name: "question_6",
+      text: "Ethnicity",
+      type: "multiselect",
+      choices: [
+        {value: "Asian", label: "Asian", platform_value: "asian"},
+        {value: "White", label: "White", platform_value: "white"},
+      ],
+    });
+
+    assert.equal(
+      await hooks.applyValue(
+        select,
+        ["Asian", "White"],
+        ethnicity
+      ),
+      true
+    );
+    assert.deepEqual(
+      select.options.filter((item) => item.selected).map(
+        (item) => item.value
+      ),
+      ["asian", "white"]
+    );
+  }
+);
+
+await edgeCase(
+  "custom multiselect retries preserve choices already committed",
+  async () => {
+    const wrapper = new MockElement({tagName: "DIV"});
+    const input = new MockInput({
+      id: "identity",
+      name: "question_7",
+      attributes: {
+        role: "combobox",
+        "aria-expanded": "false",
+      },
+    });
+    input.parentElement = wrapper;
+    wrapper.selectorResults.set(
+      [
+        '[class*="single-value" i]',
+        '[class*="singlevalue" i]',
+        '[class*="multi-value" i]',
+        '[class*="multivalue" i]',
+      ].join(","),
+      [
+        new MockElement({tagName: "DIV", text: "Woman"}),
+        new MockElement({tagName: "DIV", text: "Veteran"}),
+      ]
+    );
+    state.controls = [input];
+    const identity = question({
+      control_id: "identity",
+      field_name: "question_7",
+      text: "Self identification",
+      type: "multiselect",
+      choices: [
+        {value: "Woman", label: "Woman"},
+        {value: "Veteran", label: "Veteran"},
+      ],
+    });
+
+    assert.equal(
+      await hooks.applyValue(
+        input,
+        ["Woman", "Veteran"],
+        identity
+      ),
+      true
+    );
+    assert.equal(input.clickCount, 0);
+  }
+);
+
+await edgeCase(
+  "detached Greenhouse controls cannot satisfy persistence checks",
+  async () => {
+    const detached = new MockInput({
+      id: "major",
+      name: "question_8",
+      value: "Computer Science",
+    });
+    detached.isConnected = false;
+    state.controls = [];
+    const major = question({
+      control_id: "major",
+      field_name: "question_8",
+      text: "Field of Study",
+      type: "text",
+      choices: [],
+    });
+
+    assert.equal(
+      hooks.currentGreenhouseControl(major, detached),
+      null
+    );
+    assert.equal(
+      hooks.greenhouseAnswerCommitted(
+        major,
+        detached,
+        "Computer Science"
+      ),
+      false
+    );
+    assert.equal(
+      await hooks.applyValue(
+        detached,
+        "Computer Science",
+        major
+      ),
+      false
     );
   }
 );

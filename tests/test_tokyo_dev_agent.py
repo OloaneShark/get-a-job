@@ -129,7 +129,7 @@ class TokyoDevAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
             "https://tokyodev.com/*",
             "https://www.tokyodev.com/*",
         }
-        self.assertEqual(self.manifest["version"], "0.6.16")
+        self.assertEqual(self.manifest["version"], "0.6.17")
         self.assertTrue(
             expected_hosts.issubset(
                 self.manifest["host_permissions"]

@@ -56,6 +56,8 @@ reported as submitted.
 - Per-job runner diagnostics for stop reason, phase, failed fields, retries,
   elapsed time, tab cleanup, and batch outcome
 - Unknown required questions return to Jobfinitum as Needs Application Answer
+- React-controlled ATS answers are re-resolved after form updates, retried once,
+  and reported with exact field names when the employer form still clears them
 - CAPTCHA and genuine human verification are recorded for manual follow-up;
   batch runs close the blocked tab and continue without bypassing the challenge
 - Submission is marked complete only after the employer page confirms it

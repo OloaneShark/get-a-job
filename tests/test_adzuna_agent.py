@@ -124,7 +124,7 @@ class AdzunaAgentTests(ResolverTransitionTestMixin, unittest.TestCase):
         }
         self.assertEqual(
             self.manifest["version"],
-            "0.6.16",
+            "0.6.17",
         )
         self.assertTrue(
             expected_patterns.issubset(
